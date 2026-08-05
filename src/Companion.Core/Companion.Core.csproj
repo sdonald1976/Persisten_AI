@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <!--
     Companion.Core is pure: domain records, interfaces, and logic only.
     It intentionally has NO dependency on EF Core or any model-provider SDK.
@@ -6,8 +6,11 @@
     The two Extensions.* references are lightweight abstractions (logging + options),
     not concrete implementations, so they don't couple Core to any vendor.
   -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+  </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.18" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.18" />
   </ItemGroup>
 </Project>
