@@ -64,6 +64,11 @@ dotnet run --project src/Companion.Cli
 #  you> /remember   # show what the companion remembers about you
 ```
 
+The schema is managed with **EF Core migrations** and applied automatically on startup, so it
+upgrades in place as new versions add tables. If you have a local database created before
+migrations were introduced, delete it (e.g. `companion.db`) and re-run — it will be recreated,
+then reload demo data with `seed`.
+
 `/project <name>` reconstructs a project's current state; `/projects` and `/loops` list
 projects and open loops. `/remember` shows stored memories with short ids you can pass to the
 correction commands: `/forget <id>`, `/dispute <id>`, `/correct <id> <fact>`, `/reassign <id>

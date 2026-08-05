@@ -12,8 +12,16 @@ builder.Services.AddCompanion(builder.Configuration, $"Data Source={dbPath}");
 
 using var host = builder.Build();
 
-// Ensure the schema exists before anything runs.
-await host.Services.EnsureDatabaseCreatedAsync();
+// Apply migrations so the schema is created/upgraded before anything runs.
+try
+{
+    await host.Services.MigrateDatabaseAsync();
+}
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    return;
+}
 
 var clock = host.Services.GetRequiredService<TimeProvider>();
 const string userId = CompanionSeeder.DemoUserId;
