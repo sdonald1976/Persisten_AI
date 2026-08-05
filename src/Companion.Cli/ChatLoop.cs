@@ -54,13 +54,23 @@ public sealed class ChatLoop
                 continue;
             }
 
-            using var scope = _services.CreateScope();
-            var companion = scope.ServiceProvider.GetRequiredService<ICompanion>();
-            lastTrace = await companion.RespondAsync(_userId, conversationId, input, ct);
-            Console.WriteLine();
-            Console.WriteLine($"companion> {lastTrace.Response}");
-            Console.WriteLine("(type /why to see how that was retrieved)");
-            Console.WriteLine();
+            try
+            {
+                using var scope = _services.CreateScope();
+                var companion = scope.ServiceProvider.GetRequiredService<ICompanion>();
+                lastTrace = await companion.RespondAsync(_userId, conversationId, input, ct);
+                Console.WriteLine();
+                Console.WriteLine($"companion> {lastTrace.Response}");
+                Console.WriteLine("(type /why to see how that was retrieved)");
+                Console.WriteLine();
+            }
+            catch (InvalidOperationException ex)
+            {
+                // e.g. the configured model server isn't running — keep the REPL alive.
+                Console.WriteLine();
+                Console.WriteLine($"⚠  {ex.Message}");
+                Console.WriteLine();
+            }
         }
     }
 
