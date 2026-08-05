@@ -13,6 +13,9 @@ namespace Companion.Core.Services;
 /// </summary>
 public sealed class Retriever : IRetriever
 {
+    /// <summary>Minimum keyword/semantic/project relevance before an open loop gets its boost.</summary>
+    private const double OpenLoopRelevanceFloor = 0.15;
+
     private readonly IMemoryStore _memories;
     private readonly IEmbeddingModel _embeddings;
     private readonly IVectorIndex _vectorIndex;
@@ -70,11 +73,12 @@ public sealed class Retriever : IRetriever
             var projectMatch = detectedProject is not null
                 && string.Equals(memory.RelatedProject, detectedProject, StringComparison.OrdinalIgnoreCase);
 
-            // An open loop is only boosted when the turn is already somewhat relevant to it,
-            // so unresolved items surface in context rather than nagging unconditionally.
+            // An open loop is only boosted when the turn is already meaningfully relevant to it
+            // (a real keyword/semantic hit or a project match), so unresolved items surface in
+            // context rather than nagging — and mock-embedding noise doesn't trigger the boost.
             var baseRelevance = sim + kw + (projectMatch ? 1.0 : 0.0);
             var isOpenLoop = memory is EpisodicMemory { IsOpenLoop: true };
-            var applyOpenLoop = isOpenLoop && baseRelevance > 0.0;
+            var applyOpenLoop = isOpenLoop && baseRelevance >= OpenLoopRelevanceFloor;
 
             var signals = new Dictionary<string, double>
             {

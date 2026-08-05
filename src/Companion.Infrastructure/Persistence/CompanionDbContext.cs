@@ -64,6 +64,7 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.UserId).HasMaxLength(200);
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Validity).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Origin).HasConversion<string>().HasMaxLength(20);
             e.HasIndex(x => x.UserId);
             e.HasIndex(x => new { x.UserId, x.Status });
             ConfigureEmbedding(e.Property(x => x.Embedding));

@@ -31,6 +31,7 @@ public static class DependencyInjection
         // Model providers. Phase 2 ships the deterministic mocks; real providers plug in here.
         services.AddSingleton<IEmbeddingModel>(new MockEmbeddingModel(dimensions: 128));
         services.AddSingleton<IChatModel, MockChatModel>();
+        services.AddSingleton<ISummarizer, MockSummarizer>();
 
         // Memory extraction. The rule-based extractor is the offline default; swap for
         // LlmMemoryExtractor (same interface) when a real chat model is configured.
@@ -45,6 +46,9 @@ public static class DependencyInjection
         // Temporal revision & corrections (Phase 5).
         services.AddScoped<IMemoryCurator, MemoryCurator>();
         services.AddScoped<IProjectCurator, ProjectCurator>();
+
+        // Consolidation (Phase 6).
+        services.AddScoped<IMemoryConsolidator, MemoryConsolidator>();
 
         // Core services.
         services.AddScoped<IRetriever, Retriever>();

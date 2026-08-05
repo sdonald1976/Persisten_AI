@@ -54,6 +54,12 @@ public sealed class CompanionOptions
 
     /// <summary>How many relevant open loops to surface per turn.</summary>
     public int MaxOpenLoops { get; set; } = 3;
+
+    /// <summary>Minimum number of related memories before they're consolidated (don't overgeneralize).</summary>
+    public int ConsolidationMinObservations { get; set; } = 3;
+
+    /// <summary>Similarity at/above which same-slot memories are considered the same topic for consolidation.</summary>
+    public double ConsolidationMinSimilarity { get; set; } = 0.4;
 }
 
 /// <summary>Weights applied to each retrieval signal before summation.</summary>
