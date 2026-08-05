@@ -76,3 +76,44 @@ public enum MessageRole
     Assistant,
     System,
 }
+
+/// <summary>What happened to a memory in an audit-trail entry.</summary>
+public enum RevisionKind
+{
+    /// <summary>A new memory was accepted and created.</summary>
+    Created,
+
+    /// <summary>An existing fact/event was re-observed, refreshing its recency/confidence.</summary>
+    Confirmed,
+
+    /// <summary>An existing memory's fields were updated in place.</summary>
+    Updated,
+
+    /// <summary>A candidate was merged into an existing memory.</summary>
+    Merged,
+
+    /// <summary>Replaced by a newer contradicting fact (Phase 5).</summary>
+    Superseded,
+
+    /// <summary>Flagged as wrong by the user (Phase 5).</summary>
+    Disputed,
+
+    /// <summary>Soft-deleted (Phase 5).</summary>
+    Deleted,
+}
+
+/// <summary>The outcome of validating a single memory candidate through the pipeline.</summary>
+public enum MemoryDecisionKind
+{
+    /// <summary>Accepted as a new memory.</summary>
+    Accepted,
+
+    /// <summary>Merged into / confirmed an existing memory rather than duplicating it.</summary>
+    Merged,
+
+    /// <summary>Discarded (e.g. missing evidence, too low confidence, duplicate noise).</summary>
+    Rejected,
+
+    /// <summary>Stored as a Candidate for later review (e.g. contradicts an existing fact).</summary>
+    NeedsReview,
+}

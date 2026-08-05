@@ -23,4 +23,7 @@ public sealed record TurnTrace
 
     /// <summary>The assistant response produced.</summary>
     public required string Response { get; init; }
+
+    /// <summary>Candidate memories extracted this turn and how the pipeline decided on each.</summary>
+    public MemoryExtractionResult Extraction { get; init; } = MemoryExtractionResult.Empty;
 }

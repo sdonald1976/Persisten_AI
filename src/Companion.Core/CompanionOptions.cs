@@ -25,6 +25,23 @@ public sealed class CompanionOptions
 
     /// <summary>Per-signal weights for the hybrid retrieval score.</summary>
     public RetrievalWeights Weights { get; set; } = new();
+
+    /// <summary>When true, each turn runs the extraction pipeline over the exchange.</summary>
+    public bool EnableExtraction { get; set; } = true;
+
+    /// <summary>Cosine similarity at/above which a candidate is treated as the same memory.</summary>
+    public double DuplicateSimilarityThreshold { get; set; } = 0.82;
+
+    /// <summary>Minimum final confidence for a brand-new memory to be accepted.</summary>
+    public double MinAcceptConfidence { get; set; } = 0.35;
+
+    /// <summary>
+    /// Similarity at/above which a same-slot fact with a different value is treated as a
+    /// change to the SAME topic (held for review) rather than an unrelated new fact. Below
+    /// the duplicate threshold; above this, "user prefers X" vs "user prefers Y" only
+    /// conflicts when X and Y are actually about the same thing.
+    /// </summary>
+    public double ContradictionSimilarityThreshold { get; set; } = 0.5;
 }
 
 /// <summary>Weights applied to each retrieval signal before summation.</summary>

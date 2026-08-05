@@ -49,9 +49,53 @@ public sealed class MemoryStore : IMemoryStore
         return semantic.Cast<IMemory>().Concat(episodic).ToList();
     }
 
+    public async Task<SemanticMemory?> GetSemanticAsync(Guid id, string userId, CancellationToken ct = default)
+        => await _db.SemanticMemories.FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId, ct);
+
+    public async Task<EpisodicMemory?> GetEpisodicAsync(Guid id, string userId, CancellationToken ct = default)
+        => await _db.EpisodicMemories.FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId, ct);
+
+    public async Task UpdateSemanticAsync(SemanticMemory memory, CancellationToken ct = default)
+    {
+        _db.SemanticMemories.Update(memory);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task UpdateEpisodicAsync(EpisodicMemory memory, CancellationToken ct = default)
+    {
+        _db.EpisodicMemories.Update(memory);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task AddEvidenceAsync(IReadOnlyList<MemoryEvidence> evidence, CancellationToken ct = default)
+    {
+        foreach (var e in evidence)
+        {
+            if (e.Id == Guid.Empty)
+                e.Id = Guid.NewGuid();
+            _db.Evidence.Add(e);
+        }
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task<IReadOnlyList<MemoryEvidence>> GetEvidenceAsync(
         Guid memoryId, CancellationToken ct = default)
         => await _db.Evidence.Where(e => e.MemoryId == memoryId).ToListAsync(ct);
+
+    public async Task AddRevisionAsync(MemoryRevision revision, CancellationToken ct = default)
+    {
+        if (revision.Id == Guid.Empty)
+            revision.Id = Guid.NewGuid();
+        _db.Revisions.Add(revision);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<MemoryRevision>> GetRevisionsAsync(
+        Guid memoryId, CancellationToken ct = default)
+        => await _db.Revisions
+            .Where(r => r.MemoryId == memoryId)
+            .OrderBy(r => r.Timestamp)
+            .ToListAsync(ct);
 
     private Task PersistEvidenceAsync(
         IEnumerable<MemoryEvidence> evidence, Guid memoryId, MemoryKind kind, CancellationToken ct)

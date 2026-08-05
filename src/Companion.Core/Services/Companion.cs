@@ -17,6 +17,7 @@ public sealed class Companion : ICompanion
     private readonly IRetriever _retriever;
     private readonly IContextAssembler _assembler;
     private readonly IChatModel _chat;
+    private readonly IMemoryPipeline _pipeline;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -26,6 +27,7 @@ public sealed class Companion : ICompanion
         IRetriever retriever,
         IContextAssembler assembler,
         IChatModel chat,
+        IMemoryPipeline pipeline,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -34,6 +36,7 @@ public sealed class Companion : ICompanion
         _retriever = retriever;
         _assembler = assembler;
         _chat = chat;
+        _pipeline = pipeline;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -89,13 +92,19 @@ public sealed class Companion : ICompanion
         };
         await _conversations.AddMessageAsync(assistantMsg, ct);
 
-        // 8–10. (Phase 3+) extract candidate memories, validate/persist, update projects &
-        // open loops. The pipeline seam lives here.
+        // 8–9. Extract candidate memories from the exchange and validate/persist accepted
+        // ones. Extraction only proposes; the pipeline decides. (Project & open-loop updates
+        // — step 10 — arrive in Phase 4.)
+        var extraction = _options.EnableExtraction
+            ? await _pipeline.ProcessAsync(userId, new[] { userMsg, assistantMsg }, ct)
+            : MemoryExtractionResult.Empty;
 
         // 11. Record the trace for debugging (`/why`).
         _logger.LogInformation(
-            "Turn complete for {UserId}: {Selected} memories used, project={Project}",
-            userId, outcome.Selected.Count, outcome.DetectedProject ?? "(none)");
+            "Turn complete for {UserId}: {Selected} memories used, project={Project}, " +
+            "extraction: {Accepted} accepted / {Merged} merged / {Review} review / {Rejected} rejected",
+            userId, outcome.Selected.Count, outcome.DetectedProject ?? "(none)",
+            extraction.Accepted, extraction.Merged, extraction.NeedsReview, extraction.Rejected);
 
         return new TurnTrace
         {
@@ -105,6 +114,7 @@ public sealed class Companion : ICompanion
             Excluded = outcome.Excluded,
             Packet = packet,
             Response = response,
+            Extraction = extraction,
         };
     }
 }
