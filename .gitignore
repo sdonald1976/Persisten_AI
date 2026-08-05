@@ -1,0 +1,25 @@
+# .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+
+# SQLite local stores
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# IDE
+.vs/
+.idea/
+.vscode/
+
+# Secrets / local config
+*.env
+appsettings.*.local.json
+
+# OS
+.DS_Store
+Thumbs.db
