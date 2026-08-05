@@ -27,13 +27,14 @@ public class MemoryExtractionTests
 
     private static MemoryPipeline BuildPipeline(
         IServiceProvider sp, IMemoryExtractor extractor, TimeProvider clock, CompanionOptions? options = null)
-        => new(
-            extractor,
-            sp.GetRequiredService<IMemoryStore>(),
-            sp.GetRequiredService<IEmbeddingModel>(),
-            Options.Create(options ?? new CompanionOptions()),
-            clock,
-            NullLogger<MemoryPipeline>.Instance);
+    {
+        var store = sp.GetRequiredService<IMemoryStore>();
+        var embeddings = sp.GetRequiredService<IEmbeddingModel>();
+        var curator = new MemoryCurator(store, embeddings, clock, NullLogger<MemoryCurator>.Instance);
+        return new MemoryPipeline(
+            extractor, store, curator, embeddings,
+            Options.Create(options ?? new CompanionOptions()), clock, NullLogger<MemoryPipeline>.Instance);
+    }
 
     [Fact]
     public async Task NewFact_IsAccepted_WithEvidenceAndAuditTrail()
@@ -150,15 +151,10 @@ public class MemoryExtractionTests
         Assert.Equal(MemoryDecisionKind.Rejected, result.Decisions[0].Outcome);
     }
 
-    [Fact]
-    public async Task SameSlotDifferentValue_IsHeldForReview_AndNotRetrievable()
+    private static async Task<SemanticMemory> SeedDietFactAsync(IServiceProvider sp)
     {
-        await using var host = new TestHost(Now);
-        using var scope = host.CreateScope();
-        var store = scope.ServiceProvider.GetRequiredService<IMemoryStore>();
-        var embeddings = scope.ServiceProvider.GetRequiredService<IEmbeddingModel>();
-
-        // Existing fact occupying the (user, diet) slot.
+        var store = sp.GetRequiredService<IMemoryStore>();
+        var embeddings = sp.GetRequiredService<IEmbeddingModel>();
         var existing = new SemanticMemory
         {
             Id = Guid.NewGuid(),
@@ -174,8 +170,22 @@ public class MemoryExtractionTests
             Embedding = await embeddings.EmbedAsync("The user follows a low-carb diet."),
         };
         await store.AddSemanticAsync(existing);
+        return existing;
+    }
 
-        var msg = UserMsg("Actually I'm doing keto now.");
+    // Thresholds so any same-slot, different-value fact is treated as a change to that fact.
+    private static readonly CompanionOptions ContradictionOptions =
+        new() { DuplicateSimilarityThreshold = 0.99, ContradictionSimilarityThreshold = 0.0 };
+
+    [Fact]
+    public async Task SameSlotDifferentValue_FromDirectUserStatement_SupersedesOldFact()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMemoryStore>();
+        var existing = await SeedDietFactAsync(scope.ServiceProvider);
+
+        var msg = UserMsg("Actually I do keto now.");
         var candidate = new MemoryCandidate
         {
             Kind = MemoryKind.Semantic,
@@ -184,19 +194,69 @@ public class MemoryExtractionTests
             Value = "keto",
             Content = "The user follows a keto diet.",
             ProposedConfidence = 0.8,
-            Evidence = new[] { new CandidateEvidence(msg.Id, "doing keto now") },
+            Evidence = new[] { new CandidateEvidence(msg.Id, "I do keto now") }, // from the user → authoritative
         };
 
-        // Thresholds chosen so any same-slot, different-value fact is treated as a change.
-        var options = new CompanionOptions { DuplicateSimilarityThreshold = 0.99, ContradictionSimilarityThreshold = 0.0 };
-        var result = await BuildPipeline(scope.ServiceProvider, new StubExtractor(candidate), host.Clock, options)
+        var result = await BuildPipeline(scope.ServiceProvider, new StubExtractor(candidate), host.Clock, ContradictionOptions)
             .ProcessAsync(User, new[] { msg });
 
         var decision = result.Decisions[0];
-        Assert.Equal(MemoryDecisionKind.NeedsReview, decision.Outcome);
+        Assert.Equal(MemoryDecisionKind.Superseded, decision.Outcome);
         Assert.Equal(existing.Id, decision.MatchedMemoryId);
 
-        // The unreviewed candidate must NOT be retrievable; the original still is.
+        // Old fact is kept as history (Superseded), linked to the new one; new fact is current.
+        var old = await store.GetSemanticAsync(existing.Id, User);
+        Assert.Equal(MemoryStatus.Superseded, old!.Status);
+        Assert.Equal(Validity.Superseded, old.Validity);
+        Assert.Equal(decision.ResultingMemoryId, old.SupersededById);
+
+        // The old fact is no longer presented as current (Scenario B).
+        var current = (await store.GetRetrievableMemoriesAsync(User))
+            .OfType<SemanticMemory>()
+            .Where(m => m.Status == MemoryStatus.Active)
+            .ToList();
+        Assert.Contains(current, m => m.Value == "keto");
+        Assert.DoesNotContain(current, m => m.Value == "low carb");
+
+        // The supersession is on the audit trail.
+        Assert.Contains(await store.GetRevisionsAsync(existing.Id), r => r.Kind == RevisionKind.Superseded);
+    }
+
+    [Fact]
+    public async Task SameSlotDifferentValue_FromInferredSource_IsHeldForReview()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMemoryStore>();
+        await SeedDietFactAsync(scope.ServiceProvider);
+
+        var userMsg = UserMsg("hmm");
+        var assistantMsg = new Message
+        {
+            Id = Guid.NewGuid(),
+            ConversationId = userMsg.ConversationId,
+            UserId = User,
+            Role = MessageRole.Assistant,
+            Content = "It sounds like you might be doing keto.",
+            Timestamp = Now,
+        };
+        var candidate = new MemoryCandidate
+        {
+            Kind = MemoryKind.Semantic,
+            Subject = "user",
+            Predicate = "diet",
+            Value = "keto",
+            Content = "The user follows a keto diet.",
+            ProposedConfidence = 0.8,
+            Evidence = new[] { new CandidateEvidence(assistantMsg.Id, "you might be doing keto") }, // inferred
+        };
+
+        var result = await BuildPipeline(scope.ServiceProvider, new StubExtractor(candidate), host.Clock, ContradictionOptions)
+            .ProcessAsync(User, new[] { userMsg, assistantMsg });
+
+        Assert.Equal(MemoryDecisionKind.NeedsReview, result.Decisions[0].Outcome);
+
+        // Parked as a candidate: not retrievable; the original stays current.
         var retrievable = await store.GetRetrievableMemoriesAsync(User);
         Assert.DoesNotContain(retrievable, m => m.Content.Contains("keto", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(retrievable, m => m.Content.Contains("low-carb", StringComparison.OrdinalIgnoreCase));

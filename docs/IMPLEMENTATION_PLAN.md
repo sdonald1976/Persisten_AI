@@ -111,24 +111,35 @@ are project-aware and resolve references honestly.
   open-loop surfacing (by project and by content), project-boosted retrieval, and end-to-end
   open-loop open/close through a turn.
 
-## Phase 5 — Temporal revision & correction
+## Phase 5 — Temporal revision & correction ✅
 
-**Tasks**
-- Supersession, contradiction handling, validity transitions.
-- User corrections: correct / delete (soft) / supersede / merge / split, each writing a
-  `MemoryRevision` audit entry.
-- Deletion filtering at the store boundary (also purges from the vector index).
+**Status: complete.** Facts change without erasing history, and the user can curate memory.
 
-**Dependencies:** Phase 4.
+**Delivered**
+- `IMemoryCurator` / `MemoryCurator`: supersede (old kept as `Superseded` + `Validity.Superseded`,
+  linked via `SupersededById`), correct (in-place value fix, re-embedded), re-associate project
+  (Scenario D), forget (soft-delete + embedding purge), dispute, merge, and resolve-review
+  (promote a parked Phase-3 candidate, superseding the conflicting slot fact).
+- Pipeline auto-supersession: a same-slot/same-topic contradiction from a **direct user
+  statement** supersedes the old value; an inferred one is still parked for review.
+- `IProjectCurator` / `ProjectCurator`: merge two project references (reassign children +
+  re-point memories + keep the old name as an alias + delete the source) and split a project
+  (move specified open loops/aliases to a new one).
+- Every operation writes a `MemoryRevision` (or `ProjectEvent`) audit entry; soft-deleted
+  memories are filtered at the store boundary and purged from the vector index (embedding
+  nulled), so they never resurface via retrieval or similarity.
+- CLI: `/forget`, `/dispute`, `/correct`, `/reassign`, `/mergeprojects`; `/remember` shows ids.
 
-**Acceptance**
-- Changed preferences keep history but aren't presented as current (Scenario B).
-- Corrections re-associate and leave an audit trail; the error doesn't recur (Scenario D).
-- Deleted memories never reappear anywhere.
+**Acceptance (met)**
+- Changed preferences keep history but aren't presented as current (Scenario B). ✅
+- Corrections re-associate and leave an audit trail; the error doesn't recur (Scenario D). ✅
+- Deleted memories never reappear anywhere (retrieval + vector index). ✅
 
-**Tests**
-- Temporal supersession, conflicting memories, deletion (incl. embedding purge),
-  provenance/audit trail.
+**Tests (added, 12)**
+- Direct-user supersession (Scenario B) + inferred contradiction held for review, forget
+  (soft-delete + embedding purge + removed from index + audit), dispute, correct, project
+  re-association (Scenario D), memory merge, resolve-review accept/reject, curation user
+  isolation, project merge (+ merged reference still resolves) and split.
 
 ## Phase 6 — Consolidation & evaluation
 

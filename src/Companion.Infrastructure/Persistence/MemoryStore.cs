@@ -78,6 +78,23 @@ public sealed class MemoryStore : IMemoryStore
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task<int> ReassignProjectAsync(
+        string userId, string oldProject, string? newProject, CancellationToken ct = default)
+    {
+        var semantic = await _db.SemanticMemories
+            .Where(m => m.UserId == userId && m.RelatedProject == oldProject)
+            .ToListAsync(ct);
+        var episodic = await _db.EpisodicMemories
+            .Where(m => m.UserId == userId && m.RelatedProject == oldProject)
+            .ToListAsync(ct);
+
+        foreach (var m in semantic) m.RelatedProject = newProject;
+        foreach (var m in episodic) m.RelatedProject = newProject;
+
+        await _db.SaveChangesAsync(ct);
+        return semantic.Count + episodic.Count;
+    }
+
     public async Task<IReadOnlyList<MemoryEvidence>> GetEvidenceAsync(
         Guid memoryId, CancellationToken ct = default)
         => await _db.Evidence.Where(e => e.MemoryId == memoryId).ToListAsync(ct);

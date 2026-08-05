@@ -64,7 +64,7 @@ public static class TraceRenderer
         sb.AppendLine();
         var x = trace.Extraction;
         sb.AppendLine($"MEMORY EXTRACTION — {x.Accepted} accepted, {x.Merged} merged, " +
-                      $"{x.NeedsReview} for review, {x.Rejected} rejected:");
+                      $"{x.Superseded} superseded, {x.NeedsReview} for review, {x.Rejected} rejected:");
         if (x.Decisions.Count == 0)
             sb.AppendLine("  (no candidates proposed)");
         foreach (var d in x.Decisions)
