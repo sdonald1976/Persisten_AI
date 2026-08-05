@@ -39,4 +39,17 @@ public sealed class MockChatModel : IChatModel
 
         return Task.FromResult(sb.ToString());
     }
+
+    public async IAsyncEnumerable<string> StreamAsync(
+        string systemPrompt, string userMessage,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        // Simulate streaming by yielding the deterministic reply word by word.
+        var full = await CompleteAsync(systemPrompt, userMessage, ct);
+        foreach (var word in full.Split(' '))
+        {
+            ct.ThrowIfCancellationRequested();
+            yield return word + " ";
+        }
+    }
 }

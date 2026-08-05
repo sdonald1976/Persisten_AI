@@ -24,6 +24,15 @@ public sealed class ModelOptions
     /// <summary>Dedicated embedding model.</summary>
     public EndpointOptions Embeddings { get; set; } = new();
 
+    /// <summary>Optional multimodal model for images (e.g. llama3.2-vision, llava). Enables the <c>/image</c> command.</summary>
+    public EndpointOptions? Vision { get; set; }
+
+    /// <summary>
+    /// Optional speech-to-text (Whisper) endpoint. Requires a separate audio server — Ollama and
+    /// LM Studio don't do audio. Enables the <c>/transcribe</c> command.
+    /// </summary>
+    public EndpointOptions? Transcription { get; set; }
+
     public bool UsesRealModel =>
         !string.Equals(Provider, "Mock", StringComparison.OrdinalIgnoreCase);
 

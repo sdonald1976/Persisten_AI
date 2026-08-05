@@ -1,5 +1,6 @@
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.Infrastructure.Models;
 using Companion.Infrastructure.Seeding;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,11 +13,22 @@ public sealed class ChatLoop
     private readonly TimeProvider _clock;
     private readonly string _userId;
 
+    private Guid _conversationId;
+    private TurnTrace? _lastTrace;
+
     public ChatLoop(IServiceProvider services, TimeProvider clock, string userId)
     {
         _services = services;
         _clock = clock;
         _userId = userId;
+    }
+
+    /// <summary>Writes each streamed chunk immediately, in order, on the calling thread.</summary>
+    private sealed class SyncProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _onReport;
+        public SyncProgress(Action<T> onReport) => _onReport = onReport;
+        public void Report(T value) => _onReport(value);
     }
 
     public async Task RunAsync(CancellationToken ct = default)
@@ -26,16 +38,13 @@ public sealed class ChatLoop
         Console.WriteLine();
 
         // Each REPL session is one conversation.
-        Guid conversationId;
         using (var scope = _services.CreateScope())
         {
             var conversations = scope.ServiceProvider.GetRequiredService<IConversationStore>();
             var conv = await conversations.StartConversationAsync(
                 _userId, title: "CLI session", modelUsed: "mock", source: "cli", ct);
-            conversationId = conv.Id;
+            _conversationId = conv.Id;
         }
-
-        TurnTrace? lastTrace = null;
 
         while (!ct.IsCancellationRequested)
         {
@@ -49,33 +58,41 @@ public sealed class ChatLoop
 
             if (input.StartsWith('/'))
             {
-                if (await HandleCommandAsync(input, lastTrace, ct))
+                if (await HandleCommandAsync(input, ct))
                     break; // /exit
                 continue;
             }
 
-            try
-            {
-                using var scope = _services.CreateScope();
-                var companion = scope.ServiceProvider.GetRequiredService<ICompanion>();
-                lastTrace = await companion.RespondAsync(_userId, conversationId, input, ct);
-                Console.WriteLine();
-                Console.WriteLine($"companion> {lastTrace.Response}");
-                Console.WriteLine("(type /why to see how that was retrieved)");
-                Console.WriteLine();
-            }
-            catch (InvalidOperationException ex)
-            {
-                // e.g. the configured model server isn't running — keep the REPL alive.
-                Console.WriteLine();
-                Console.WriteLine($"⚠  {ex.Message}");
-                Console.WriteLine();
-            }
+            await RunTurnAsync(input, ct);
+        }
+    }
+
+    /// <summary>Runs one turn, streaming the reply to the console. Keeps the REPL alive on model errors.</summary>
+    private async Task RunTurnAsync(string message, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _services.CreateScope();
+            var companion = scope.ServiceProvider.GetRequiredService<ICompanion>();
+            Console.WriteLine();
+            Console.Write("companion> ");
+            var sink = new SyncProgress<string>(Console.Write);
+            _lastTrace = await companion.RespondAsync(_userId, _conversationId, message, sink, ct);
+            Console.WriteLine();
+            Console.WriteLine("(type /why to see how that was retrieved)");
+            Console.WriteLine();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // e.g. the configured model server isn't running — keep the REPL alive.
+            Console.WriteLine();
+            Console.WriteLine($"⚠  {ex.Message}");
+            Console.WriteLine();
         }
     }
 
     /// <summary>Returns true if the loop should exit.</summary>
-    private async Task<bool> HandleCommandAsync(string input, TurnTrace? lastTrace, CancellationToken ct)
+    private async Task<bool> HandleCommandAsync(string input, CancellationToken ct)
     {
         var command = input.Split(' ', 2)[0].ToLowerInvariant();
         switch (command)
@@ -89,10 +106,18 @@ public sealed class ChatLoop
                 return false;
 
             case "/why":
-                if (lastTrace is null)
+                if (_lastTrace is null)
                     Console.WriteLine("No turn yet — say something first.");
                 else
-                    Console.WriteLine(TraceRenderer.Render(lastTrace));
+                    Console.WriteLine(TraceRenderer.Render(_lastTrace));
+                return false;
+
+            case "/image":
+                await ImageAsync(Arg(input), ct);
+                return false;
+
+            case "/transcribe":
+                await TranscribeAsync(Arg(input), ct);
                 return false;
 
             case "/seed":
@@ -368,6 +393,102 @@ public sealed class ChatLoop
             Console.WriteLine($"  - {g.Content}  (from {g.SourceMemoryIds.Count} memories, {g.EvidenceCount} evidence)");
     }
 
+    private async Task ImageAsync(string args, CancellationToken ct)
+    {
+        var parts = args.Split(' ', 2);
+        var path = parts[0].Trim();
+        var caption = parts.Length > 1 ? parts[1].Trim() : null;
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            Console.WriteLine("Usage: /image <path> [caption]");
+            return;
+        }
+        if (_services.GetService<IVisionModel>() is not { } vision)
+        {
+            Console.WriteLine("Vision isn't configured. Set Models.Provider to a real provider and add a Models.Vision model (e.g. llama3.2-vision).");
+            return;
+        }
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"No such file: {path}");
+            return;
+        }
+
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(path, ct);
+            var image = new ImageInput(bytes, MediaTypeFor(path));
+            var prompt = string.IsNullOrWhiteSpace(caption) ? "Describe this image in detail." : caption!;
+
+            Console.WriteLine();
+            Console.Write("🖼  looking… ");
+            var description = await vision.DescribeAsync(prompt, new[] { image }, ct);
+            Console.WriteLine();
+            Console.WriteLine($"(image description) {description}");
+
+            // Feed the description through a normal turn so the image becomes a remembered part of the conversation.
+            var message = caption is null
+                ? $"[I shared an image.] It shows: {description}"
+                : $"[I shared an image: {caption}] It shows: {description}";
+            await RunTurnAsync(message, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.WriteLine($"⚠  {ex.Message}");
+        }
+    }
+
+    private async Task TranscribeAsync(string args, CancellationToken ct)
+    {
+        var path = args.Trim();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            Console.WriteLine("Usage: /transcribe <audio file>");
+            return;
+        }
+        if (_services.GetService<ITranscriber>() is not { } transcriber)
+        {
+            Console.WriteLine("Transcription isn't configured. It needs a separate Whisper server " +
+                              "(whisper.cpp, faster-whisper-server, or LocalAI) set as Models.Transcription.");
+            return;
+        }
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"No such file: {path}");
+            return;
+        }
+
+        try
+        {
+            Console.WriteLine();
+            Console.Write("🎤 transcribing… ");
+            await using var audio = File.OpenRead(path);
+            var text = await transcriber.TranscribeAsync(audio, Path.GetFileName(path), ct);
+            Console.WriteLine();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                Console.WriteLine("(nothing transcribed)");
+                return;
+            }
+            Console.WriteLine($"(heard) {text}");
+            await RunTurnAsync(text, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.WriteLine($"⚠  {ex.Message}");
+        }
+    }
+
+    private static string MediaTypeFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".webp" => "image/webp",
+        ".gif" => "image/gif",
+        ".bmp" => "image/bmp",
+        _ => "image/png",
+    };
+
     private static void PrintHelp()
     {
         Console.WriteLine("Commands:");
@@ -382,6 +503,8 @@ public sealed class ChatLoop
         Console.WriteLine("  /reassign <id> …  Re-associate a memory with a project");
         Console.WriteLine("  /mergeprojects <a> into <b>   Merge two project references");
         Console.WriteLine("  /consolidate      Roll repeated memories into higher-level knowledge");
+        Console.WriteLine("  /image <path> …   Share an image (needs a vision model)");
+        Console.WriteLine("  /transcribe <f>   Transcribe an audio file and send it (needs a Whisper server)");
         Console.WriteLine("  /why              Explain how the last response was retrieved");
         Console.WriteLine("  /help             Show this help");
         Console.WriteLine("  /exit             Quit");
