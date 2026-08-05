@@ -30,6 +30,41 @@ public static class ContextPacketRenderer
             sb.AppendLine();
         }
 
+        if (packet.Project is { } summary)
+        {
+            sb.AppendLine($"## Project: {summary.Project.Name} (status: {summary.Project.Status})");
+            if (!string.IsNullOrWhiteSpace(summary.Project.Purpose))
+                sb.AppendLine($"Purpose: {summary.Project.Purpose}");
+            if (summary.Decisions.Count > 0)
+            {
+                sb.AppendLine("Decisions:");
+                foreach (var d in summary.Decisions)
+                    sb.AppendLine($"- {d.Statement}");
+            }
+            if (summary.RecentEvents.Count > 0)
+            {
+                sb.AppendLine("Recent activity:");
+                foreach (var e in summary.RecentEvents)
+                    sb.AppendLine($"- {e.Description}");
+            }
+            sb.AppendLine();
+        }
+
+        if (packet.OpenLoops.Count > 0)
+        {
+            sb.AppendLine("## Open loops (unresolved — recall if relevant, don't nag)");
+            foreach (var loop in packet.OpenLoops)
+                sb.AppendLine($"- {loop.OpenLoop.Description}");
+            sb.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(packet.ClarificationQuestion))
+        {
+            sb.AppendLine("## Ambiguous reference");
+            sb.AppendLine($"Ask this before assuming which one: {packet.ClarificationQuestion}");
+            sb.AppendLine();
+        }
+
         var direct = packet.Memories.Where(i => i.Provenance == ContextProvenance.DirectStatement).ToList();
         var inferred = packet.Memories.Where(i => i.Provenance == ContextProvenance.Inferred).ToList();
         var outdated = packet.Memories.Where(i => i.Provenance == ContextProvenance.Outdated).ToList();

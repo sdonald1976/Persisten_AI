@@ -6,37 +6,43 @@ using Microsoft.Extensions.Options;
 namespace Companion.Core.Services;
 
 /// <summary>
-/// Orchestrates one conversation turn (Phase 2 subset of the full pipeline):
-/// store message → retrieve → assemble bounded context → generate → store response → trace.
-/// Memory extraction and project/open-loop updates (steps 8–10) are added in Phase 3+;
-/// their insertion point is marked below.
+/// Orchestrates one conversation turn:
+/// store message → resolve project & build project context → retrieve memories →
+/// assemble bounded context → generate → store → extract & validate memories (Phase 3) →
+/// update project/open-loop state (Phase 4) → trace.
 /// </summary>
 public sealed class Companion : ICompanion
 {
     private readonly IConversationStore _conversations;
+    private readonly IProjectContextService _projectContext;
     private readonly IRetriever _retriever;
     private readonly IContextAssembler _assembler;
     private readonly IChatModel _chat;
     private readonly IMemoryPipeline _pipeline;
+    private readonly IProjectUpdater _projectUpdater;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
 
     public Companion(
         IConversationStore conversations,
+        IProjectContextService projectContext,
         IRetriever retriever,
         IContextAssembler assembler,
         IChatModel chat,
         IMemoryPipeline pipeline,
+        IProjectUpdater projectUpdater,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
     {
         _conversations = conversations;
+        _projectContext = projectContext;
         _retriever = retriever;
         _assembler = assembler;
         _chat = chat;
         _pipeline = pipeline;
+        _projectUpdater = projectUpdater;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -63,8 +69,12 @@ public sealed class Companion : ICompanion
         };
         await _conversations.AddMessageAsync(userMsg, ct);
 
-        // 3–4. Detect project references and retrieve relevant memories (ranked + explained).
-        var outcome = await _retriever.RetrieveAsync(userId, userMessage, ct);
+        // 3. Resolve the project reference and build project-aware context (summary + open loops).
+        var projectContext = await _projectContext.BuildAsync(userId, userMessage, ct);
+
+        // 4. Retrieve relevant memories, boosted by the resolved project.
+        var outcome = await _retriever.RetrieveAsync(
+            userId, userMessage, projectContext.ResolvedProjectName, ct);
 
         // Recent prior turns (exclude the message we just stored).
         var recent = (await _conversations.GetRecentMessagesAsync(
@@ -73,7 +83,7 @@ public sealed class Companion : ICompanion
             .ToList();
 
         // 5. Assemble a bounded, labeled context packet.
-        var packet = _assembler.Assemble(userMessage, recent, outcome.Selected);
+        var packet = _assembler.Assemble(userMessage, recent, outcome.Selected, projectContext);
 
         // 6. Generate the response.
         var response = await _chat.CompleteAsync(packet.Render(), userMessage, ct);
@@ -92,29 +102,36 @@ public sealed class Companion : ICompanion
         };
         await _conversations.AddMessageAsync(assistantMsg, ct);
 
-        // 8–9. Extract candidate memories from the exchange and validate/persist accepted
-        // ones. Extraction only proposes; the pipeline decides. (Project & open-loop updates
-        // — step 10 — arrive in Phase 4.)
+        // 8–9. Extract candidate memories from the exchange and validate/persist accepted ones.
+        var exchange = new[] { userMsg, assistantMsg };
         var extraction = _options.EnableExtraction
-            ? await _pipeline.ProcessAsync(userId, new[] { userMsg, assistantMsg }, ct)
+            ? await _pipeline.ProcessAsync(userId, exchange, ct)
             : MemoryExtractionResult.Empty;
+
+        // 10. Reflect accepted memories into project/open-loop state.
+        var updates = _options.EnableExtraction
+            ? await _projectUpdater.ApplyAsync(userId, exchange, extraction, projectContext, ct)
+            : ProjectUpdateResult.Empty;
 
         // 11. Record the trace for debugging (`/why`).
         _logger.LogInformation(
-            "Turn complete for {UserId}: {Selected} memories used, project={Project}, " +
-            "extraction: {Accepted} accepted / {Merged} merged / {Review} review / {Rejected} rejected",
-            userId, outcome.Selected.Count, outcome.DetectedProject ?? "(none)",
-            extraction.Accepted, extraction.Merged, extraction.NeedsReview, extraction.Rejected);
+            "Turn complete for {UserId}: {Selected} memories, project={Project}, " +
+            "extraction {Accepted}A/{Merged}M/{Review}R/{Rejected}X, {Actions} project updates",
+            userId, outcome.Selected.Count, projectContext.ResolvedProjectName ?? "(none)",
+            extraction.Accepted, extraction.Merged, extraction.NeedsReview, extraction.Rejected,
+            updates.Actions.Count);
 
         return new TurnTrace
         {
             UserMessage = userMessage,
-            DetectedProject = outcome.DetectedProject,
+            DetectedProject = projectContext.ResolvedProjectName,
             Retrieved = outcome.Selected,
             Excluded = outcome.Excluded,
             Packet = packet,
             Response = response,
             Extraction = extraction,
+            ProjectContext = projectContext,
+            ProjectUpdates = updates,
         };
     }
 }

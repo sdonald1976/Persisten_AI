@@ -37,14 +37,14 @@ public class ContextPacketTests
     [Fact]
     public void HighConfidenceCurrentFact_IsLabeledDirect()
     {
-        var packet = Assembler().Assemble("hi", Array.Empty<Message>(), new[] { Result(Fact("A", confidence: 0.9)) });
+        var packet = Assembler().Assemble("hi", Array.Empty<Message>(), new[] { Result(Fact("A", confidence: 0.9)) }, ProjectContext.Empty);
         Assert.Equal(ContextProvenance.DirectStatement, packet.Memories.Single().Provenance);
     }
 
     [Fact]
     public void LowConfidenceFact_IsLabeledInferred()
     {
-        var packet = Assembler().Assemble("hi", Array.Empty<Message>(), new[] { Result(Fact("A", confidence: 0.3)) });
+        var packet = Assembler().Assemble("hi", Array.Empty<Message>(), new[] { Result(Fact("A", confidence: 0.3)) }, ProjectContext.Empty);
         Assert.Equal(ContextProvenance.Inferred, packet.Memories.Single().Provenance);
     }
 
@@ -52,7 +52,7 @@ public class ContextPacketTests
     public void HistoricalFact_IsLabeledOutdated_AndProducesUncertaintyNote()
     {
         var packet = Assembler().Assemble(
-            "hi", Array.Empty<Message>(), new[] { Result(Fact("Old device", validity: Validity.Historical)) });
+            "hi", Array.Empty<Message>(), new[] { Result(Fact("Old device", validity: Validity.Historical)) }, ProjectContext.Empty);
 
         Assert.Equal(ContextProvenance.Outdated, packet.Memories.Single().Provenance);
         Assert.NotEmpty(packet.UncertaintyNotes);
@@ -62,7 +62,7 @@ public class ContextPacketTests
     public void SupersededMemory_IsLabeledOutdated()
     {
         var packet = Assembler().Assemble(
-            "hi", Array.Empty<Message>(), new[] { Result(Fact("Replaced", status: MemoryStatus.Superseded)) });
+            "hi", Array.Empty<Message>(), new[] { Result(Fact("Replaced", status: MemoryStatus.Superseded)) }, ProjectContext.Empty);
         Assert.Equal(ContextProvenance.Outdated, packet.Memories.Single().Provenance);
     }
 
@@ -73,7 +73,7 @@ public class ContextPacketTests
         var big = new string('x', 100);
         var results = new[] { Result(Fact(big)), Result(Fact(big)), Result(Fact(big)) };
 
-        var packet = Assembler(budget: 30).Assemble("hi", Array.Empty<Message>(), results);
+        var packet = Assembler(budget: 30).Assemble("hi", Array.Empty<Message>(), results, ProjectContext.Empty);
 
         Assert.Single(packet.Memories);
     }
@@ -86,7 +86,7 @@ public class ContextPacketTests
             Result(Fact("A direct current fact", confidence: 0.9)),
             Result(Fact("An old fact", validity: Validity.Historical)),
         };
-        var text = Assembler().Assemble("hi", Array.Empty<Message>(), results).Render();
+        var text = Assembler().Assemble("hi", Array.Empty<Message>(), results, ProjectContext.Empty).Render();
 
         Assert.Contains("direct", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("outdated", text, StringComparison.OrdinalIgnoreCase);

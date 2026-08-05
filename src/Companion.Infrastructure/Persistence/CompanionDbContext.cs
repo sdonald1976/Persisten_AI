@@ -20,6 +20,11 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<EpisodicMemory> EpisodicMemories => Set<EpisodicMemory>();
     public DbSet<MemoryEvidence> Evidence => Set<MemoryEvidence>();
     public DbSet<MemoryRevision> Revisions => Set<MemoryRevision>();
+    public DbSet<Project> Projects => Set<Project>();
+    public DbSet<ProjectAlias> ProjectAliases => Set<ProjectAlias>();
+    public DbSet<ProjectEvent> ProjectEvents => Set<ProjectEvent>();
+    public DbSet<Decision> Decisions => Set<Decision>();
+    public DbSet<OpenLoop> OpenLoops => Set<OpenLoop>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -94,6 +99,53 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Actor).HasMaxLength(100);
             e.HasIndex(x => x.MemoryId);
+        });
+
+        b.Entity<Project>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Name).HasMaxLength(300);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(x => x.UserId);
+            ConfigureEmbedding(e.Property(x => x.Embedding));
+        });
+
+        b.Entity<ProjectAlias>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Alias).HasMaxLength(300);
+            e.HasIndex(x => x.UserId);
+            e.HasIndex(x => x.ProjectId);
+        });
+
+        b.Entity<ProjectEvent>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Kind).HasConversion<string>().HasMaxLength(30);
+            e.HasIndex(x => new { x.ProjectId, x.Timestamp });
+        });
+
+        b.Entity<Decision>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(x => x.ProjectId);
+            e.HasIndex(x => x.UserId);
+        });
+
+        b.Entity<OpenLoop>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Owner).HasMaxLength(100);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(x => new { x.UserId, x.Status });
+            e.HasIndex(x => x.ProjectId);
+            ConfigureEmbedding(e.Property(x => x.Embedding));
         });
     }
 

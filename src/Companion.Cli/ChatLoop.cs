@@ -21,7 +21,7 @@ public sealed class ChatLoop
 
     public async Task RunAsync(CancellationToken ct = default)
     {
-        Console.WriteLine("Persistent AI Companion (Phase 2 vertical slice).");
+        Console.WriteLine("Persistent AI Companion.");
         Console.WriteLine("Type a message, or /help for commands. /exit to quit.");
         Console.WriteLine();
 
@@ -93,6 +93,18 @@ public sealed class ChatLoop
                 await ShowMemoriesAsync(ct);
                 return false;
 
+            case "/projects":
+                await ShowProjectsAsync(ct);
+                return false;
+
+            case "/project":
+                await ShowProjectAsync(input.Length > "/project".Length ? input["/project".Length..].Trim() : "", ct);
+                return false;
+
+            case "/loops":
+                await ShowLoopsAsync(ct);
+                return false;
+
             default:
                 Console.WriteLine($"Unknown command '{command}'. Try /help.");
                 return false;
@@ -132,13 +144,96 @@ public sealed class ChatLoop
         }
     }
 
+    private async Task ShowProjectsAsync(CancellationToken ct)
+    {
+        using var scope = _services.CreateScope();
+        var projects = await scope.ServiceProvider.GetRequiredService<IProjectStore>().GetProjectsAsync(_userId, ct);
+        if (projects.Count == 0)
+        {
+            Console.WriteLine("No projects yet. Try /seed for demo data.");
+            return;
+        }
+        Console.WriteLine($"Projects ({projects.Count}):");
+        foreach (var p in projects.OrderByDescending(p => p.LastActivityAt))
+            Console.WriteLine($"  - {p.Name}  [{p.Status}]");
+    }
+
+    private async Task ShowProjectAsync(string name, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Console.WriteLine("Usage: /project <name or reference>");
+            return;
+        }
+
+        using var scope = _services.CreateScope();
+        var sp = scope.ServiceProvider;
+        var resolution = await sp.GetRequiredService<IEntityResolver>().ResolveProjectAsync(_userId, name, ct);
+
+        if (resolution.RequiresClarification)
+        {
+            Console.WriteLine(resolution.ClarificationQuestion);
+            return;
+        }
+        if (resolution.Best is null)
+        {
+            Console.WriteLine($"I don't have a project matching \"{name}\".");
+            return;
+        }
+
+        var summary = await sp.GetRequiredService<IProjectContextService>()
+            .GetSummaryAsync(_userId, resolution.Best.Project.Id, ct);
+        if (summary is null)
+            return;
+
+        Console.WriteLine($"# {summary.Project.Name}  [{summary.Project.Status}]");
+        if (!string.IsNullOrWhiteSpace(summary.Project.Purpose))
+            Console.WriteLine(summary.Project.Purpose);
+        if (summary.Decisions.Count > 0)
+        {
+            Console.WriteLine("\nDecisions:");
+            foreach (var d in summary.Decisions)
+                Console.WriteLine($"  - {d.Statement}");
+        }
+        if (summary.OpenLoops.Count > 0)
+        {
+            Console.WriteLine("\nOpen loops:");
+            foreach (var l in summary.OpenLoops)
+                Console.WriteLine($"  - {l.Description}");
+        }
+        if (summary.RecentEvents.Count > 0)
+        {
+            Console.WriteLine("\nRecent activity:");
+            foreach (var e in summary.RecentEvents)
+                Console.WriteLine($"  - {e.Description}");
+        }
+    }
+
+    private async Task ShowLoopsAsync(CancellationToken ct)
+    {
+        using var scope = _services.CreateScope();
+        var loops = await scope.ServiceProvider.GetRequiredService<IProjectStore>()
+            .GetOpenLoopsAsync(_userId, onlyOpen: true, ct);
+        if (loops.Count == 0)
+        {
+            Console.WriteLine("No open loops.");
+            return;
+        }
+        Console.WriteLine($"Open loops ({loops.Count}):");
+        foreach (var l in loops)
+            Console.WriteLine($"  - {l.Description}");
+    }
+
     private static void PrintHelp()
     {
         Console.WriteLine("Commands:");
-        Console.WriteLine("  /seed      Load a few months of demo history");
-        Console.WriteLine("  /remember  Show what I remember about you");
-        Console.WriteLine("  /why       Explain how the last response was retrieved");
-        Console.WriteLine("  /help      Show this help");
-        Console.WriteLine("  /exit      Quit");
+        Console.WriteLine("  /seed             Load a few months of demo history");
+        Console.WriteLine("  /remember         Show what I remember about you");
+        Console.WriteLine("  /projects         List your projects");
+        Console.WriteLine("  /project <name>   Reconstruct a project's current state");
+        Console.WriteLine("  /loops            List open loops");
+        Console.WriteLine("  /why              Explain how the last response was retrieved");
+        Console.WriteLine("  /help             Show this help");
+        Console.WriteLine("  /exit             Quit");
     }
 }

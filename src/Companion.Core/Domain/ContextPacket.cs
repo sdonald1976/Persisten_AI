@@ -17,6 +17,15 @@ public sealed record ContextPacket
     /// <summary>Memories selected for this turn (already ranked and budget-limited).</summary>
     public IReadOnlyList<ContextItem> Memories { get; init; } = Array.Empty<ContextItem>();
 
+    /// <summary>State of the project this turn resolved to, if any.</summary>
+    public ProjectSummary? Project { get; init; }
+
+    /// <summary>Open loops relevant to this turn.</summary>
+    public IReadOnlyList<RetrievedOpenLoop> OpenLoops { get; init; } = Array.Empty<RetrievedOpenLoop>();
+
+    /// <summary>A clarifying question to ask when the project reference was ambiguous.</summary>
+    public string? ClarificationQuestion { get; init; }
+
     /// <summary>Notes about uncertainty, conflicts, or superseded information.</summary>
     public IReadOnlyList<string> UncertaintyNotes { get; init; } = Array.Empty<string>();
 

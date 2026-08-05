@@ -26,4 +26,10 @@ public sealed record TurnTrace
 
     /// <summary>Candidate memories extracted this turn and how the pipeline decided on each.</summary>
     public MemoryExtractionResult Extraction { get; init; } = MemoryExtractionResult.Empty;
+
+    /// <summary>How the turn's project reference resolved, plus the project summary and open loops.</summary>
+    public ProjectContext ProjectContext { get; init; } = ProjectContext.Empty;
+
+    /// <summary>Project/open-loop state changes made after the turn (step 10).</summary>
+    public ProjectUpdateResult ProjectUpdates { get; init; } = ProjectUpdateResult.Empty;
 }

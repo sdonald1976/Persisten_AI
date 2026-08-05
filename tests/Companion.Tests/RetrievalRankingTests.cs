@@ -86,16 +86,22 @@ public class RetrievalRankingTests
     }
 
     [Fact]
-    public async Task NamedProject_IsDetected()
+    public async Task DetectedProject_BoostsAssociatedMemories()
     {
         await using var host = await SeededHostAsync();
         using var scope = host.CreateScope();
         var retriever = scope.ServiceProvider.GetRequiredService<IRetriever>();
 
-        var outcome = await retriever.RetrieveAsync(
-            CompanionSeeder.DemoUserId, "Any update on the buoy sensor platform?");
+        // Same query, with and without the resolved project passed in.
+        var withProject = await retriever.RetrieveAsync(
+            CompanionSeeder.DemoUserId, "any hardware updates?", CompanionSeeder.JetsonProject);
 
-        Assert.Equal(CompanionSeeder.BuoyProject, outcome.DetectedProject);
+        double JetsonScore(RetrievalOutcome o) => o.Selected
+            .Where(r => string.Equals(r.Memory.RelatedProject, CompanionSeeder.JetsonProject, StringComparison.OrdinalIgnoreCase))
+            .Select(r => r.Score).DefaultIfEmpty(0).Max();
+        var plain = await retriever.RetrieveAsync(CompanionSeeder.DemoUserId, "any hardware updates?");
+
+        Assert.True(JetsonScore(withProject) > JetsonScore(plain));
     }
 
     [Fact]

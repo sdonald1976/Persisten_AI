@@ -25,6 +25,7 @@ public static class DependencyInjection
         // Stores (authoritative) + vector index (derived).
         services.AddScoped<IConversationStore, ConversationStore>();
         services.AddScoped<IMemoryStore, MemoryStore>();
+        services.AddScoped<IProjectStore, ProjectStore>();
         services.AddScoped<IVectorIndex, SqliteBlobVectorIndex>();
 
         // Model providers. Phase 2 ships the deterministic mocks; real providers plug in here.
@@ -35,6 +36,11 @@ public static class DependencyInjection
         // LlmMemoryExtractor (same interface) when a real chat model is configured.
         services.AddScoped<IMemoryExtractor, RuleBasedMemoryExtractor>();
         services.AddScoped<IMemoryPipeline, MemoryPipeline>();
+
+        // Project awareness: resolution, summary/open-loop context, and post-turn updates.
+        services.AddScoped<IEntityResolver, EntityResolver>();
+        services.AddScoped<IProjectContextService, ProjectContextService>();
+        services.AddScoped<IProjectUpdater, ProjectUpdater>();
 
         // Core services.
         services.AddScoped<IRetriever, Retriever>();
