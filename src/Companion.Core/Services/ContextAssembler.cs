@@ -18,7 +18,8 @@ public sealed class ContextAssembler : IContextAssembler
     public ContextPacket Assemble(
         string userMessage,
         IReadOnlyList<Message> recentMessages,
-        IReadOnlyList<RetrievalResult> retrieved)
+        IReadOnlyList<RetrievalResult> retrieved,
+        ProjectContext projectContext)
     {
         var items = new List<ContextItem>();
         var notes = new List<string>();
@@ -45,6 +46,12 @@ public sealed class ContextAssembler : IContextAssembler
                 notes.Add($"\"{Truncate(text)}\" may no longer be current.");
         }
 
+        if (projectContext.Resolution.RequiresClarification &&
+            projectContext.Resolution.ClarificationQuestion is { } question)
+        {
+            notes.Add($"The project reference is ambiguous — ask to clarify rather than guessing: {question}");
+        }
+
         var recentCost = recentMessages.Sum(m => EstimateTokens(m.Content));
 
         return new ContextPacket
@@ -52,6 +59,9 @@ public sealed class ContextAssembler : IContextAssembler
             UserMessage = userMessage,
             RecentMessages = recentMessages,
             Memories = items,
+            Project = projectContext.Summary,
+            OpenLoops = projectContext.OpenLoops,
+            ClarificationQuestion = projectContext.Resolution.ClarificationQuestion,
             UncertaintyNotes = notes,
             EstimatedTokens = usedTokens + recentCost + EstimateTokens(userMessage),
         };

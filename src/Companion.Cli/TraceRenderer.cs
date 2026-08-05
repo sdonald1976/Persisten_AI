@@ -36,6 +36,32 @@ public static class TraceRenderer
             sb.AppendLine($"  │ {line.TrimEnd('\r')}");
 
         sb.AppendLine();
+        var resolution = trace.ProjectContext.Resolution;
+        sb.AppendLine("PROJECT RESOLUTION:");
+        if (resolution.Candidates.Count == 0)
+            sb.AppendLine("  (no project referenced)");
+        foreach (var candidate in resolution.Candidates)
+            sb.AppendLine($"  [{candidate.Score:F3}] conf {candidate.Confidence:P0} — {candidate.Project.Name} ({candidate.Reason})");
+        if (resolution.RequiresClarification)
+            sb.AppendLine($"  → ambiguous; would ask: {resolution.ClarificationQuestion}");
+        else if (resolution.Best is not null)
+            sb.AppendLine($"  → resolved to: {resolution.Best.Project.Name}");
+
+        if (trace.ProjectContext.OpenLoops.Count > 0)
+        {
+            sb.AppendLine("OPEN LOOPS SURFACED:");
+            foreach (var loop in trace.ProjectContext.OpenLoops)
+                sb.AppendLine($"  [{loop.Score:F3}] {Truncate(loop.OpenLoop.Description)} ({loop.Reason})");
+        }
+
+        if (trace.ProjectUpdates.Actions.Count > 0)
+        {
+            sb.AppendLine("PROJECT STATE UPDATES:");
+            foreach (var action in trace.ProjectUpdates.Actions)
+                sb.AppendLine($"  - {action}");
+        }
+
+        sb.AppendLine();
         var x = trace.Extraction;
         sb.AppendLine($"MEMORY EXTRACTION — {x.Accepted} accepted, {x.Merged} merged, " +
                       $"{x.NeedsReview} for review, {x.Rejected} rejected:");

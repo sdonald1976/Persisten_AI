@@ -102,6 +102,44 @@ public enum RevisionKind
     Deleted,
 }
 
+/// <summary>Lifecycle of a first-class project.</summary>
+public enum ProjectStatus
+{
+    Active,
+    Paused,
+    Completed,
+    Abandoned,
+}
+
+/// <summary>State of an unfinished matter (open loop / commitment).</summary>
+public enum OpenLoopStatus
+{
+    /// <summary>Still unresolved.</summary>
+    Open,
+
+    /// <summary>Closed because it was done/answered.</summary>
+    Resolved,
+
+    /// <summary>Abandoned; will not be pursued.</summary>
+    Cancelled,
+
+    /// <summary>Intentionally deferred to later.</summary>
+    Postponed,
+}
+
+/// <summary>What kind of entry a project activity-log event is.</summary>
+public enum ProjectEventKind
+{
+    Created,
+    Milestone,
+    Note,
+    StatusChanged,
+    DecisionMade,
+    Blocked,
+    OpenLoopOpened,
+    OpenLoopResolved,
+}
+
 /// <summary>The outcome of validating a single memory candidate through the pipeline.</summary>
 public enum MemoryDecisionKind
 {

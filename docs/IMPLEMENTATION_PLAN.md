@@ -79,22 +79,37 @@ Implement the smallest complete loop. Detailed file list in `FIRST_VERTICAL_SLIC
   rejection, same-slot change held for review, natural-language extraction, confidence
   calculation, normalizer behavior, LLM JSON parsing.
 
-## Phase 4 — Projects, entities & open loops
+## Phase 4 — Projects, entities & open loops ✅
 
-**Tasks**
-- Full `Project` / `ProjectEvent` / `Decision` / `OpenLoop` models + stores.
-- `IEntityResolver` (alias match + embeddings + confidence; no silent merges).
-- Project detection feeding retrieval; open-loop boost in scoring.
-- Clarification flow for ambiguous references (Scenario C).
+**Status: complete.** Projects, decisions, activity, and open loops are first-class; turns
+are project-aware and resolve references honestly.
 
-**Dependencies:** Phase 3.
+**Delivered**
+- First-class `Project` / `ProjectAlias` / `ProjectEvent` / `Decision` / `OpenLoop` records
+  with an EF Core `ProjectStore`.
+- `IEntityResolver` / `EntityResolver`: ranks candidate projects on alias + name/keyword +
+  embedding + recency, picks one only on a clear margin, and asks a clarifying question when
+  ambiguous. Qualification is identity-based (recency alone never invents a candidate); no
+  silent merges.
+- `IProjectContextService` / `ProjectContextService`: resolve → reconstruct
+  `ProjectSummary` → surface relevant open loops (boosted for the resolved project). The
+  resolved project name feeds the retriever's project-association boost.
+- Step 10 (`IProjectUpdater` / `ProjectUpdater`): a newly-accepted planned/in-progress
+  episode opens an open loop; an episode reported done closes the best-matching loop and
+  logs project activity.
+- CLI `/projects`, `/project <name>`, `/loops`; `/why` shows resolution, open loops, and
+  project-state updates. The context packet gains project-state, open-loop, and
+  clarification sections.
 
-**Acceptance**
-- Returning to a project reconstructs its current state (Scenario A).
-- Ambiguous references are ranked and a concise clarification is asked when confidence is low (Scenario C).
+**Acceptance (met)**
+- Returning to a project reconstructs its current state (Scenario A). ✅
+- Ambiguous references are ranked and a concise clarification is asked when confidence is low (Scenario C). ✅
 
-**Tests**
-- Project association, entity aliases, open-loop retrieval, ambiguous-reference ranking.
+**Tests (added, 10)**
+- Confident resolution, alias-phrase resolution, ambiguous-reference clarification + ranking,
+  unknown-reference → no guess, resolver user isolation, project-summary reconstruction,
+  open-loop surfacing (by project and by content), project-boosted retrieval, and end-to-end
+  open-loop open/close through a turn.
 
 ## Phase 5 — Temporal revision & correction
 

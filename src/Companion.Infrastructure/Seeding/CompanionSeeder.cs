@@ -19,12 +19,18 @@ public sealed class CompanionSeeder
 
     private readonly IConversationStore _conversations;
     private readonly IMemoryStore _memories;
+    private readonly IProjectStore _projects;
     private readonly IEmbeddingModel _embeddings;
 
-    public CompanionSeeder(IConversationStore conversations, IMemoryStore memories, IEmbeddingModel embeddings)
+    public CompanionSeeder(
+        IConversationStore conversations,
+        IMemoryStore memories,
+        IProjectStore projects,
+        IEmbeddingModel embeddings)
     {
         _conversations = conversations;
         _memories = memories;
+        _projects = projects;
         _embeddings = embeddings;
     }
 
@@ -132,8 +138,111 @@ public sealed class CompanionSeeder
             Validity = Validity.Current,
         }, cookMsg, "step-by-step instructions with exact temperatures and timing", now.AddMonths(-3), now, ct);
 
+        // --- First-class projects (Phase 4) ---
+        // Both hardware projects share the alias "board" so an oblique "that board..." is
+        // genuinely ambiguous and the resolver asks to clarify.
+        var jetson = await AddProjectAsync(
+            JetsonProject,
+            "Edge object-detection service deployed to a Jetson Nano.",
+            new[] { "Jetson", "the Jetson project", "object detection", "board" },
+            now.AddMonths(-5), now.AddMonths(-5), ct);
+
+        await AddDecisionAsync(jetson.Id,
+            "Moved from a Raspberry Pi 3 to a Jetson Nano for the object detector.",
+            "The Pi 3 was too slow for real-time inference.", jetsonMsg.Id, now.AddMonths(-5), ct);
+        await AddProjectEventAsync(jetson.Id, ProjectEventKind.Milestone,
+            "Deployed the object-detection service to the Jetson Nano.", jetsonMsg.Id, now.AddMonths(-5), ct);
+        await AddOpenLoopAsync(jetson.Id,
+            "Test the Jetson Nano object-detection deployment at home.", jetsonMsg.Id, now.AddMonths(-5), ct);
+
+        var buoy = await AddProjectAsync(
+            BuoyProject,
+            "A sensor platform for an ocean buoy.",
+            new[] { "buoy", "the buoy project", "sensor board", "board" },
+            now.AddMonths(-2), now.AddMonths(-2), ct);
+
+        await AddProjectEventAsync(buoy.Id, ProjectEventKind.Note,
+            "Ordered a custom sensor board for the buoy.", buoyMsg.Id, now.AddMonths(-2), ct);
+        await AddOpenLoopAsync(buoy.Id,
+            "Custom sensor board for the buoy — awaiting delivery.", buoyMsg.Id, now.AddMonths(-2), ct);
+
         return true;
     }
+
+    private async Task<Project> AddProjectAsync(
+        string name, string purpose, string[] aliases,
+        DateTimeOffset createdAt, DateTimeOffset lastActivity, CancellationToken ct)
+    {
+        var project = new Project
+        {
+            Id = Guid.NewGuid(),
+            UserId = DemoUserId,
+            Name = name,
+            Purpose = purpose,
+            Status = ProjectStatus.Active,
+            CreatedAt = createdAt,
+            LastActivityAt = lastActivity,
+            Embedding = await _embeddings.EmbedAsync($"{name} {string.Join(' ', aliases)} {purpose}", ct),
+        };
+        await _projects.AddProjectAsync(project, ct);
+
+        foreach (var alias in aliases)
+            await _projects.AddAliasAsync(new ProjectAlias
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = DemoUserId,
+                Alias = alias,
+                Source = "seed",
+                Confidence = 0.9,
+            }, ct);
+
+        return project;
+    }
+
+    private Task AddDecisionAsync(
+        Guid projectId, string statement, string rationale, Guid sourceMessageId,
+        DateTimeOffset decidedAt, CancellationToken ct)
+        => _projects.AddDecisionAsync(new Decision
+        {
+            Id = Guid.NewGuid(),
+            UserId = DemoUserId,
+            ProjectId = projectId,
+            Statement = statement,
+            Rationale = rationale,
+            DecidedAt = decidedAt,
+            Status = MemoryStatus.Active,
+            SourceMessageId = sourceMessageId,
+        }, ct);
+
+    private Task AddProjectEventAsync(
+        Guid projectId, ProjectEventKind kind, string description, Guid sourceMessageId,
+        DateTimeOffset at, CancellationToken ct)
+        => _projects.AddEventAsync(new ProjectEvent
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = projectId,
+            UserId = DemoUserId,
+            Kind = kind,
+            Description = description,
+            Timestamp = at,
+            SourceMessageId = sourceMessageId,
+        }, ct);
+
+    private async Task AddOpenLoopAsync(
+        Guid projectId, string description, Guid sourceMessageId, DateTimeOffset createdAt, CancellationToken ct)
+        => await _projects.AddOpenLoopAsync(new OpenLoop
+        {
+            Id = Guid.NewGuid(),
+            UserId = DemoUserId,
+            ProjectId = projectId,
+            Description = description,
+            Owner = "user",
+            Status = OpenLoopStatus.Open,
+            CreatedAt = createdAt,
+            SourceMessageId = sourceMessageId,
+            Embedding = await _embeddings.EmbedAsync(description, ct),
+        }, ct);
 
     private async Task<Message> AddUserMessageAsync(
         Guid conversationId, string content, DateTimeOffset at, CancellationToken ct)

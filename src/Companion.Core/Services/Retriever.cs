@@ -37,7 +37,7 @@ public sealed class Retriever : IRetriever
     }
 
     public async Task<RetrievalOutcome> RetrieveAsync(
-        string userId, string query, CancellationToken ct = default)
+        string userId, string query, string? detectedProject = null, CancellationToken ct = default)
     {
         var candidates = await _memories.GetRetrievableMemoriesAsync(userId, ct);
         if (candidates.Count == 0)
@@ -46,12 +46,8 @@ public sealed class Retriever : IRetriever
             {
                 Selected = Array.Empty<RetrievalResult>(),
                 Excluded = Array.Empty<RetrievalResult>(),
-                DetectedProject = null,
             };
         }
-
-        var detectedProject = ProjectDetector.Detect(
-            query, candidates.Select(m => m.RelatedProject).OfType<string>());
 
         // Similarity comes through the vector-index seam. Ask for all candidates so every
         // memory gets a similarity value; missing ids fall back to 0.
@@ -116,7 +112,6 @@ public sealed class Retriever : IRetriever
         {
             Selected = selected,
             Excluded = excluded,
-            DetectedProject = detectedProject,
         };
     }
 

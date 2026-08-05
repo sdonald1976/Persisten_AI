@@ -8,16 +8,17 @@ memory, continuity, retrieval, temporal reasoning, and project awareness.
 
 ## Status
 
-**Phase 3 (memory extraction & validation) implemented** on top of the Phase 2 slice.
-Each turn now also extracts candidate memories from the exchange and runs them through a
-validation pipeline before anything is stored:
+**Phase 4 (projects, entities & open loops) implemented**, on top of Phases 2–3. Projects,
+decisions, activity, and open loops are now first-class records. Each turn resolves the
+query's project reference (evidence-based, confidence-aware), reconstructs that project's
+state, surfaces relevant open loops, and — when a reference is ambiguous — asks a clarifying
+question instead of guessing. Accepted memories update project/open-loop state: a planned
+matter opens a loop; reporting it done closes the matching one.
 
-> generate candidates → normalize → de-duplicate → compare to existing → score confidence
-> → require evidence → **decide (accept / merge / reject / hold-for-review)** → persist with
-> an audit trail.
-
-Extraction only *proposes*; the pipeline *disposes* — the model never writes memory directly.
-Runs end-to-end on deterministic mock/rule-based providers (no network or GPU). **All 39
+Earlier phases still hold: turns retrieve ranked+explained memories into a bounded,
+provenance-labeled context packet (Phase 2), and extract candidate memories through a
+validation pipeline before anything is stored — extraction proposes, the pipeline disposes
+(Phase 3). Everything runs offline on deterministic mock/rule-based providers. **All 49
 tests pass.** Design docs for the full phased plan are under `docs/`.
 
 ## Documents
@@ -38,11 +39,12 @@ mockable model providers (local/hosted/mock) · xUnit.
 ## Project layout
 
 ```
-src/Companion.Core            domain records, interfaces, retrieval + extraction pipeline logic (no I/O)
+src/Companion.Core            domain records, interfaces, retrieval + extraction + project logic (no I/O)
 src/Companion.Infrastructure  EF Core store, SQLite BLOB vector index, mock + rule-based/LLM extractors, DI
-src/Companion.Cli             chat REPL + /seed, /remember, /why diagnostics
-tests/Companion.Tests         39 tests: ranking, packet, provenance, isolation, score math,
-                              extraction (accept/merge/reject/review), confidence, normalizer, LLM parsing, e2e
+src/Companion.Cli             chat REPL + /seed, /remember, /projects, /project, /loops, /why
+tests/Companion.Tests         49 tests: ranking, packet, provenance, isolation, score math,
+                              extraction (accept/merge/reject/review), confidence, normalizer, LLM parsing,
+                              entity resolution + clarification, project summary, open-loop create/close, e2e
 ```
 
 ## Build & run
@@ -61,14 +63,15 @@ dotnet run --project src/Companion.Cli
 #  you> /remember   # show what the companion remembers about you
 ```
 
-After a turn, `/why` also shows the extraction verdicts — which candidates were proposed and
-whether each was accepted, merged into an existing memory, rejected, or held for review, with
-reasons. The model providers are deterministic (`MockChatModel`, `MockEmbeddingModel`,
+`/project <name>` reconstructs a project's current state (status, decisions, open loops,
+recent activity); `/projects` lists them; `/loops` lists open loops. `/why` shows the full
+turn diagnostics — retrieval scores and reasons, project resolution (with candidate ranking
+and any clarifying question), open loops surfaced, project-state updates, and extraction
+verdicts. The model providers are deterministic (`MockChatModel`, `MockEmbeddingModel`,
 `RuleBasedMemoryExtractor`), so everything runs offline. Real local/hosted providers —
 including `LlmMemoryExtractor` — plug in behind the same interfaces.
 
 ## Next step
 
-**Phase 4 — Projects, entities & open loops** (first-class project/open-loop records,
-evidence-based entity resolution, ambiguous-reference clarification), per
-`docs/IMPLEMENTATION_PLAN.md`.
+**Phase 5 — Temporal revision & correction** (supersession, contradiction resolution, user
+corrections, soft deletion, and audit history), per `docs/IMPLEMENTATION_PLAN.md`.

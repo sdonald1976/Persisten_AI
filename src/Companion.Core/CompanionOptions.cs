@@ -42,6 +42,18 @@ public sealed class CompanionOptions
     /// conflicts when X and Y are actually about the same thing.
     /// </summary>
     public double ContradictionSimilarityThreshold { get; set; } = 0.5;
+
+    /// <summary>Minimum resolution score for a project to be considered a candidate at all.</summary>
+    public double ResolutionMinScore { get; set; } = 0.15;
+
+    /// <summary>
+    /// Relative confidence (top / (top + runner-up)) the best candidate must reach to be
+    /// picked without asking. Below it, with a viable runner-up, the resolver asks to clarify.
+    /// </summary>
+    public double ResolutionConfidenceThreshold { get; set; } = 0.65;
+
+    /// <summary>How many relevant open loops to surface per turn.</summary>
+    public int MaxOpenLoops { get; set; } = 3;
 }
 
 /// <summary>Weights applied to each retrieval signal before summation.</summary>
