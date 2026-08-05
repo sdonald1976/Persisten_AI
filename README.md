@@ -82,6 +82,47 @@ upgrades in place as new versions add tables. If you have a local database creat
 migrations were introduced, delete it (e.g. `companion.db`) and re-run — it will be recreated,
 then reload demo data with `seed`.
 
+## Using a real model (Ollama / LM Studio)
+
+By default the app runs on offline mocks. To use a real local model, set the `Models` section
+in `src/Companion.Cli/appsettings.json` (or override with env vars, e.g.
+`Models__Provider=OpenAiCompatible`). Both Ollama and LM Studio speak the OpenAI `/v1` API, so
+the same adapter works for both — just change the base URL and model names.
+
+**Ollama** (default port 11434):
+```jsonc
+"Models": {
+  "Provider": "OpenAiCompatible",
+  "Chat":       { "BaseUrl": "http://localhost:11434/v1", "Model": "dolphin-llama3" },
+  "Embeddings": { "BaseUrl": "http://localhost:11434/v1", "Model": "nomic-embed-text" }
+}
+```
+```bash
+ollama pull dolphin-llama3
+ollama pull nomic-embed-text
+```
+
+**LM Studio** (start its local server; default port 1234):
+```jsonc
+"Models": {
+  "Provider": "OpenAiCompatible",
+  "Chat":       { "BaseUrl": "http://localhost:1234/v1", "Model": "<your chat model id>" },
+  "Embeddings": { "BaseUrl": "http://localhost:1234/v1", "Model": "<your embedding model id>" }
+}
+```
+Load both a chat model and an embedding model in LM Studio, and use the exact model ids it
+shows. `ApiKey` can be left empty (LM Studio accepts anything).
+
+When a real model is configured, extraction and summarization use it too
+(`LlmMemoryExtractor`, `LlmSummarizer`) instead of the rule-based/mock stand-ins.
+
+> **Important:** pick your provider **before** running `seed`. Memories are stored with the
+> embedding model's vectors; if you seed with the mock (128-dim) and later switch to a real
+> model (e.g. 768-dim), the dimensions won't match and old memories stop being retrieved.
+> Delete `companion.db` and re-seed after switching embedding models.
+
+If the model server isn't running, a turn prints a clear `⚠` message instead of crashing.
+
 `/project <name>` reconstructs a project's current state; `/projects` and `/loops` list
 projects and open loops. `/remember` shows stored memories with short ids you can pass to the
 correction commands: `/forget <id>`, `/dispute <id>`, `/correct <id> <fact>`, `/reassign <id>

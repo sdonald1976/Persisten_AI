@@ -7,6 +7,7 @@ using Companion.Infrastructure.Vector;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Companion.Infrastructure;
 
@@ -28,14 +29,27 @@ public static class DependencyInjection
         services.AddScoped<IProjectStore, ProjectStore>();
         services.AddScoped<IVectorIndex, SqliteBlobVectorIndex>();
 
-        // Model providers. Phase 2 ships the deterministic mocks; real providers plug in here.
-        services.AddSingleton<IEmbeddingModel>(new MockEmbeddingModel(dimensions: 128));
-        services.AddSingleton<IChatModel, MockChatModel>();
-        services.AddSingleton<ISummarizer, MockSummarizer>();
+        // Model providers, selected by configuration ("Models" section). Default is the
+        // deterministic offline mocks; "OpenAiCompatible" (or "Ollama"/"LMStudio") uses a real
+        // local server. When a real model is configured, extraction and summarization use it too.
+        var modelOptions = configuration.GetSection(ModelOptions.SectionName).Get<ModelOptions>() ?? new ModelOptions();
+        if (modelOptions.UsesRealModel)
+        {
+            services.AddSingleton<IChatModel>(sp =>
+                new OpenAiCompatibleChatModel(modelOptions.Chat, sp.GetRequiredService<ILogger<OpenAiCompatibleChatModel>>()));
+            services.AddSingleton<IEmbeddingModel>(sp =>
+                new OpenAiCompatibleEmbeddingModel(modelOptions.Embeddings, sp.GetRequiredService<ILogger<OpenAiCompatibleEmbeddingModel>>()));
+            services.AddSingleton<ISummarizer, LlmSummarizer>();
+            services.AddScoped<IMemoryExtractor, LlmMemoryExtractor>();
+        }
+        else
+        {
+            services.AddSingleton<IEmbeddingModel>(new MockEmbeddingModel(dimensions: 128));
+            services.AddSingleton<IChatModel, MockChatModel>();
+            services.AddSingleton<ISummarizer, MockSummarizer>();
+            services.AddScoped<IMemoryExtractor, RuleBasedMemoryExtractor>();
+        }
 
-        // Memory extraction. The rule-based extractor is the offline default; swap for
-        // LlmMemoryExtractor (same interface) when a real chat model is configured.
-        services.AddScoped<IMemoryExtractor, RuleBasedMemoryExtractor>();
         services.AddScoped<IMemoryPipeline, MemoryPipeline>();
 
         // Project awareness: resolution, summary/open-loop context, and post-turn updates.
