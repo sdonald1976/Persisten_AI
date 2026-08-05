@@ -31,6 +31,11 @@ public static class DependencyInjection
         services.AddSingleton<IEmbeddingModel>(new MockEmbeddingModel(dimensions: 128));
         services.AddSingleton<IChatModel, MockChatModel>();
 
+        // Memory extraction. The rule-based extractor is the offline default; swap for
+        // LlmMemoryExtractor (same interface) when a real chat model is configured.
+        services.AddScoped<IMemoryExtractor, RuleBasedMemoryExtractor>();
+        services.AddScoped<IMemoryPipeline, MemoryPipeline>();
+
         // Core services.
         services.AddScoped<IRetriever, Retriever>();
         services.AddScoped<IContextAssembler, ContextAssembler>();

@@ -50,23 +50,34 @@ Implement the smallest complete loop. Detailed file list in `FIRST_VERTICAL_SLIC
 - Provenance (each seeded memory links to its source message).
 - User isolation (a second user's data never appears).
 
-## Phase 3 — Memory extraction & validation
+## Phase 3 — Memory extraction & validation ✅
 
-**Tasks**
-- `IMemoryExtractor` + a rule-based mock extractor; LLM-backed extractor behind the same interface.
-- The 8-step pipeline: generate → normalize → dedup → compare → confidence → evidence →
-  decide (accept/reject/merge/review) → persist with revisions.
+**Status: complete.** Turns now run an extraction pipeline over the exchange.
 
-**Dependencies:** Phase 2.
+**Delivered**
+- `IMemoryExtractor` with a rule-based default (`RuleBasedMemoryExtractor`) and an
+  LLM-backed implementation (`LlmMemoryExtractor`) behind the same interface.
+- `IMemoryPipeline` / `MemoryPipeline` implementing generate → normalize
+  (`MemoryNormalizer`) → in-batch dedupe → compare to existing → confidence
+  (`ConfidenceCalculator`) → evidence requirement → decide → persist with a
+  `MemoryRevision` audit trail. Candidates (`MemoryCandidate`) and decisions
+  (`MemoryDecision` / `MemoryExtractionResult`) are surfaced in the turn trace and `/why`.
+- Decisions: **Accept** (new), **Merge** (duplicate/confirmation — bumps confidence &
+  recency, adds evidence), **Reject** (no evidence / below confidence), **NeedsReview**
+  (same subject+predicate *and* same topic, different value — stored as a `Candidate`,
+  excluded from retrieval, resolution deferred to Phase 5).
+- Contradiction detection requires same slot **and** topic similarity, so unrelated facts
+  sharing a predicate aren't false-flagged.
 
-**Acceptance**
-- New candidates are proposed after a turn but only persisted when validated.
-- Duplicates are detected and merged rather than duplicated.
-- Every accepted memory has evidence and a confidence score.
+**Acceptance (met)**
+- New candidates are proposed after a turn but only persisted when validated. ✅
+- Duplicates are detected and merged rather than duplicated. ✅
+- Every accepted memory has evidence and a confidence score. ✅
 
-**Tests**
-- Memory creation, duplicate detection, semantic updates, confidence calculation,
-  evidence-required rejection.
+**Tests (added, 15)**
+- Memory creation, duplicate detection/merge, evidence-required rejection, low-confidence
+  rejection, same-slot change held for review, natural-language extraction, confidence
+  calculation, normalizer behavior, LLM JSON parsing.
 
 ## Phase 4 — Projects, entities & open loops
 

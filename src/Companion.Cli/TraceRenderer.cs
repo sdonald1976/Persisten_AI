@@ -35,6 +35,18 @@ public static class TraceRenderer
         foreach (var line in trace.Packet.Render().Split('\n'))
             sb.AppendLine($"  │ {line.TrimEnd('\r')}");
 
+        sb.AppendLine();
+        var x = trace.Extraction;
+        sb.AppendLine($"MEMORY EXTRACTION — {x.Accepted} accepted, {x.Merged} merged, " +
+                      $"{x.NeedsReview} for review, {x.Rejected} rejected:");
+        if (x.Decisions.Count == 0)
+            sb.AppendLine("  (no candidates proposed)");
+        foreach (var d in x.Decisions)
+        {
+            sb.AppendLine($"  [{d.Outcome}] ({d.Candidate.Kind}, conf {d.FinalConfidence:F2}) {Truncate(d.Candidate.Content)}");
+            sb.AppendLine($"         why: {d.Reason}");
+        }
+
         sb.AppendLine("───────────────────────────────────────────────");
         return sb.ToString();
     }

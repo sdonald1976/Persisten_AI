@@ -19,6 +19,7 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<SemanticMemory> SemanticMemories => Set<SemanticMemory>();
     public DbSet<EpisodicMemory> EpisodicMemories => Set<EpisodicMemory>();
     public DbSet<MemoryEvidence> Evidence => Set<MemoryEvidence>();
+    public DbSet<MemoryRevision> Revisions => Set<MemoryRevision>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -83,6 +84,15 @@ public sealed class CompanionDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.MemoryKind).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(x => x.MemoryId);
+        });
+
+        b.Entity<MemoryRevision>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.MemoryKind).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Actor).HasMaxLength(100);
             e.HasIndex(x => x.MemoryId);
         });
     }

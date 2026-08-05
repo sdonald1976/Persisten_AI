@@ -8,11 +8,17 @@ memory, continuity, retrieval, temporal reasoning, and project awareness.
 
 ## Status
 
-**Phase 2 (minimal vertical slice) implemented.** The smallest complete loop runs
-end-to-end on deterministic mock models — no network or GPU:
-store conversation → detect project → retrieve ranked+explained memories →
-assemble a bounded, provenance-labeled context packet → generate → store → diagnostics.
-All 24 tests pass. Design docs for the full phased plan are under `docs/`.
+**Phase 3 (memory extraction & validation) implemented** on top of the Phase 2 slice.
+Each turn now also extracts candidate memories from the exchange and runs them through a
+validation pipeline before anything is stored:
+
+> generate candidates → normalize → de-duplicate → compare to existing → score confidence
+> → require evidence → **decide (accept / merge / reject / hold-for-review)** → persist with
+> an audit trail.
+
+Extraction only *proposes*; the pipeline *disposes* — the model never writes memory directly.
+Runs end-to-end on deterministic mock/rule-based providers (no network or GPU). **All 39
+tests pass.** Design docs for the full phased plan are under `docs/`.
 
 ## Documents
 
@@ -32,10 +38,11 @@ mockable model providers (local/hosted/mock) · xUnit.
 ## Project layout
 
 ```
-src/Companion.Core            domain records, interfaces, retrieval/scoring/assembly logic (no I/O)
-src/Companion.Infrastructure  EF Core store, SQLite BLOB vector index, mock models, DI
+src/Companion.Core            domain records, interfaces, retrieval + extraction pipeline logic (no I/O)
+src/Companion.Infrastructure  EF Core store, SQLite BLOB vector index, mock + rule-based/LLM extractors, DI
 src/Companion.Cli             chat REPL + /seed, /remember, /why diagnostics
-tests/Companion.Tests         24 tests: ranking, packet, provenance, isolation, score math, e2e turn
+tests/Companion.Tests         39 tests: ranking, packet, provenance, isolation, score math,
+                              extraction (accept/merge/reject/review), confidence, normalizer, LLM parsing, e2e
 ```
 
 ## Build & run
@@ -54,10 +61,14 @@ dotnet run --project src/Companion.Cli
 #  you> /remember   # show what the companion remembers about you
 ```
 
-The Phase-2 model providers are deterministic mocks (`MockChatModel`, `MockEmbeddingModel`),
-so everything runs offline. Real local/hosted providers plug in behind the same interfaces.
+After a turn, `/why` also shows the extraction verdicts — which candidates were proposed and
+whether each was accepted, merged into an existing memory, rejected, or held for review, with
+reasons. The model providers are deterministic (`MockChatModel`, `MockEmbeddingModel`,
+`RuleBasedMemoryExtractor`), so everything runs offline. Real local/hosted providers —
+including `LlmMemoryExtractor` — plug in behind the same interfaces.
 
 ## Next step
 
-**Phase 3 — Memory extraction & validation** (candidate extraction, dedup, confidence,
-evidence rules, acceptance pipeline), per `docs/IMPLEMENTATION_PLAN.md`.
+**Phase 4 — Projects, entities & open loops** (first-class project/open-loop records,
+evidence-based entity resolution, ambiguous-reference clarification), per
+`docs/IMPLEMENTATION_PLAN.md`.
