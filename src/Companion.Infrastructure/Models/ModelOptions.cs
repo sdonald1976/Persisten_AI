@@ -12,11 +12,26 @@ public sealed class ModelOptions
     /// <summary>"Mock" for the offline stand-ins, anything else for the OpenAI-compatible server.</summary>
     public string Provider { get; set; } = "Mock";
 
+    /// <summary>The conversational model (larger, better quality). Used for the assistant's reply.</summary>
     public EndpointOptions Chat { get; set; } = new();
+
+    /// <summary>Model for memory extraction (smaller, structured-output-friendly). Falls back to <see cref="Chat"/>.</summary>
+    public EndpointOptions? Extraction { get; set; }
+
+    /// <summary>Model for consolidation summaries (cheap and fast). Falls back to <see cref="Chat"/>.</summary>
+    public EndpointOptions? Summarizer { get; set; }
+
+    /// <summary>Dedicated embedding model.</summary>
     public EndpointOptions Embeddings { get; set; } = new();
 
     public bool UsesRealModel =>
         !string.Equals(Provider, "Mock", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Extraction endpoint, or the conversational one if not separately configured.</summary>
+    public EndpointOptions ExtractionOrChat => Extraction ?? Chat;
+
+    /// <summary>Summarizer endpoint, or the conversational one if not separately configured.</summary>
+    public EndpointOptions SummarizerOrChat => Summarizer ?? Chat;
 }
 
 /// <summary>Connection details for one OpenAI-compatible endpoint (chat or embeddings).</summary>

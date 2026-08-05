@@ -26,6 +26,9 @@ public sealed class OpenAiCompatibleChatModel : IChatModel, IDisposable
         _http = HttpClientFactory.Create(options);
     }
 
+    /// <summary>The configured model name (which model this instance talks to).</summary>
+    public string ModelName => _options.Model;
+
     public async Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken ct = default)
     {
         var request = new

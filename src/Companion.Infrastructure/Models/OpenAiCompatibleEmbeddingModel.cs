@@ -29,6 +29,9 @@ public sealed class OpenAiCompatibleEmbeddingModel : IEmbeddingModel, IDisposabl
 
     public int Dimensions => _options.Dimensions; // informational; real length comes from the model
 
+    /// <summary>The configured embedding model name.</summary>
+    public string ModelName => _options.Model;
+
     public async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
     {
         var request = new { model = _options.Model, input = text };
