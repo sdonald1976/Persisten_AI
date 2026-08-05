@@ -29,6 +29,10 @@ public interface IMemoryStore
     /// <summary>Adds evidence rows to an already-persisted memory (used when merging).</summary>
     Task AddEvidenceAsync(IReadOnlyList<MemoryEvidence> evidence, CancellationToken ct = default);
 
+    /// <summary>Re-points every memory referencing <paramref name="oldProject"/> to a new project name (or null).</summary>
+    Task<int> ReassignProjectAsync(
+        string userId, string oldProject, string? newProject, CancellationToken ct = default);
+
     /// <summary>Evidence supporting a given memory (provenance).</summary>
     Task<IReadOnlyList<MemoryEvidence>> GetEvidenceAsync(Guid memoryId, CancellationToken ct = default);
 

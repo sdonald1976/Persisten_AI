@@ -154,4 +154,7 @@ public enum MemoryDecisionKind
 
     /// <summary>Stored as a Candidate for later review (e.g. contradicts an existing fact).</summary>
     NeedsReview,
+
+    /// <summary>Accepted as the current fact, superseding a contradicting existing one.</summary>
+    Superseded,
 }

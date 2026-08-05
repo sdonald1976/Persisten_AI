@@ -15,6 +15,7 @@ public sealed class MemoryPipeline : IMemoryPipeline
 {
     private readonly IMemoryExtractor _extractor;
     private readonly IMemoryStore _store;
+    private readonly IMemoryCurator _curator;
     private readonly IEmbeddingModel _embeddings;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
@@ -23,6 +24,7 @@ public sealed class MemoryPipeline : IMemoryPipeline
     public MemoryPipeline(
         IMemoryExtractor extractor,
         IMemoryStore store,
+        IMemoryCurator curator,
         IEmbeddingModel embeddings,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
@@ -30,6 +32,7 @@ public sealed class MemoryPipeline : IMemoryPipeline
     {
         _extractor = extractor;
         _store = store;
+        _curator = curator;
         _embeddings = embeddings;
         _options = options.Value;
         _clock = clock;
@@ -101,16 +104,22 @@ public sealed class MemoryPipeline : IMemoryPipeline
         if (nearest is not null && similarity >= _options.DuplicateSimilarityThreshold)
             return await ConfirmSemanticAsync(nearest, candidate, evidence, fromUser, ct);
 
-        // Same subject+predicate AND the same topic (moderately similar), but a different
-        // value → a genuine change to one fact; defer resolution to Phase 5. A same-slot fact
-        // about a different topic (e.g. two unrelated preferences) is NOT a contradiction.
+        // Same subject+predicate AND the same topic (moderately similar), but a different value
+        // → a genuine change to one fact. A direct user statement about their own fact is
+        // authoritative, so it supersedes the old value (kept as history); a weaker/inferred
+        // contradiction is parked for review instead. A same-slot fact about a DIFFERENT topic
+        // (e.g. two unrelated preferences) is not a contradiction at all.
         var slotKey = MemoryNormalizer.SemanticSlotKey(candidate.Subject, candidate.Predicate);
         var slotMatches = existing
             .Where(m => MemoryNormalizer.SemanticSlotKey(m.Subject, m.Predicate) == slotKey)
             .ToList();
         var (slotBest, slotSim) = BestMatch(slotMatches, embedding);
         if (slotBest is not null && slotSim >= _options.ContradictionSimilarityThreshold)
-            return await NeedsReviewSemanticAsync(userId, candidate, embedding, evidence, slotBest, fromUser, ct);
+        {
+            return fromUser
+                ? await SupersedeSemanticAsync(userId, candidate, embedding, evidence, slotBest, ct)
+                : await NeedsReviewSemanticAsync(userId, candidate, embedding, evidence, slotBest, fromUser, ct);
+        }
 
         // 5. Otherwise a new fact — score confidence and accept if it clears the bar.
         var confidence = ConfidenceCalculator.Compute(candidate.ProposedConfidence, fromUser, corroborations: 0);
@@ -274,6 +283,47 @@ public sealed class MemoryPipeline : IMemoryPipeline
             FinalConfidence = newConfidence,
             ResultingMemoryId = target.Id,
             MatchedMemoryId = target.Id,
+        };
+    }
+
+    private async Task<MemoryDecision> SupersedeSemanticAsync(
+        string userId, MemoryCandidate c, float[] embedding, List<MemoryEvidence> evidence,
+        SemanticMemory old, CancellationToken ct)
+    {
+        var now = _clock.GetUtcNow();
+        var confidence = ConfidenceCalculator.Compute(c.ProposedConfidence, fromDirectUserStatement: true, corroborations: 0);
+
+        var replacement = new SemanticMemory
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Subject = c.Subject ?? "user",
+            Predicate = c.Predicate ?? "fact",
+            Value = c.Value ?? c.Content,
+            NormalizedFact = c.Content,
+            Confidence = confidence,
+            Importance = c.Importance,
+            Validity = c.Validity,
+            Status = MemoryStatus.Active,
+            FirstObserved = now,
+            LastConfirmed = now,
+            CreatedAt = now,
+            RelatedProject = c.RelatedProject,
+            Embedding = embedding,
+        };
+        AttachEvidence(replacement.Evidence, evidence, replacement.Id, MemoryKind.Semantic);
+
+        await _curator.SupersedeSemanticAsync(
+            userId, old.Id, replacement, $"User stated a new value for '{old.Predicate}'.", ct);
+
+        return new MemoryDecision
+        {
+            Candidate = c,
+            Outcome = MemoryDecisionKind.Superseded,
+            Reason = $"supersedes the prior value \"{old.Value}\" (kept as history)",
+            FinalConfidence = confidence,
+            ResultingMemoryId = replacement.Id,
+            MatchedMemoryId = old.Id,
         };
     }
 

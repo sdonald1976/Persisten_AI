@@ -14,7 +14,13 @@ public interface IProjectStore
     Task<Project?> GetProjectAsync(Guid id, string userId, CancellationToken ct = default);
     Task<IReadOnlyList<Project>> GetProjectsAsync(string userId, CancellationToken ct = default);
     Task AddAliasAsync(ProjectAlias alias, CancellationToken ct = default);
+    Task UpdateAliasAsync(ProjectAlias alias, CancellationToken ct = default);
     Task<IReadOnlyList<ProjectAlias>> GetAliasesAsync(string userId, CancellationToken ct = default);
+    Task<IReadOnlyList<ProjectAlias>> GetAliasesByProjectAsync(Guid projectId, CancellationToken ct = default);
+    Task DeleteProjectAsync(Guid id, string userId, CancellationToken ct = default);
+
+    /// <summary>Moves all aliases, events, decisions, and open loops from one project to another.</summary>
+    Task ReassignChildrenAsync(Guid fromProjectId, Guid toProjectId, string userId, CancellationToken ct = default);
 
     // Activity log & decisions
     Task AddEventAsync(ProjectEvent projectEvent, CancellationToken ct = default);

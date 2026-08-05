@@ -105,6 +105,26 @@ public sealed class ChatLoop
                 await ShowLoopsAsync(ct);
                 return false;
 
+            case "/forget":
+                await ForgetAsync(Arg(input), ct);
+                return false;
+
+            case "/dispute":
+                await DisputeAsync(Arg(input), ct);
+                return false;
+
+            case "/correct":
+                await CorrectAsync(Arg(input), ct);
+                return false;
+
+            case "/reassign":
+                await ReassignAsync(Arg(input), ct);
+                return false;
+
+            case "/mergeprojects":
+                await MergeProjectsAsync(Arg(input), ct);
+                return false;
+
             default:
                 Console.WriteLine($"Unknown command '{command}'. Try /help.");
                 return false;
@@ -140,8 +160,104 @@ public sealed class ChatLoop
             var status = m is SemanticMemory { Validity: not Validity.Current } sm
                 ? $" [{sm.Validity}]"
                 : "";
-            Console.WriteLine($"  - ({tag}) {m.Content}{status}  (confidence {m.Confidence:P0})");
+            Console.WriteLine($"  - [{m.Id.ToString()[..8]}] ({tag}) {m.Content}{status}  (confidence {m.Confidence:P0})");
         }
+        Console.WriteLine("(use the [id] with /forget, /correct, /dispute, /reassign)");
+    }
+
+    private static string Arg(string input)
+    {
+        var space = input.IndexOf(' ');
+        return space < 0 ? "" : input[(space + 1)..].Trim();
+    }
+
+    /// <summary>Finds a retrievable memory by an id prefix (as shown by /remember).</summary>
+    private async Task<Guid?> ResolveMemoryIdAsync(string prefix, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(prefix))
+            return null;
+        using var scope = _services.CreateScope();
+        var memories = await scope.ServiceProvider.GetRequiredService<IMemoryStore>()
+            .GetRetrievableMemoriesAsync(_userId, ct);
+        var matches = memories
+            .Where(m => m.Id.ToString().StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (matches.Count == 1)
+            return matches[0].Id;
+        Console.WriteLine(matches.Count == 0 ? $"No memory matches id '{prefix}'." : $"'{prefix}' is ambiguous.");
+        return null;
+    }
+
+    private async Task ForgetAsync(string prefix, CancellationToken ct)
+    {
+        var id = await ResolveMemoryIdAsync(prefix, ct);
+        if (id is null) return;
+        using var scope = _services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IMemoryCurator>().ForgetAsync(_userId, id.Value, "user asked to forget", ct);
+        Console.WriteLine("Forgotten. I won't bring that up again.");
+    }
+
+    private async Task DisputeAsync(string prefix, CancellationToken ct)
+    {
+        var id = await ResolveMemoryIdAsync(prefix, ct);
+        if (id is null) return;
+        using var scope = _services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IMemoryCurator>().DisputeAsync(_userId, id.Value, "user disputed", ct);
+        Console.WriteLine("Noted — I've flagged that as disputed and won't rely on it.");
+    }
+
+    private async Task CorrectAsync(string args, CancellationToken ct)
+    {
+        var parts = args.Split(' ', 2);
+        if (parts.Length < 2)
+        {
+            Console.WriteLine("Usage: /correct <id> <the corrected fact>");
+            return;
+        }
+        var id = await ResolveMemoryIdAsync(parts[0], ct);
+        if (id is null) return;
+        using var scope = _services.CreateScope();
+        var ok = await scope.ServiceProvider.GetRequiredService<IMemoryCurator>()
+            .CorrectSemanticAsync(_userId, id.Value, parts[1].Trim(), parts[1].Trim(), ct);
+        Console.WriteLine(ok ? "Corrected." : "That id isn't a correctable (semantic) memory.");
+    }
+
+    private async Task ReassignAsync(string args, CancellationToken ct)
+    {
+        var parts = args.Split(' ', 2);
+        if (parts.Length < 2)
+        {
+            Console.WriteLine("Usage: /reassign <id> <project name>");
+            return;
+        }
+        var id = await ResolveMemoryIdAsync(parts[0], ct);
+        if (id is null) return;
+        using var scope = _services.CreateScope();
+        var ok = await scope.ServiceProvider.GetRequiredService<IMemoryCurator>()
+            .ReassignMemoryProjectAsync(_userId, id.Value, parts[1].Trim(), ct);
+        Console.WriteLine(ok ? $"Re-associated with '{parts[1].Trim()}'." : "No such memory.");
+    }
+
+    private async Task MergeProjectsAsync(string args, CancellationToken ct)
+    {
+        var parts = args.Split(" into ", 2, StringSplitOptions.TrimEntries);
+        if (parts.Length < 2)
+        {
+            Console.WriteLine("Usage: /mergeprojects <source> into <target>");
+            return;
+        }
+        using var scope = _services.CreateScope();
+        var sp = scope.ServiceProvider;
+        var resolver = sp.GetRequiredService<IEntityResolver>();
+        var source = (await resolver.ResolveProjectAsync(_userId, parts[0], ct)).Best?.Project;
+        var target = (await resolver.ResolveProjectAsync(_userId, parts[1], ct)).Best?.Project;
+        if (source is null || target is null)
+        {
+            Console.WriteLine("Couldn't confidently resolve both projects by name.");
+            return;
+        }
+        var ok = await sp.GetRequiredService<IProjectCurator>().MergeProjectsAsync(_userId, source.Id, target.Id, ct);
+        Console.WriteLine(ok ? $"Merged '{source.Name}' into '{target.Name}'." : "Merge failed.");
     }
 
     private async Task ShowProjectsAsync(CancellationToken ct)
@@ -232,6 +348,11 @@ public sealed class ChatLoop
         Console.WriteLine("  /projects         List your projects");
         Console.WriteLine("  /project <name>   Reconstruct a project's current state");
         Console.WriteLine("  /loops            List open loops");
+        Console.WriteLine("  /forget <id>      Forget a memory (soft delete)");
+        Console.WriteLine("  /dispute <id>     Flag a memory as wrong");
+        Console.WriteLine("  /correct <id> …   Correct a memory's fact");
+        Console.WriteLine("  /reassign <id> …  Re-associate a memory with a project");
+        Console.WriteLine("  /mergeprojects <a> into <b>   Merge two project references");
         Console.WriteLine("  /why              Explain how the last response was retrieved");
         Console.WriteLine("  /help             Show this help");
         Console.WriteLine("  /exit             Quit");

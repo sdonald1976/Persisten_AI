@@ -42,6 +42,10 @@ public static class DependencyInjection
         services.AddScoped<IProjectContextService, ProjectContextService>();
         services.AddScoped<IProjectUpdater, ProjectUpdater>();
 
+        // Temporal revision & corrections (Phase 5).
+        services.AddScoped<IMemoryCurator, MemoryCurator>();
+        services.AddScoped<IProjectCurator, ProjectCurator>();
+
         // Core services.
         services.AddScoped<IRetriever, Retriever>();
         services.AddScoped<IContextAssembler, ContextAssembler>();
