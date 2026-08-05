@@ -56,11 +56,45 @@ public static class DependencyInjection
         return services;
     }
 
-    /// <summary>Creates the schema if it doesn't exist (Phase 2 uses EnsureCreated, not migrations).</summary>
-    public static async Task EnsureDatabaseCreatedAsync(this IServiceProvider provider, CancellationToken ct = default)
+    /// <summary>
+    /// Applies any pending EF Core migrations, creating the schema on a fresh database and
+    /// upgrading an existing one in place. This replaces EnsureCreated so schema changes across
+    /// phases apply incrementally instead of silently no-op'ing on an existing database.
+    /// </summary>
+    public static async Task MigrateDatabaseAsync(this IServiceProvider provider, CancellationToken ct = default)
     {
         using var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
-        await db.Database.EnsureCreatedAsync(ct);
+
+        // A database created by the old EnsureCreated path has application tables but no
+        // migrations-history table; MigrateAsync would then fail trying to re-create them.
+        // Detect that and give an actionable message instead of a cryptic SQL error.
+        if (await IsLegacyPreMigrationDatabaseAsync(db, ct))
+        {
+            throw new InvalidOperationException(
+                "The local database predates schema migrations and can't be upgraded in place. " +
+                "Delete the database file (e.g. companion.db) and run again — it will be recreated, " +
+                "then reload demo data with the 'seed' command.");
+        }
+
+        await db.Database.MigrateAsync(ct);
+    }
+
+    private static async Task<bool> IsLegacyPreMigrationDatabaseAsync(CompanionDbContext db, CancellationToken ct)
+    {
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync(ct);
+
+        var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table'";
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+                tables.Add(reader.GetString(0));
+        }
+
+        // Legacy = has our tables but no migrations history. A fresh DB has neither.
+        return tables.Contains("Messages") && !tables.Contains("__EFMigrationsHistory");
     }
 }

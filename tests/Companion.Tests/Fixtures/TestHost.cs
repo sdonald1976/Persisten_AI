@@ -41,7 +41,7 @@ public sealed class TestHost : IAsyncDisposable
             services.Configure(configureOptions);
 
         Services = services.BuildServiceProvider();
-        Services.EnsureDatabaseCreatedAsync().GetAwaiter().GetResult();
+        Services.MigrateDatabaseAsync().GetAwaiter().GetResult();
     }
 
     public IServiceScope CreateScope() => Services.CreateScope();
