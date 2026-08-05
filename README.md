@@ -8,17 +8,29 @@ memory, continuity, retrieval, temporal reasoning, and project awareness.
 
 ## Status
 
-**Phase 5 (temporal revision & correction) implemented**, on top of Phases 2–4. Information
-now changes without erasing history: a direct user statement that contradicts a stored fact
-**supersedes** it (the old value is kept, marked not-current); weaker/inferred contradictions
-are parked for review. Users can **correct, dispute, forget (soft-delete), merge, and
-re-associate** memories, and **merge or split** projects — every operation writes an audit
-entry, and a forgotten memory is purged from the embedding index so it can't resurface.
+**All six planned phases are implemented.** The final phase adds **memory consolidation** —
+repeated, related low-level memories are rolled up into a higher-level fact (marked as
+system-generated, not a direct quote) that keeps links to all its supporting evidence, never
+destroys the originals, and won't generalize from one or two remarks — plus a reproducible
+**Scenario A–E benchmark suite** that exercises the whole system end-to-end.
 
-Earlier phases still hold: project-aware turns with honest reference resolution and open-loop
-tracking (Phase 4), a validate-before-store extraction pipeline (Phase 3), and ranked,
-provenance-labeled retrieval into a bounded context packet (Phase 2). Everything runs offline
-on deterministic mock/rule-based providers. **All 61 tests pass.** Design docs are under `docs/`.
+The full loop: project-aware turns resolve references honestly (asking to clarify when
+ambiguous), retrieve ranked+explained memories and open loops into a bounded,
+provenance-labeled context packet, generate a reply, then extract candidate memories through a
+validate-before-store pipeline, update project/open-loop state, and revise over time
+(supersession, correction, forgetting) — all with an audit trail. Everything runs offline on
+deterministic mock/rule-based providers. **All 70 tests pass**, including the five reference
+scenarios. Design docs are under `docs/`.
+
+### Reference scenarios (the acceptance benchmark)
+
+| Scenario | Behavior verified |
+|----------|-------------------|
+| A — Returning to a project | Resolves the right project (not a similar one), resumes continuity, closes the open loop. |
+| B — Changed preference | A new direct statement supersedes the old; history is kept but not presented as current. |
+| C — Ambiguous reference | Ranks candidates and asks a concise clarifying question instead of guessing. |
+| D — Corrected memory | Re-associates to the right project, leaves an audit trail, doesn't recur. |
+| E — Long-term continuity | Surfaces the relevant long-term interest from an oblique mention; doesn't inject unrelated facts. |
 
 ## Documents
 
@@ -41,11 +53,12 @@ mockable model providers (local/hosted/mock) · xUnit.
 src/Companion.Core            domain records, interfaces, retrieval + extraction + project + curation logic
 src/Companion.Infrastructure  EF Core store, SQLite BLOB vector index, mock + rule-based/LLM extractors, DI
 src/Companion.Cli             chat REPL + /seed, /remember, /projects, /project, /loops,
-                              /forget, /dispute, /correct, /reassign, /mergeprojects, /why
-tests/Companion.Tests         61 tests: retrieval, packet, provenance, isolation, score math,
+                              /forget, /dispute, /correct, /reassign, /mergeprojects, /consolidate, /why
+tests/Companion.Tests         70 tests: retrieval, packet, provenance, isolation, score math,
                               extraction (accept/merge/reject/review/supersede), confidence, normalizer,
                               LLM parsing, resolution + clarification, project summary, open-loop create/close,
-                              supersession, correction/forget/dispute/merge, project merge/split, e2e
+                              supersession, correction/forget/dispute/merge, project merge/split,
+                              consolidation, and the Scenario A–E benchmark
 ```
 
 ## Build & run
@@ -72,15 +85,17 @@ then reload demo data with `seed`.
 `/project <name>` reconstructs a project's current state; `/projects` and `/loops` list
 projects and open loops. `/remember` shows stored memories with short ids you can pass to the
 correction commands: `/forget <id>`, `/dispute <id>`, `/correct <id> <fact>`, `/reassign <id>
-<project>`, and `/mergeprojects <a> into <b>`. `/why` shows the full turn diagnostics —
-retrieval scores/reasons, project resolution (ranked candidates + any clarifying question),
-open loops surfaced, project-state updates, and extraction verdicts (incl. supersessions). The
-model providers are deterministic (`MockChatModel`, `MockEmbeddingModel`,
-`RuleBasedMemoryExtractor`), so everything runs offline. Real local/hosted providers —
-including `LlmMemoryExtractor` — plug in behind the same interfaces.
+<project>`, and `/mergeprojects <a> into <b>`. `/consolidate` rolls repeated memories into
+higher-level knowledge. `/why` shows the full turn diagnostics — retrieval scores/reasons,
+project resolution (ranked candidates + any clarifying question), open loops surfaced,
+project-state updates, and extraction verdicts (incl. supersessions). The model providers are
+deterministic (`MockChatModel`, `MockEmbeddingModel`, `RuleBasedMemoryExtractor`,
+`MockSummarizer`), so everything runs offline. Real local/hosted providers — including
+`LlmMemoryExtractor` and an LLM summarizer — plug in behind the same interfaces.
 
-## Next step
+## Where next
 
-**Phase 6 — Consolidation & evaluation** (roll repeated low-level memories into higher-level
-knowledge while preserving evidence, and a repeatable Scenario A–E benchmark suite), per
-`docs/IMPLEMENTATION_PLAN.md`.
+The six-phase plan in `docs/IMPLEMENTATION_PLAN.md` is complete. Natural follow-ups: wire a
+real local/hosted model behind the `IChatModel` / `IEmbeddingModel` / `IMemoryExtractor` /
+`ISummarizer` interfaces, and (per the design docs) harden the privacy/export controls and swap
+the in-process vector index for a dedicated ANN store.

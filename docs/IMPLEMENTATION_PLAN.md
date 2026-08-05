@@ -141,22 +141,39 @@ are project-aware and resolve references honestly.
   re-association (Scenario D), memory merge, resolve-review accept/reject, curation user
   isolation, project merge (+ merged reference still resolves) and split.
 
-## Phase 6 — Consolidation & evaluation
+## Phase 6 — Consolidation & evaluation ✅
 
-**Tasks**
-- Consolidation command: roll repeated low-level memories into higher-level knowledge,
-  **preserving links to supporting evidence** and never destroying originals.
-- Reproducible evaluation harness running Scenarios A–E against a seeded multi-month
-  fictional history, with pass/fail assertions.
+**Status: complete.** Repeated memories roll up into higher-level knowledge, and the five
+reference scenarios run as a repeatable benchmark.
 
-**Dependencies:** Phase 5.
+**Delivered**
+- `ISummarizer` (role) with a deterministic `MockSummarizer`; `IMemoryConsolidator` /
+  `MemoryConsolidator` clusters same-slot memories by topic similarity and, when a cluster is
+  large enough, summarizes them into one `MemoryOrigin.Consolidated` fact that unions the
+  supporting evidence. Originals are retained; a min-observations guard prevents
+  overgeneralizing; re-running is idempotent per topic.
+- `MemoryOrigin` on semantic memories, so consolidated/inferred knowledge is labeled as a
+  system inference (never a direct quote) in the context packet.
+- CLI `/consolidate`. EF Core migration `AddMemoryOrigin` for the new column.
+- A reproducible **Scenario A–E** benchmark (`ScenarioTests`) run end-to-end through `ICompanion`.
 
-**Acceptance**
-- Consolidated memories cite their supporting episodes; originals are retained.
-- The benchmark suite runs repeatably and all five scenarios pass.
+**Acceptance (met)**
+- Consolidated memories cite their supporting evidence; originals are retained. ✅
+- The benchmark suite runs repeatably and all five scenarios pass. ✅
 
-**Tests**
-- Consolidation preserves evidence; end-to-end Scenarios A–E; long-term continuity (Scenario E).
+**Tests (added, 9)**
+- Consolidation (preserves evidence + originals, origin labeling, idempotent, no
+  overgeneralization) and the five end-to-end reference scenarios A–E.
+
+---
+
+## Project status: all phases complete
+
+Phases 0–6 are implemented with 70 passing tests. The system fulfills the success criteria in
+`PERSISTENT_COMPANION_VISION.md`: it resumes months-old discussions, retrieves the right
+project without flooding the prompt, keeps outdated information out of "current", attaches
+evidence and confidence to memories, lets the user inspect and correct them, never resurfaces
+deleted memories, handles ambiguity honestly — and stays understandable to one developer.
 
 ## Cross-cutting requirements (all phases)
 

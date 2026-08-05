@@ -125,6 +125,10 @@ public sealed class ChatLoop
                 await MergeProjectsAsync(Arg(input), ct);
                 return false;
 
+            case "/consolidate":
+                await ConsolidateAsync(ct);
+                return false;
+
             default:
                 Console.WriteLine($"Unknown command '{command}'. Try /help.");
                 return false;
@@ -340,6 +344,20 @@ public sealed class ChatLoop
             Console.WriteLine($"  - {l.Description}");
     }
 
+    private async Task ConsolidateAsync(CancellationToken ct)
+    {
+        using var scope = _services.CreateScope();
+        var result = await scope.ServiceProvider.GetRequiredService<IMemoryConsolidator>().ConsolidateAsync(_userId, ct);
+        if (result.Created.Count == 0)
+        {
+            Console.WriteLine("Nothing to consolidate yet.");
+            return;
+        }
+        Console.WriteLine($"Consolidated {result.Created.Count} group(s):");
+        foreach (var g in result.Created)
+            Console.WriteLine($"  - {g.Content}  (from {g.SourceMemoryIds.Count} memories, {g.EvidenceCount} evidence)");
+    }
+
     private static void PrintHelp()
     {
         Console.WriteLine("Commands:");
@@ -353,6 +371,7 @@ public sealed class ChatLoop
         Console.WriteLine("  /correct <id> …   Correct a memory's fact");
         Console.WriteLine("  /reassign <id> …  Re-associate a memory with a project");
         Console.WriteLine("  /mergeprojects <a> into <b>   Merge two project references");
+        Console.WriteLine("  /consolidate      Roll repeated memories into higher-level knowledge");
         Console.WriteLine("  /why              Explain how the last response was retrieved");
         Console.WriteLine("  /help             Show this help");
         Console.WriteLine("  /exit             Quit");

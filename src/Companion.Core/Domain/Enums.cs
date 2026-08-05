@@ -43,6 +43,19 @@ public enum EpisodeStatus
     Abandoned,
 }
 
+/// <summary>Where a semantic memory came from — so system-generated knowledge isn't presented as a direct quote.</summary>
+public enum MemoryOrigin
+{
+    /// <summary>Stated by the user (a direct statement).</summary>
+    Stated,
+
+    /// <summary>Inferred by the system from one or more interactions.</summary>
+    Inferred,
+
+    /// <summary>A higher-level fact consolidated from several supporting memories.</summary>
+    Consolidated,
+}
+
 /// <summary>Temporal validity of a semantic fact.</summary>
 public enum Validity
 {

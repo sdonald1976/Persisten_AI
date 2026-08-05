@@ -72,8 +72,15 @@ public sealed class ContextAssembler : IContextAssembler
         if (memory.Status == MemoryStatus.Superseded)
             return ContextProvenance.Outdated;
 
-        if (memory is SemanticMemory { Validity: Validity.Historical or Validity.Superseded })
-            return ContextProvenance.Outdated;
+        if (memory is SemanticMemory sem)
+        {
+            if (sem.Validity is Validity.Historical or Validity.Superseded)
+                return ContextProvenance.Outdated;
+
+            // System-generated knowledge (inferred or consolidated) is never a direct quote.
+            if (sem.Origin is MemoryOrigin.Inferred or MemoryOrigin.Consolidated)
+                return ContextProvenance.Inferred;
+        }
 
         // Lower-confidence memories are treated as inferences rather than direct statements.
         return memory.Confidence < 0.6 ? ContextProvenance.Inferred : ContextProvenance.DirectStatement;

@@ -28,6 +28,9 @@ public class SemanticMemory : IMemory
     public Validity Validity { get; set; } = Validity.Current;
     public MemoryStatus Status { get; set; } = MemoryStatus.Active;
 
+    /// <summary>Whether the user stated this, the system inferred it, or it was consolidated.</summary>
+    public MemoryOrigin Origin { get; set; } = MemoryOrigin.Stated;
+
     public DateTimeOffset FirstObserved { get; set; }
     public DateTimeOffset LastConfirmed { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
