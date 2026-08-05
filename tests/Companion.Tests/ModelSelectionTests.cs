@@ -75,5 +75,36 @@ public class ModelSelectionTests
         // Default provider is Mock, so the real adapter is not registered.
         Assert.IsNotType<OpenAiCompatibleChatModel>(sp.GetRequiredService<IChatModel>());
         Assert.IsType<RuleBasedMemoryExtractor>(sp.GetRequiredService<IMemoryExtractor>());
+        // Optional multimodal models are off by default.
+        Assert.Null(sp.GetService<IVisionModel>());
+        Assert.Null(sp.GetService<ITranscriber>());
+    }
+
+    [Fact]
+    public void Vision_And_Transcription_AreRegistered_OnlyWhenConfigured()
+    {
+        using var withBoth = Build(new Dictionary<string, string?>
+        {
+            ["Models:Provider"] = "OpenAiCompatible",
+            ["Models:Chat:Model"] = "chat",
+            ["Models:Embeddings:Model"] = "embed",
+            ["Models:Vision:BaseUrl"] = "http://localhost:11434/v1",
+            ["Models:Vision:Model"] = "llama3.2-vision",
+            ["Models:Transcription:BaseUrl"] = "http://localhost:9000/v1",
+            ["Models:Transcription:Model"] = "whisper-1",
+        });
+        Assert.Equal("llama3.2-vision",
+            ((OpenAiCompatibleVisionModel)withBoth.GetRequiredService<IVisionModel>()).ModelName);
+        Assert.NotNull(withBoth.GetService<ITranscriber>());
+
+        // Real provider, but no Vision/Transcription sections → not registered.
+        using var withoutMultimodal = Build(new Dictionary<string, string?>
+        {
+            ["Models:Provider"] = "OpenAiCompatible",
+            ["Models:Chat:Model"] = "chat",
+            ["Models:Embeddings:Model"] = "embed",
+        });
+        Assert.Null(withoutMultimodal.GetService<IVisionModel>());
+        Assert.Null(withoutMultimodal.GetService<ITranscriber>());
     }
 }

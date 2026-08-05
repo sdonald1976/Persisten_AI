@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Companion.Core.Abstractions;
@@ -59,9 +60,76 @@ public sealed class OpenAiCompatibleChatModel : IChatModel, IDisposable
         }
     }
 
+    public async IAsyncEnumerable<string> StreamAsync(
+        string systemPrompt, string userMessage, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var request = new
+        {
+            model = _options.Model,
+            stream = true,
+            messages = new[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userMessage },
+            },
+        };
+
+        HttpResponseMessage response;
+        try
+        {
+            var message = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
+            {
+                Content = JsonContent.Create(request),
+            };
+            response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
+            response.EnsureSuccessStatusCode();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogError(ex, "Streaming chat request to {BaseUrl} (model {Model}) failed", _options.BaseUrl, _options.Model);
+            throw new InvalidOperationException(
+                $"Couldn't reach the chat model at {_options.BaseUrl} (model '{_options.Model}'). " +
+                "Is the server running and the model pulled/loaded?", ex);
+        }
+
+        using (response)
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var reader = new StreamReader(stream);
+
+            while (!reader.EndOfStream)
+            {
+                var line = await reader.ReadLineAsync(ct);
+                if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data:", StringComparison.Ordinal))
+                    continue;
+
+                var payload = line["data:".Length..].Trim();
+                if (payload == "[DONE]")
+                    break;
+
+                string? content = null;
+                try
+                {
+                    content = JsonSerializer.Deserialize<StreamChunk>(payload, Json)?.Choices?.FirstOrDefault()?.Delta?.Content;
+                }
+                catch (JsonException)
+                {
+                    // ignore keep-alive / non-JSON lines
+                }
+
+                if (!string.IsNullOrEmpty(content))
+                    yield return content;
+            }
+        }
+    }
+
     public void Dispose() => _http.Dispose();
 
     private sealed record ChatResponse([property: JsonPropertyName("choices")] List<Choice>? Choices);
     private sealed record Choice([property: JsonPropertyName("message")] ChatMessage? Message);
     private sealed record ChatMessage([property: JsonPropertyName("content")] string? Content);
+
+    private sealed record StreamChunk([property: JsonPropertyName("choices")] List<StreamChoice>? Choices);
+    private sealed record StreamChoice([property: JsonPropertyName("delta")] Delta? Delta);
+    private sealed record Delta([property: JsonPropertyName("content")] string? Content);
 }

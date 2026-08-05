@@ -33,6 +33,20 @@ public static class DependencyInjection
         // deterministic offline mocks; "OpenAiCompatible" (or "Ollama"/"LMStudio") uses a real
         // local server. When a real model is configured, extraction and summarization use it too.
         var modelOptions = configuration.GetSection(ModelOptions.SectionName).Get<ModelOptions>() ?? new ModelOptions();
+        services.AddSingleton(modelOptions); // so the CLI can see which optional models are configured
+
+        // Optional multimodal models — registered only when configured.
+        if (modelOptions.UsesRealModel && modelOptions.Vision is { } visionEndpoint)
+        {
+            services.AddSingleton<IVisionModel>(sp =>
+                new OpenAiCompatibleVisionModel(visionEndpoint, sp.GetRequiredService<ILogger<OpenAiCompatibleVisionModel>>()));
+        }
+        if (modelOptions.UsesRealModel && modelOptions.Transcription is { } transcriptionEndpoint)
+        {
+            services.AddSingleton<ITranscriber>(sp =>
+                new OpenAiCompatibleTranscriber(transcriptionEndpoint, sp.GetRequiredService<ILogger<OpenAiCompatibleTranscriber>>()));
+        }
+
         if (modelOptions.UsesRealModel)
         {
             // A separate chat model per job (keyed), so you can run a big conversational model,

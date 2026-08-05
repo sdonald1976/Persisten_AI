@@ -1,3 +1,4 @@
+using System.Text;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Microsoft.Extensions.Logging;
@@ -49,7 +50,8 @@ public sealed class Companion : ICompanion
     }
 
     public async Task<TurnTrace> RespondAsync(
-        string userId, Guid conversationId, string userMessage, CancellationToken ct = default)
+        string userId, Guid conversationId, string userMessage,
+        IProgress<string>? tokenSink = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(userMessage))
             throw new ArgumentException("User message must not be empty.", nameof(userMessage));
@@ -85,8 +87,22 @@ public sealed class Companion : ICompanion
         // 5. Assemble a bounded, labeled context packet.
         var packet = _assembler.Assemble(userMessage, recent, outcome.Selected, projectContext);
 
-        // 6. Generate the response.
-        var response = await _chat.CompleteAsync(packet.Render(), userMessage, ct);
+        // 6. Generate the response — streamed to the sink when one is provided, otherwise in one shot.
+        string response;
+        if (tokenSink is not null)
+        {
+            var buffer = new StringBuilder();
+            await foreach (var chunk in _chat.StreamAsync(packet.Render(), userMessage, ct))
+            {
+                buffer.Append(chunk);
+                tokenSink.Report(chunk);
+            }
+            response = buffer.Length == 0 ? "(the model returned an empty response)" : buffer.ToString();
+        }
+        else
+        {
+            response = await _chat.CompleteAsync(packet.Render(), userMessage, ct);
+        }
 
         // 7. Store the response.
         var assistantMsg = new Message

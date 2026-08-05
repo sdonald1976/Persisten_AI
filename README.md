@@ -127,6 +127,28 @@ shows. `ApiKey` can be left empty (LM Studio accepts anything).
 When a real model is configured, extraction and summarization use it too
 (`LlmMemoryExtractor`, `LlmSummarizer`) instead of the rule-based/mock stand-ins.
 
+### Streaming, images, and voice
+
+- **Streaming** — with a real provider, the assistant's reply streams to the console as it's
+  generated (nice with a big local conversational model). No config needed; the full reply is
+  still stored and shown by `/why`.
+- **Vision** (`/image <path> [caption]`) — add a `Vision` block to `Models` with a multimodal
+  model, and the companion will describe the image and remember it as part of the conversation:
+  ```jsonc
+  "Vision": { "BaseUrl": "http://localhost:11434/v1", "Model": "llama3.2-vision" }
+  ```
+  ```bash
+  ollama pull llama3.2-vision   # or load a vision GGUF (e.g. llava/qwen2-vl) in LM Studio
+  ```
+- **Voice / Whisper** (`/transcribe <audio file>`) — transcribes an audio file and sends it as a
+  turn. **Ollama and LM Studio don't do audio**, so this needs a separate server that exposes an
+  OpenAI-compatible `/v1/audio/transcriptions` endpoint — e.g. `whisper.cpp`'s server,
+  `faster-whisper-server`/`speaches`, or LocalAI:
+  ```jsonc
+  "Transcription": { "BaseUrl": "http://localhost:9000/v1", "Model": "whisper-1" }
+  ```
+  (File-based, not live mic. Leave the block out to disable — `/transcribe` will say so.)
+
 > **Important:** pick your provider **before** running `seed`. Memories are stored with the
 > embedding model's vectors; if you seed with the mock (128-dim) and later switch to a real
 > model (e.g. 768-dim), the dimensions won't match and old memories stop being retrieved.
