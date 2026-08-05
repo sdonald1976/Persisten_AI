@@ -89,18 +89,29 @@ in `src/Companion.Cli/appsettings.json` (or override with env vars, e.g.
 `Models__Provider=OpenAiCompatible`). Both Ollama and LM Studio speak the OpenAI `/v1` API, so
 the same adapter works for both — just change the base URL and model names.
 
+Each job can use its **own** model — a big conversational model, a small structured-output
+extraction model, a cheap/fast summarizer, and a dedicated embedder. `Extraction` and
+`Summarizer` are optional; omit them to reuse the `Chat` model.
+
 **Ollama** (default port 11434):
 ```jsonc
 "Models": {
   "Provider": "OpenAiCompatible",
-  "Chat":       { "BaseUrl": "http://localhost:11434/v1", "Model": "dolphin-llama3" },
-  "Embeddings": { "BaseUrl": "http://localhost:11434/v1", "Model": "nomic-embed-text" }
+  "Chat":       { "BaseUrl": "http://localhost:11434/v1", "Model": "dolphin-mixtral:8x7b" }, // conversation: larger/better
+  "Extraction": { "BaseUrl": "http://localhost:11434/v1", "Model": "llama3.1:8b" },          // structured-output-friendly
+  "Summarizer": { "BaseUrl": "http://localhost:11434/v1", "Model": "llama3.2:3b" },          // cheap/fast
+  "Embeddings": { "BaseUrl": "http://localhost:11434/v1", "Model": "nomic-embed-text" }      // dedicated embedder
 }
 ```
 ```bash
-ollama pull dolphin-llama3
+ollama pull dolphin-mixtral:8x7b   # or your conversational pick
+ollama pull llama3.1:8b
+ollama pull llama3.2:3b
 ollama pull nomic-embed-text
 ```
+The four jobs map to distinct model slots internally
+(`IChatModel` per role via keyed DI, plus `IEmbeddingModel`), so they can point at different
+models — even different servers — independently.
 
 **LM Studio** (start its local server; default port 1234):
 ```jsonc

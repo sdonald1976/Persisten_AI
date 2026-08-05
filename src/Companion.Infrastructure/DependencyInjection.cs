@@ -35,12 +35,28 @@ public static class DependencyInjection
         var modelOptions = configuration.GetSection(ModelOptions.SectionName).Get<ModelOptions>() ?? new ModelOptions();
         if (modelOptions.UsesRealModel)
         {
-            services.AddSingleton<IChatModel>(sp =>
-                new OpenAiCompatibleChatModel(modelOptions.Chat, sp.GetRequiredService<ILogger<OpenAiCompatibleChatModel>>()));
+            // A separate chat model per job (keyed), so you can run a big conversational model,
+            // a small structured-output-friendly extraction model, and a cheap/fast summarizer.
+            // Extraction/summarizer fall back to the conversational endpoint when not configured.
+            OpenAiCompatibleChatModel BuildChat(IServiceProvider sp, EndpointOptions ep) =>
+                new(ep, sp.GetRequiredService<ILogger<OpenAiCompatibleChatModel>>());
+
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.Conversation, (sp, _) => BuildChat(sp, modelOptions.Chat));
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.Extraction, (sp, _) => BuildChat(sp, modelOptions.ExtractionOrChat));
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.Summarizer, (sp, _) => BuildChat(sp, modelOptions.SummarizerOrChat));
+
+            // The default IChatModel (the assistant's reply) is the conversational one.
+            services.AddSingleton<IChatModel>(sp => sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation));
+
             services.AddSingleton<IEmbeddingModel>(sp =>
                 new OpenAiCompatibleEmbeddingModel(modelOptions.Embeddings, sp.GetRequiredService<ILogger<OpenAiCompatibleEmbeddingModel>>()));
-            services.AddSingleton<ISummarizer, LlmSummarizer>();
-            services.AddScoped<IMemoryExtractor, LlmMemoryExtractor>();
+
+            services.AddSingleton<ISummarizer>(sp =>
+                new LlmSummarizer(sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Summarizer)));
+            services.AddScoped<IMemoryExtractor>(sp =>
+                new LlmMemoryExtractor(
+                    sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Extraction),
+                    sp.GetRequiredService<ILogger<LlmMemoryExtractor>>()));
         }
         else
         {
