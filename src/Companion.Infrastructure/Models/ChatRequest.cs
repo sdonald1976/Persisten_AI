@@ -3,7 +3,8 @@ namespace Companion.Infrastructure.Models;
 /// <summary>Builds an OpenAI-compatible chat request body, adding sampling params only when configured.</summary>
 internal static class ChatRequest
 {
-    public static Dictionary<string, object?> Build(EndpointOptions options, object messages, bool stream)
+    public static Dictionary<string, object?> Build(
+        EndpointOptions options, object messages, bool stream, bool jsonMode = false)
     {
         var body = new Dictionary<string, object?>
         {
@@ -15,6 +16,9 @@ internal static class ChatRequest
             body["temperature"] = temperature;
         if (options.MaxTokens is { } maxTokens)
             body["max_tokens"] = maxTokens;
+        // OpenAI-compatible structured-output hint; Ollama and LM Studio both honor json_object.
+        if (jsonMode)
+            body["response_format"] = new { type = "json_object" };
         return body;
     }
 }

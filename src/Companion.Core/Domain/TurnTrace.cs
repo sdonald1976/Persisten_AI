@@ -9,6 +9,15 @@ public sealed record TurnTrace
 {
     public required string UserMessage { get; init; }
 
+    /// <summary>
+    /// The turn's control-flow outcome. When not <see cref="TurnStatus.Answered"/>, the normal
+    /// generation + memory pipeline was deliberately skipped (see the ambiguity handling).
+    /// </summary>
+    public TurnStatus Status { get; init; } = TurnStatus.Answered;
+
+    /// <summary>Set when a clarification was requested/resolved this turn — the pending record's id.</summary>
+    public Guid? PendingClarificationId { get; init; }
+
     /// <summary>Project the turn was associated with, if any was detected.</summary>
     public string? DetectedProject { get; init; }
 

@@ -35,19 +35,32 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
         foreach (var m in exchange)
             transcript.AppendLine($"{m.Role}: {m.Content}");
 
-        var raw = await _chat.CompleteAsync(SystemPrompt, transcript.ToString(), ct);
+        // Ask for JSON explicitly (structured-output mode where the server supports it).
+        var raw = await _chat.CompleteAsync(SystemPrompt, transcript.ToString(), jsonMode: true, ct);
+
+        // Bound the untrusted body before parsing so a runaway response can't be a problem here.
+        if (raw.Length > MaxRawChars)
+            raw = raw[..MaxRawChars];
 
         var dtos = TryParse(raw);
         if (dtos is null)
         {
-            _logger.LogWarning("LLM extractor returned unparseable output; no candidates proposed.");
+            _logger.LogWarning("LLM extractor returned unparseable/invalid output; no candidates proposed.");
             return Array.Empty<MemoryCandidate>();
         }
 
         var candidates = new List<MemoryCandidate>();
         foreach (var dto in dtos)
         {
-            if (string.IsNullOrWhiteSpace(dto.Content))
+            if (candidates.Count >= MaxCandidates)
+            {
+                _logger.LogWarning("LLM extractor proposed more than {Max} candidates; extra ignored.", MaxCandidates);
+                break;
+            }
+
+            // Validate the model's free text: required, length-capped. The model never supplies
+            // ids, ownership, or lifecycle authority — enums fall back and numerics are clamped.
+            if (string.IsNullOrWhiteSpace(dto.Content) || dto.Content.Length > MaxFieldChars)
                 continue;
 
             var evidence = ResolveEvidence(dto.Excerpt, userMessages);
@@ -57,13 +70,13 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
             candidates.Add(new MemoryCandidate
             {
                 Kind = ParseKind(dto.Kind),
-                Subject = dto.Subject,
-                Predicate = dto.Predicate,
-                Value = dto.Value,
+                Subject = Cap(dto.Subject),
+                Predicate = Cap(dto.Predicate),
+                Value = Cap(dto.Value),
                 Content = dto.Content.Trim(),
                 Validity = ParseEnum(dto.Validity, Validity.Current),
                 EpisodeStatus = ParseEnum(dto.EpisodeStatus, EpisodeStatus.Occurred),
-                RelatedProject = dto.RelatedProject,
+                RelatedProject = Cap(dto.RelatedProject),
                 Importance = Clamp(dto.Importance, 0.5),
                 ProposedConfidence = Clamp(dto.Confidence, 0.5),
                 Evidence = evidence,
@@ -72,6 +85,13 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
 
         return candidates;
     }
+
+    private const int MaxCandidates = 50;
+    private const int MaxFieldChars = 2000;
+    private const int MaxRawChars = 200_000;
+
+    private static string? Cap(string? value)
+        => value is null ? null : value.Length <= MaxFieldChars ? value : value[..MaxFieldChars];
 
     private static List<CandidateEvidence> ResolveEvidence(string? excerpt, List<Message> userMessages)
     {
@@ -88,21 +108,97 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
         return new List<CandidateEvidence> { new(last.Id, last.Content) };
     }
 
+    /// <summary>
+    /// Robustly extract the candidate array from model output. Handles a bare array, a markdown
+    /// code fence, and a wrapping object (<c>{"memories":[...]}</c> etc.). Does NOT do the fragile
+    /// "first [ to last ]" slice, which breaks on brackets inside prose or string values.
+    /// </summary>
     private static List<CandidateDto>? TryParse(string raw)
     {
-        var start = raw.IndexOf('[');
-        var end = raw.LastIndexOf(']');
-        if (start < 0 || end <= start)
+        var text = StripFence(raw).Trim();
+        if (text.Length == 0)
             return null;
 
-        try
+        // Case 1: a JSON object — either a wrapper around the array, or a single candidate.
+        if (text[0] == '{')
         {
-            return JsonSerializer.Deserialize<List<CandidateDto>>(raw[start..(end + 1)], Json);
+            try
+            {
+                using var doc = JsonDocument.Parse(text);
+                var root = doc.RootElement;
+                foreach (var key in new[] { "memories", "items", "candidates", "results" })
+                {
+                    if (root.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                        return arr.Deserialize<List<CandidateDto>>(Json);
+                }
+                // A lone object that looks like one candidate.
+                var single = root.Deserialize<CandidateDto>(Json);
+                return single is null ? null : new List<CandidateDto> { single };
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
         }
-        catch (JsonException)
-        {
+
+        // Case 2: a JSON array, possibly wrapped in prose. Extract it with a balanced-bracket scan
+        // that respects string literals — never the naive "first [ to last ]" slice, which breaks
+        // on a ] inside a string value or trailing commentary.
+        var array = ExtractBalancedArray(text);
+        return array is null ? null : TryDeserializeArray(array);
+    }
+
+    private static List<CandidateDto>? TryDeserializeArray(string json)
+    {
+        try { return JsonSerializer.Deserialize<List<CandidateDto>>(json, Json); }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>Returns the first complete top-level JSON array in <paramref name="s"/>, or null.</summary>
+    private static string? ExtractBalancedArray(string s)
+    {
+        var start = s.IndexOf('[');
+        if (start < 0)
             return null;
+
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        for (var i = start; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (inString)
+            {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            switch (c)
+            {
+                case '"': inString = true; break;
+                case '[': depth++; break;
+                case ']':
+                    depth--;
+                    if (depth == 0) return s[start..(i + 1)];
+                    break;
+            }
         }
+        return null; // unbalanced → treat as unparseable
+    }
+
+    /// <summary>Strips a leading/trailing markdown code fence (```json … ```), if present.</summary>
+    private static string StripFence(string text)
+    {
+        var t = text.Trim();
+        if (!t.StartsWith("```", StringComparison.Ordinal))
+            return t;
+        var firstNewline = t.IndexOf('\n');
+        if (firstNewline < 0)
+            return t;
+        t = t[(firstNewline + 1)..];
+        var lastFence = t.LastIndexOf("```", StringComparison.Ordinal);
+        return lastFence >= 0 ? t[..lastFence] : t;
     }
 
     private static MemoryKind ParseKind(string? kind)

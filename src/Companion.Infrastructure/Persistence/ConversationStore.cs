@@ -47,6 +47,21 @@ public sealed class ConversationStore : IConversationStore
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task<Conversation?> GetConversationAsync(
+        Guid conversationId, string userId, CancellationToken ct = default)
+        => await _db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId, ct);
+
+    public async Task SetDoNotRememberAsync(
+        Guid conversationId, string userId, bool value, CancellationToken ct = default)
+    {
+        var conversation = await _db.Conversations
+            .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId, ct);
+        if (conversation is null)
+            return;
+        conversation.DoNotRemember = value;
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task<IReadOnlyList<Message>> GetRecentMessagesAsync(
         Guid conversationId, string userId, int count, CancellationToken ct = default)
     {

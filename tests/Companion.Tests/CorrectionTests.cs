@@ -60,7 +60,7 @@ public class CorrectionTests
         var reloaded = await store.GetSemanticAsync(m.Id, User);
         Assert.Equal(MemoryStatus.Deleted, reloaded!.Status);
         Assert.Null(reloaded.Embedding);
-        Assert.Contains(await store.GetRevisionsAsync(m.Id), r => r.Kind == RevisionKind.Deleted);
+        Assert.Contains(await store.GetRevisionsAsync(User, m.Id), r => r.Kind == RevisionKind.Deleted);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class CorrectionTests
         await sp.GetRequiredService<IMemoryCurator>().DisputeAsync(User, m.Id, "that's wrong");
 
         Assert.Equal(MemoryStatus.Disputed, (await store.GetSemanticAsync(m.Id, User))!.Status);
-        Assert.Contains(await store.GetRevisionsAsync(m.Id), r => r.Kind == RevisionKind.Disputed);
+        Assert.Contains(await store.GetRevisionsAsync(User, m.Id), r => r.Kind == RevisionKind.Disputed);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class CorrectionTests
         var reloaded = await store.GetSemanticAsync(m.Id, User);
         Assert.Equal("coffee", reloaded!.Value);
         Assert.Equal("The user drinks coffee.", reloaded.NormalizedFact);
-        Assert.Contains(await store.GetRevisionsAsync(m.Id), r => r.Kind == RevisionKind.Updated);
+        Assert.Contains(await store.GetRevisionsAsync(User, m.Id), r => r.Kind == RevisionKind.Updated);
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public class CorrectionTests
 
         var reloaded = await store.GetSemanticAsync(m.Id, User);
         Assert.Equal("buoy project", reloaded!.RelatedProject);
-        Assert.Contains(await store.GetRevisionsAsync(m.Id), r => r.Kind == RevisionKind.Updated);
+        Assert.Contains(await store.GetRevisionsAsync(User, m.Id), r => r.Kind == RevisionKind.Updated);
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class CorrectionTests
 
         var target = await AddFactAsync(sp, "cycling", "The user enjoys cycling.");
         var source = await AddFactAsync(sp, "cycling", "The user likes to cycle.");
-        await store.AddEvidenceAsync(new[]
+        await store.AddEvidenceAsync(User, new[]
         {
             new MemoryEvidence { Id = Guid.NewGuid(), MemoryId = source.Id, MemoryKind = MemoryKind.Semantic,
                 MessageId = Guid.NewGuid(), Excerpt = "I like to cycle", Weight = 1.0 },
@@ -132,8 +132,8 @@ public class CorrectionTests
         await sp.GetRequiredService<IMemoryCurator>().MergeAsync(User, source.Id, target.Id);
 
         Assert.Equal(MemoryStatus.Deleted, (await store.GetSemanticAsync(source.Id, User))!.Status);
-        Assert.NotEmpty(await store.GetEvidenceAsync(target.Id));
-        Assert.Contains(await store.GetRevisionsAsync(target.Id), r => r.Kind == RevisionKind.Merged);
+        Assert.NotEmpty(await store.GetEvidenceAsync(User, target.Id));
+        Assert.Contains(await store.GetRevisionsAsync(User, target.Id), r => r.Kind == RevisionKind.Merged);
     }
 
     [Fact]

@@ -1,5 +1,4 @@
 using System.Net.Http.Json;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using Companion.Core.Abstractions;
 using Microsoft.Extensions.Logging;
@@ -14,17 +13,19 @@ namespace Companion.Infrastructure.Models;
 /// </summary>
 public sealed class OpenAiCompatibleEmbeddingModel : IEmbeddingModel, IDisposable
 {
-    private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
-
     private readonly HttpClient _http;
     private readonly EndpointOptions _options;
     private readonly ILogger<OpenAiCompatibleEmbeddingModel> _logger;
 
     public OpenAiCompatibleEmbeddingModel(EndpointOptions options, ILogger<OpenAiCompatibleEmbeddingModel> logger)
+        : this(options, HttpClientFactory.Create(options), logger) { }
+
+    /// <summary>Test seam: supply a pre-built <see cref="HttpClient"/> (e.g. over a mock handler).</summary>
+    internal OpenAiCompatibleEmbeddingModel(EndpointOptions options, HttpClient http, ILogger<OpenAiCompatibleEmbeddingModel> logger)
     {
         _options = options;
         _logger = logger;
-        _http = HttpClientFactory.Create(options);
+        _http = http;
     }
 
     public int Dimensions => _options.Dimensions; // informational; real length comes from the model
@@ -36,23 +37,24 @@ public sealed class OpenAiCompatibleEmbeddingModel : IEmbeddingModel, IDisposabl
     {
         var request = new { model = _options.Model, input = text };
 
-        try
-        {
-            using var response = await _http.PostAsJsonAsync("embeddings", request, ct);
-            response.EnsureSuccessStatusCode();
-            var body = await response.Content.ReadFromJsonAsync<EmbeddingResponse>(Json, ct);
-            var vector = body?.Data?.FirstOrDefault()?.Embedding;
-            if (vector is null || vector.Length == 0)
-                throw new InvalidOperationException("The embedding model returned no vector.");
-            return vector;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            _logger.LogError(ex, "Embedding request to {BaseUrl} (model {Model}) failed", _options.BaseUrl, _options.Model);
-            throw new InvalidOperationException(
-                $"Couldn't reach the embedding model at {_options.BaseUrl} (model '{_options.Model}'). " +
-                "Is the server running and an embedding model available?", ex);
-        }
+        using var response = await ProviderHttp.SendAsync(
+            c => _http.PostAsJsonAsync("embeddings", request, c), _options, "embeddings", _logger, ct);
+        var body = await ProviderHttp.ReadCappedJsonAsync<EmbeddingResponse>(response, _options.MaxResponseBytes, ct);
+
+        var vector = body?.Data?.FirstOrDefault()?.Embedding;
+        if (vector is null || vector.Length == 0)
+            throw new ModelProviderException(
+                $"The embedding model at {_options.BaseUrl} (model '{_options.Model}') returned no vector.");
+
+        // Guard against a silently-swapped model: a wrong vector length breaks all similarity
+        // math and would corrupt the index. Reject it loudly instead of storing mismatched vectors.
+        if (_options.Dimensions > 0 && vector.Length != _options.Dimensions)
+            throw new ModelProviderException(
+                $"Embedding dimension mismatch from model '{_options.Model}': got {vector.Length}, " +
+                $"configured {_options.Dimensions}. Re-embed after changing the embedding model, " +
+                "or fix Models.Embeddings.Dimensions.");
+
+        return vector;
     }
 
     public void Dispose() => _http.Dispose();

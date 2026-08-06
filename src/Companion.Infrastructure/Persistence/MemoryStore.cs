@@ -18,14 +18,14 @@ public sealed class MemoryStore : IMemoryStore
     public async Task AddSemanticAsync(SemanticMemory memory, CancellationToken ct = default)
     {
         _db.SemanticMemories.Add(memory);
-        await PersistEvidenceAsync(memory.Evidence, memory.Id, MemoryKind.Semantic, ct);
+        await PersistEvidenceAsync(memory.Evidence, memory.Id, MemoryKind.Semantic, memory.UserId, ct);
         await _db.SaveChangesAsync(ct);
     }
 
     public async Task AddEpisodicAsync(EpisodicMemory memory, CancellationToken ct = default)
     {
         _db.EpisodicMemories.Add(memory);
-        await PersistEvidenceAsync(memory.Evidence, memory.Id, MemoryKind.Episodic, ct);
+        await PersistEvidenceAsync(memory.Evidence, memory.Id, MemoryKind.Episodic, memory.UserId, ct);
         await _db.SaveChangesAsync(ct);
     }
 
@@ -67,12 +67,14 @@ public sealed class MemoryStore : IMemoryStore
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task AddEvidenceAsync(IReadOnlyList<MemoryEvidence> evidence, CancellationToken ct = default)
+    public async Task AddEvidenceAsync(
+        string userId, IReadOnlyList<MemoryEvidence> evidence, CancellationToken ct = default)
     {
         foreach (var e in evidence)
         {
             if (e.Id == Guid.Empty)
                 e.Id = Guid.NewGuid();
+            e.UserId = userId; // ownership is set by the caller's trusted context, never the model
             _db.Evidence.Add(e);
         }
         await _db.SaveChangesAsync(ct);
@@ -96,26 +98,27 @@ public sealed class MemoryStore : IMemoryStore
     }
 
     public async Task<IReadOnlyList<MemoryEvidence>> GetEvidenceAsync(
-        Guid memoryId, CancellationToken ct = default)
-        => await _db.Evidence.Where(e => e.MemoryId == memoryId).ToListAsync(ct);
+        string userId, Guid memoryId, CancellationToken ct = default)
+        => await _db.Evidence.Where(e => e.MemoryId == memoryId && e.UserId == userId).ToListAsync(ct);
 
-    public async Task AddRevisionAsync(MemoryRevision revision, CancellationToken ct = default)
+    public async Task AddRevisionAsync(string userId, MemoryRevision revision, CancellationToken ct = default)
     {
         if (revision.Id == Guid.Empty)
             revision.Id = Guid.NewGuid();
+        revision.UserId = userId; // ownership stamped from trusted context
         _db.Revisions.Add(revision);
         await _db.SaveChangesAsync(ct);
     }
 
     public async Task<IReadOnlyList<MemoryRevision>> GetRevisionsAsync(
-        Guid memoryId, CancellationToken ct = default)
+        string userId, Guid memoryId, CancellationToken ct = default)
         => await _db.Revisions
-            .Where(r => r.MemoryId == memoryId)
+            .Where(r => r.MemoryId == memoryId && r.UserId == userId)
             .OrderBy(r => r.Timestamp)
             .ToListAsync(ct);
 
     private Task PersistEvidenceAsync(
-        IEnumerable<MemoryEvidence> evidence, Guid memoryId, MemoryKind kind, CancellationToken ct)
+        IEnumerable<MemoryEvidence> evidence, Guid memoryId, MemoryKind kind, string userId, CancellationToken ct)
     {
         foreach (var e in evidence)
         {
@@ -123,6 +126,7 @@ public sealed class MemoryStore : IMemoryStore
                 e.Id = Guid.NewGuid();
             e.MemoryId = memoryId;
             e.MemoryKind = kind;
+            e.UserId = userId; // authoritative: evidence inherits the owning memory's user
             _db.Evidence.Add(e);
         }
         return Task.CompletedTask;

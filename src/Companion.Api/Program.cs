@@ -41,7 +41,8 @@ app.UseWebSockets();
 app.UseDefaultFiles();   // serve wwwroot/index.html at "/"
 app.UseStaticFiles();
 
-static string Uid(string? userId) => string.IsNullOrWhiteSpace(userId) ? CompanionSeeder.DemoUserId : userId;
+// The active user always comes from the trusted IUserContext (a scoped/DI singleton), never
+// from the request. This keeps the API ownership-safe ahead of a real auth boundary.
 
 // ---- health / status ----
 
@@ -68,37 +69,37 @@ app.MapGet("/health", (ModelOptions models) =>
 
 // ---- conversations ----
 
-app.MapPost("/conversations", async (StartConversationRequest? req, IConversationStore store, CancellationToken ct) =>
+app.MapPost("/conversations", async (StartConversationRequest? req, IUserContext user, IConversationStore store, CancellationToken ct) =>
 {
     var conv = await store.StartConversationAsync(
-        Uid(req?.UserId), req?.Title ?? "API session", modelUsed: null, source: req?.Source ?? "api", ct);
+        user.UserId, req?.Title ?? "API session", modelUsed: null, source: req?.Source ?? "api", ct);
     return Results.Ok(new { conversationId = conv.Id.ToString() });
 });
 
 // ---- chat (non-streaming) ----
 
-app.MapPost("/chat", async (ChatRequest req, IAgent agent, CancellationToken ct) =>
+app.MapPost("/chat", async (ChatRequest req, IUserContext user, IAgent agent, CancellationToken ct) =>
 {
     if (!Guid.TryParse(req.ConversationId, out var convId))
         return Results.BadRequest(new { error = "conversationId must be a GUID (start one via POST /conversations)." });
 
-    var reply = await agent.HandleAsync(Uid(req.UserId), convId, req.Message, tokenSink: null, ct);
+    var reply = await agent.HandleAsync(user.UserId, convId, req.Message, tokenSink: null, ct);
     return Results.Ok(ReplyDto.From(reply));
 });
 
-app.MapPost("/chat/confirm", async (ConfirmRequest req, IAgent agent, CancellationToken ct) =>
+app.MapPost("/chat/confirm", async (ConfirmRequest req, IUserContext user, IAgent agent, CancellationToken ct) =>
 {
     if (!Guid.TryParse(req.ConversationId, out var convId))
         return Results.BadRequest(new { error = "conversationId must be a GUID." });
 
-    var reply = await agent.ConfirmAsync(Uid(req.UserId), convId, req.ConfirmationToken, req.Confirmed, ct);
+    var reply = await agent.ConfirmAsync(user.UserId, convId, req.ConfirmationToken, req.Confirmed, ct);
     return Results.Ok(ReplyDto.From(reply));
 });
 
 // ---- chat (Server-Sent Events streaming) ----
-// EventSource is GET-only, so parameters come in the query string.
-app.MapGet("/chat/stream", async (HttpContext ctx, IServiceScopeFactory scopes,
-    string conversationId, string message, string? userId, CancellationToken ct) =>
+// EventSource is GET-only, so parameters come in the query string. The user is NOT one of them.
+app.MapGet("/chat/stream", async (HttpContext ctx, IUserContext user, IServiceScopeFactory scopes,
+    string conversationId, string message, CancellationToken ct) =>
 {
     if (!Guid.TryParse(conversationId, out var convId))
     {
@@ -122,7 +123,7 @@ app.MapGet("/chat/stream", async (HttpContext ctx, IServiceScopeFactory scopes,
 
     async Task<AgentReply> Run()
     {
-        try { return await agent.HandleAsync(Uid(userId), convId, message, sink, ct); }
+        try { return await agent.HandleAsync(user.UserId, convId, message, sink, ct); }
         finally { sink.Complete(); }
     }
 
@@ -141,7 +142,7 @@ app.MapGet("/chat/stream", async (HttpContext ctx, IServiceScopeFactory scopes,
 });
 
 // ---- WebSocket (bidirectional; the avatar/voice-facing channel) ----
-app.Map("/ws", async (HttpContext ctx, IServiceScopeFactory scopes, IConversationStore conversations, CancellationToken ct) =>
+app.Map("/ws", async (HttpContext ctx, IUserContext user, IServiceScopeFactory scopes, IConversationStore conversations, CancellationToken ct) =>
 {
     if (!ctx.WebSockets.IsWebSocketRequest)
     {
@@ -150,31 +151,30 @@ app.Map("/ws", async (HttpContext ctx, IServiceScopeFactory scopes, IConversatio
     }
 
     using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
-    var userId = Uid(ctx.Request.Query["userId"]);
 
-    // Each connection gets its own conversation unless the client overrides it per message.
-    var conv = await conversations.StartConversationAsync(userId, "WebSocket session", null, "ws", ct);
-    await WebSocketConversation.RunAsync(socket, scopes, userId, conv.Id, ct);
+    // Each connection gets its own conversation. The user comes from trusted context, not the query.
+    var conv = await conversations.StartConversationAsync(user.UserId, "WebSocket session", null, "ws", ct);
+    await WebSocketConversation.RunAsync(socket, scopes, user.UserId, conv.Id, ct);
 });
 
 // ---- structured read endpoints (for rich UIs; the conversational path covers the same ground) ----
 
-app.MapGet("/memories", async (string? userId, IMemoryStore store, CancellationToken ct) =>
+app.MapGet("/memories", async (IUserContext user, IMemoryStore store, CancellationToken ct) =>
 {
-    var memories = await store.GetRetrievableMemoriesAsync(Uid(userId), ct);
+    var memories = await store.GetRetrievableMemoriesAsync(user.UserId, ct);
     return Results.Ok(memories.OrderByDescending(m => m.EffectiveAt).Select(MemoryDto.From));
 });
 
-app.MapGet("/projects", async (string? userId, IProjectStore store, CancellationToken ct) =>
+app.MapGet("/projects", async (IUserContext user, IProjectStore store, CancellationToken ct) =>
 {
-    var projects = await store.GetProjectsAsync(Uid(userId), ct);
+    var projects = await store.GetProjectsAsync(user.UserId, ct);
     return Results.Ok(projects.OrderByDescending(p => p.LastActivityAt).Select(ProjectDto.From));
 });
 
-app.MapGet("/projects/{name}", async (string name, string? userId,
+app.MapGet("/projects/{name}", async (string name, IUserContext user,
     IEntityResolver resolver, IProjectContextService context, CancellationToken ct) =>
 {
-    var uid = Uid(userId);
+    var uid = user.UserId;
     var resolution = await resolver.ResolveProjectAsync(uid, name, ct);
     if (resolution.RequiresClarification)
         return Results.Ok(new { requiresClarification = true, question = resolution.ClarificationQuestion });
@@ -196,27 +196,27 @@ app.MapGet("/projects/{name}", async (string name, string? userId,
     });
 });
 
-app.MapGet("/loops", async (string? userId, IProjectStore store, CancellationToken ct) =>
+app.MapGet("/loops", async (IUserContext user, IProjectStore store, CancellationToken ct) =>
 {
-    var loops = await store.GetOpenLoopsAsync(Uid(userId), onlyOpen: true, ct);
+    var loops = await store.GetOpenLoopsAsync(user.UserId, onlyOpen: true, ct);
     return Results.Ok(loops.Select(OpenLoopDto.From));
 });
 
-app.MapGet("/persona", async (string? userId, IProfileStore store, CancellationToken ct) =>
+app.MapGet("/persona", async (IUserContext user, IProfileStore store, CancellationToken ct) =>
 {
-    var profile = await store.GetOrCreateAsync(Uid(userId), ct);
+    var profile = await store.GetOrCreateAsync(user.UserId, ct);
     return Results.Ok(new { persona = profile.Persona });
 });
 
-app.MapPut("/persona", async (PersonaRequest req, IProfileStore store, CancellationToken ct) =>
+app.MapPut("/persona", async (PersonaRequest req, IUserContext user, IProfileStore store, CancellationToken ct) =>
 {
-    await store.SetPersonaAsync(Uid(req.UserId), req.Persona, ct);
+    await store.SetPersonaAsync(user.UserId, req.Persona, ct);
     return Results.Ok(new { persona = req.Persona });
 });
 
 // Thumbs up/down for a rich UI. Routed through the brain so it uses the exact same last-exchange
 // reconstruction as saying "that was great" out loud.
-app.MapPost("/feedback", async (FeedbackRequest req, IAgent agent, CancellationToken ct) =>
+app.MapPost("/feedback", async (FeedbackRequest req, IUserContext user, IAgent agent, CancellationToken ct) =>
 {
     if (!Guid.TryParse(req.ConversationId, out var convId))
         return Results.BadRequest(new { error = "conversationId must be a GUID." });
@@ -226,7 +226,7 @@ app.MapPost("/feedback", async (FeedbackRequest req, IAgent agent, CancellationT
     if (!string.IsNullOrWhiteSpace(req.Note))
         phrase += " — " + req.Note;
 
-    var reply = await agent.HandleAsync(Uid(req.UserId), convId, phrase, tokenSink: null, ct);
+    var reply = await agent.HandleAsync(user.UserId, convId, phrase, tokenSink: null, ct);
     return Results.Ok(ReplyDto.From(reply));
 });
 

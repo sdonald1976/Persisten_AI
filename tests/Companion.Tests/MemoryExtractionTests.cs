@@ -62,8 +62,8 @@ public class MemoryExtractionTests
         Assert.NotNull(decision.ResultingMemoryId);
 
         var store = scope.ServiceProvider.GetRequiredService<IMemoryStore>();
-        Assert.NotEmpty(await store.GetEvidenceAsync(decision.ResultingMemoryId!.Value));
-        var revisions = await store.GetRevisionsAsync(decision.ResultingMemoryId!.Value);
+        Assert.NotEmpty(await store.GetEvidenceAsync(User, decision.ResultingMemoryId!.Value));
+        var revisions = await store.GetRevisionsAsync(User, decision.ResultingMemoryId!.Value);
         Assert.Contains(revisions, r => r.Kind == RevisionKind.Created);
     }
 
@@ -102,7 +102,7 @@ public class MemoryExtractionTests
             .Where(m => m.Content.Contains("Thai", StringComparison.OrdinalIgnoreCase))
             .ToList();
         Assert.Single(thai);
-        Assert.True((await store.GetEvidenceAsync(thai[0].Id)).Count >= 2);
+        Assert.True((await store.GetEvidenceAsync(User, thai[0].Id)).Count >= 2);
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public class MemoryExtractionTests
         Assert.DoesNotContain(current, m => m.Value == "low carb");
 
         // The supersession is on the audit trail.
-        Assert.Contains(await store.GetRevisionsAsync(existing.Id), r => r.Kind == RevisionKind.Superseded);
+        Assert.Contains(await store.GetRevisionsAsync(User, existing.Id), r => r.Kind == RevisionKind.Superseded);
     }
 
     [Fact]

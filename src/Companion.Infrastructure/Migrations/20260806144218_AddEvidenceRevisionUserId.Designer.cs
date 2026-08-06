@@ -3,6 +3,7 @@ using System;
 using Companion.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Companion.Infrastructure.Migrations
 {
     [DbContext(typeof(CompanionDbContext))]
-    partial class CompanionDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260806144218_AddEvidenceRevisionUserId")]
+    partial class AddEvidenceRevisionUserId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.18");
@@ -22,9 +25,6 @@ namespace Companion.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
-
-                    b.Property<bool>("DoNotRemember")
-                        .HasColumnType("INTEGER");
 
                     b.Property<long>("LastActivityAt")
                         .HasColumnType("INTEGER");
@@ -375,66 +375,6 @@ namespace Companion.Infrastructure.Migrations
                     b.HasIndex("UserId", "Status");
 
                     b.ToTable("OpenLoops");
-                });
-
-            modelBuilder.Entity("Companion.Core.Domain.PendingClarification", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AmbiguityType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CandidatesJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ConversationId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<Guid>("OriginalMessageId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("OriginalText")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Question")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ResolutionNote")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long?>("ResolvedAt")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<Guid?>("ResolvedProjectId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ConversationId", "Status");
-
-                    b.HasIndex("UserId", "Status");
-
-                    b.ToTable("PendingClarifications");
                 });
 
             modelBuilder.Entity("Companion.Core.Domain.Project", b =>

@@ -35,9 +35,12 @@ public sealed class RuleBasedIntentParser : IIntentParser
             return Intent.Chat;
 
         // Order matters: check specific, side-effecting phrasings before general chat.
+        // Privacy runs before Forget so "forget this conversation" is a privacy toggle, not a
+        // memory deletion.
         return TryPersona(text)
             ?? TryStyle(text)
             ?? TryFeedback(text)
+            ?? TryPrivacy(text)
             ?? TryDispute(text)
             ?? TryForget(text)
             ?? TryRecall(text)
@@ -45,6 +48,15 @@ public sealed class RuleBasedIntentParser : IIntentParser
             ?? TryConsolidate(text)
             ?? Intent.Chat;
     }
+
+    private static readonly Regex PrivacyRx = new(
+        @"\b(do ?n'?t (?:remember|save|store|record|log) this|" +
+        @"forget this (?:conversation|chat|session|exchange)|" +
+        @"(?:this is|keep this|make this|let'?s keep this) (?:private|off[- ]the[- ]record)|" +
+        @"private (?:session|mode)|off[- ]the[- ]record|don'?t keep this)\b", Opts);
+
+    private static Intent? TryPrivacy(string text)
+        => PrivacyRx.IsMatch(text) ? new Intent { Kind = IntentKind.PrivacyDoNotRemember, Argument = Clean(text) } : null;
 
     private static readonly Regex PersonaRx =
         new(@"^(?:set\s+)?(?:your\s+)?persona\s*(?:to|as|:|is)?\s*(.+)$", Opts);

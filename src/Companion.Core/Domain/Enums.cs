@@ -7,6 +7,22 @@ public enum MemoryKind
     Episodic,
 }
 
+/// <summary>The outcome of a turn — whether it answered or paused for a control-flow reason.</summary>
+public enum TurnStatus
+{
+    /// <summary>A normal answered turn (retrieval + generation + memory pipeline ran).</summary>
+    Answered,
+
+    /// <summary>The reference was ambiguous; the turn asked a clarifying question and ran nothing else.</summary>
+    ClarificationRequested,
+
+    /// <summary>This turn answered a pending clarification and resumed the original request.</summary>
+    ClarificationResolved,
+
+    /// <summary>The user cancelled a pending clarification ("never mind").</summary>
+    ClarificationCancelled,
+}
+
 /// <summary>
 /// The lifecycle state shared by all memories.
 /// Candidate -> Active -> (Superseded | Disputed | Deleted).
@@ -78,6 +94,9 @@ public enum IntentKind
 
     /// <summary>"That was unhelpful / a bad answer."</summary>
     FeedbackNegative,
+
+    /// <summary>"Don't remember this conversation / private session." (skip durable memory)</summary>
+    PrivacyDoNotRemember,
 }
 
 /// <summary>How the user rated a reply — the signal a style fine-tune (DPO) later learns from.</summary>

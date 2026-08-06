@@ -109,7 +109,7 @@ public sealed class ProjectUpdater : IProjectUpdater
     {
         // Prefer loops in the resolved project; otherwise consider all the user's open loops.
         var loops = project is not null
-            ? await _projects.GetOpenLoopsByProjectAsync(project.Id, onlyOpen: true, ct)
+            ? await _projects.GetOpenLoopsByProjectAsync(userId, project.Id, onlyOpen: true, ct)
             : await _projects.GetOpenLoopsAsync(userId, onlyOpen: true, ct);
         if (loops.Count == 0)
             return null;

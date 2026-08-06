@@ -64,6 +64,14 @@ public sealed class MemoryPipeline : IMemoryPipeline
         var decisions = new List<MemoryDecision>(batch.Count);
         foreach (var candidate in batch)
         {
+            // Privacy guard: never persist obvious credentials, even if the model proposed them.
+            if (LooksLikeSecret(candidate))
+            {
+                _logger.LogWarning("Rejected a candidate memory for {UserId} that looks like a credential.", userId);
+                decisions.Add(Reject(candidate, "looks like a credential — not stored"));
+                continue;
+            }
+
             var decision = candidate.Kind == MemoryKind.Semantic
                 ? await ProcessSemanticAsync(userId, candidate, existingSemantic, userMessageIds, validMessageIds, ct)
                 : await ProcessEpisodicAsync(userId, candidate, existingEpisodic, userMessageIds, validMessageIds, ct);
@@ -181,9 +189,9 @@ public sealed class MemoryPipeline : IMemoryPipeline
             RelatedProject = c.RelatedProject,
             Embedding = embedding,
         };
-        AttachEvidence(memory.Evidence, evidence, memory.Id, MemoryKind.Semantic);
+        AttachEvidence(memory.Evidence, evidence, memory.Id, MemoryKind.Semantic, userId);
         await _store.AddSemanticAsync(memory, ct);
-        await WriteRevisionAsync(memory.Id, MemoryKind.Semantic, RevisionKind.Created,
+        await WriteRevisionAsync(userId, memory.Id, MemoryKind.Semantic, RevisionKind.Created,
             $"Accepted new fact (confidence {confidence:F2}).", after: memory.NormalizedFact, ct: ct);
 
         return new MemoryDecision
@@ -217,9 +225,9 @@ public sealed class MemoryPipeline : IMemoryPipeline
             RelatedProject = c.RelatedProject,
             Embedding = embedding,
         };
-        AttachEvidence(memory.Evidence, evidence, memory.Id, MemoryKind.Episodic);
+        AttachEvidence(memory.Evidence, evidence, memory.Id, MemoryKind.Episodic, userId);
         await _store.AddEpisodicAsync(memory, ct);
-        await WriteRevisionAsync(memory.Id, MemoryKind.Episodic, RevisionKind.Created,
+        await WriteRevisionAsync(userId, memory.Id, MemoryKind.Episodic, RevisionKind.Created,
             $"Accepted new event (confidence {confidence:F2}).", after: memory.Description, ct: ct);
 
         return new MemoryDecision
@@ -242,9 +250,9 @@ public sealed class MemoryPipeline : IMemoryPipeline
         target.Confidence = newConfidence;
         target.LastConfirmed = _clock.GetUtcNow();
 
-        await AddMergeEvidenceAsync(evidence, target.Id, MemoryKind.Semantic, ct);
+        await AddMergeEvidenceAsync(target.UserId, evidence, target.Id, MemoryKind.Semantic, ct);
         await _store.UpdateSemanticAsync(target, ct);
-        await WriteRevisionAsync(target.Id, MemoryKind.Semantic, RevisionKind.Confirmed,
+        await WriteRevisionAsync(target.UserId, target.Id, MemoryKind.Semantic, RevisionKind.Confirmed,
             "Confirmed existing fact from a new mention.", before,
             $"confidence={newConfidence:F2}, lastConfirmed={target.LastConfirmed:o}", ct);
 
@@ -269,9 +277,9 @@ public sealed class MemoryPipeline : IMemoryPipeline
         target.Confidence = newConfidence;
         target.MentionedAt = _clock.GetUtcNow();
 
-        await AddMergeEvidenceAsync(evidence, target.Id, MemoryKind.Episodic, ct);
+        await AddMergeEvidenceAsync(target.UserId, evidence, target.Id, MemoryKind.Episodic, ct);
         await _store.UpdateEpisodicAsync(target, ct);
-        await WriteRevisionAsync(target.Id, MemoryKind.Episodic, RevisionKind.Confirmed,
+        await WriteRevisionAsync(target.UserId, target.Id, MemoryKind.Episodic, RevisionKind.Confirmed,
             "Confirmed existing event from a new mention.", before,
             $"confidence={newConfidence:F2}, mentionedAt={target.MentionedAt:o}", ct);
 
@@ -311,7 +319,7 @@ public sealed class MemoryPipeline : IMemoryPipeline
             RelatedProject = c.RelatedProject,
             Embedding = embedding,
         };
-        AttachEvidence(replacement.Evidence, evidence, replacement.Id, MemoryKind.Semantic);
+        AttachEvidence(replacement.Evidence, evidence, replacement.Id, MemoryKind.Semantic, userId);
 
         await _curator.SupersedeSemanticAsync(
             userId, old.Id, replacement, $"User stated a new value for '{old.Predicate}'.", ct);
@@ -353,9 +361,9 @@ public sealed class MemoryPipeline : IMemoryPipeline
             RelatedProject = c.RelatedProject,
             Embedding = embedding,
         };
-        AttachEvidence(memory.Evidence, evidence, memory.Id, MemoryKind.Semantic);
+        AttachEvidence(memory.Evidence, evidence, memory.Id, MemoryKind.Semantic, userId);
         await _store.AddSemanticAsync(memory, ct);
-        await WriteRevisionAsync(memory.Id, MemoryKind.Semantic, RevisionKind.Created,
+        await WriteRevisionAsync(userId, memory.Id, MemoryKind.Semantic, RevisionKind.Created,
             $"Held for review: contradicts existing value \"{conflicting.Value}\".",
             before: conflicting.NormalizedFact, after: memory.NormalizedFact, ct: ct);
 
@@ -371,6 +379,12 @@ public sealed class MemoryPipeline : IMemoryPipeline
     }
 
     // ---- helpers ----
+
+    /// <summary>True if the candidate's own text or any of its cited excerpts contains a credential.</summary>
+    private static bool LooksLikeSecret(MemoryCandidate c)
+        => SecretDetector.LooksLikeSecret(c.Content)
+            || SecretDetector.LooksLikeSecret(c.Value)
+            || c.Evidence.Any(e => SecretDetector.LooksLikeSecret(e.Excerpt));
 
     private static List<MemoryCandidate> DedupeBatch(List<MemoryCandidate> items)
     {
@@ -421,11 +435,13 @@ public sealed class MemoryPipeline : IMemoryPipeline
             .ToList();
 
     private static void AttachEvidence(
-        ICollection<MemoryEvidence> target, List<MemoryEvidence> evidence, Guid memoryId, MemoryKind kind)
+        ICollection<MemoryEvidence> target, List<MemoryEvidence> evidence,
+        Guid memoryId, MemoryKind kind, string userId)
     {
         foreach (var e in evidence)
         {
             e.Id = Guid.NewGuid();
+            e.UserId = userId;
             e.MemoryId = memoryId;
             e.MemoryKind = kind;
             target.Add(e);
@@ -433,23 +449,25 @@ public sealed class MemoryPipeline : IMemoryPipeline
     }
 
     private async Task AddMergeEvidenceAsync(
-        List<MemoryEvidence> evidence, Guid memoryId, MemoryKind kind, CancellationToken ct)
+        string userId, List<MemoryEvidence> evidence, Guid memoryId, MemoryKind kind, CancellationToken ct)
     {
         foreach (var e in evidence)
         {
             e.Id = Guid.NewGuid();
+            e.UserId = userId;
             e.MemoryId = memoryId;
             e.MemoryKind = kind;
         }
-        await _store.AddEvidenceAsync(evidence, ct);
+        await _store.AddEvidenceAsync(userId, evidence, ct);
     }
 
     private Task WriteRevisionAsync(
-        Guid memoryId, MemoryKind kind, RevisionKind revision, string note,
+        string userId, Guid memoryId, MemoryKind kind, RevisionKind revision, string note,
         string? before = null, string? after = null, CancellationToken ct = default)
-        => _store.AddRevisionAsync(new MemoryRevision
+        => _store.AddRevisionAsync(userId, new MemoryRevision
         {
             Id = Guid.NewGuid(),
+            UserId = userId,
             MemoryId = memoryId,
             MemoryKind = kind,
             Kind = revision,

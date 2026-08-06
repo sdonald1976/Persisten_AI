@@ -5,16 +5,18 @@ using Companion.Core.Domain;
 namespace Companion.Api;
 
 // ---- request bodies ----
+// Note: requests never carry a user id. The active user is derived from the server's trusted
+// IUserContext, never from the request body, so a caller cannot act as another user.
 
-public sealed record ChatRequest(string? UserId, string ConversationId, string Message);
+public sealed record ChatRequest(string ConversationId, string Message);
 
-public sealed record ConfirmRequest(string? UserId, string ConversationId, string ConfirmationToken, bool Confirmed);
+public sealed record ConfirmRequest(string ConversationId, string ConfirmationToken, bool Confirmed);
 
-public sealed record StartConversationRequest(string? UserId, string? Title, string? Source);
+public sealed record StartConversationRequest(string? Title, string? Source);
 
-public sealed record PersonaRequest(string? UserId, string? Persona);
+public sealed record PersonaRequest(string? Persona);
 
-public sealed record FeedbackRequest(string? UserId, string ConversationId, string Rating, string? Note);
+public sealed record FeedbackRequest(string ConversationId, string Rating, string? Note);
 
 // ---- responses ----
 

@@ -106,10 +106,10 @@ public sealed class MemoryConsolidator : IMemoryConsolidator
         var seenMessages = new HashSet<Guid>();
         foreach (var member in cluster)
         {
-            foreach (var e in await _memories.GetEvidenceAsync(member.Id, ct))
+            foreach (var e in await _memories.GetEvidenceAsync(userId, member.Id, ct))
             {
                 if (seenMessages.Add(e.MessageId))
-                    evidence.Add(new MemoryEvidence { MessageId = e.MessageId, Excerpt = e.Excerpt, Weight = e.Weight });
+                    evidence.Add(new MemoryEvidence { UserId = userId, MessageId = e.MessageId, Excerpt = e.Excerpt, Weight = e.Weight });
             }
         }
 
@@ -141,9 +141,10 @@ public sealed class MemoryConsolidator : IMemoryConsolidator
         }
 
         await _memories.AddSemanticAsync(consolidated, ct);
-        await _memories.AddRevisionAsync(new MemoryRevision
+        await _memories.AddRevisionAsync(userId, new MemoryRevision
         {
             Id = Guid.NewGuid(),
+            UserId = userId,
             MemoryId = consolidated.Id,
             MemoryKind = MemoryKind.Semantic,
             Kind = RevisionKind.Created,

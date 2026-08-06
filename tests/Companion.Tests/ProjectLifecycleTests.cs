@@ -56,7 +56,7 @@ public class ProjectLifecycleTests
                 .Single(p => p.Name == CompanionSeeder.JetsonProject).Id;
 
             // Precondition: the Jetson "test at home" loop is open.
-            var openBefore = await projects.GetOpenLoopsByProjectAsync(jetsonId, onlyOpen: true);
+            var openBefore = await projects.GetOpenLoopsByProjectAsync(CompanionSeeder.DemoUserId, jetsonId, onlyOpen: true);
             Assert.NotEmpty(openBefore);
         }
 
@@ -70,10 +70,10 @@ public class ProjectLifecycleTests
         using (var verify = host.CreateScope())
         {
             var projects = verify.ServiceProvider.GetRequiredService<IProjectStore>();
-            var openAfter = await projects.GetOpenLoopsByProjectAsync(jetsonId, onlyOpen: true);
+            var openAfter = await projects.GetOpenLoopsByProjectAsync(CompanionSeeder.DemoUserId, jetsonId, onlyOpen: true);
             Assert.Empty(openAfter); // the loop was closed
 
-            var resolved = (await projects.GetOpenLoopsByProjectAsync(jetsonId, onlyOpen: false))
+            var resolved = (await projects.GetOpenLoopsByProjectAsync(CompanionSeeder.DemoUserId, jetsonId, onlyOpen: false))
                 .Single(l => l.Status == OpenLoopStatus.Resolved);
             Assert.NotNull(resolved.ClosureEvidence);
         }

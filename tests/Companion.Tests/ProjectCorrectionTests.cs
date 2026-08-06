@@ -37,9 +37,9 @@ public class ProjectCorrectionTests
 
         // Source project gone; its open loop and alias now belong to the target.
         Assert.Null(await projects.GetProjectAsync(buoy.Id, User));
-        var jetsonLoops = await projects.GetOpenLoopsByProjectAsync(jetson.Id, onlyOpen: false);
+        var jetsonLoops = await projects.GetOpenLoopsByProjectAsync(User, jetson.Id, onlyOpen: false);
         Assert.Contains(jetsonLoops, l => l.Description.Contains("buoy", StringComparison.OrdinalIgnoreCase));
-        var jetsonAliases = await projects.GetAliasesByProjectAsync(jetson.Id);
+        var jetsonAliases = await projects.GetAliasesByProjectAsync(User, jetson.Id);
         Assert.Contains(jetsonAliases, a => a.Alias == CompanionSeeder.BuoyProject); // old name kept as alias
 
         // Memories that named the buoy project are re-pointed to the survivor.
@@ -74,7 +74,7 @@ public class ProjectCorrectionTests
         var projects = sp.GetRequiredService<IProjectStore>();
 
         var jetson = (await projects.GetProjectsAsync(User)).Single(p => p.Name == CompanionSeeder.JetsonProject);
-        var loop = (await projects.GetOpenLoopsByProjectAsync(jetson.Id, onlyOpen: true)).Single();
+        var loop = (await projects.GetOpenLoopsByProjectAsync(User, jetson.Id, onlyOpen: true)).Single();
 
         var created = await sp.GetRequiredService<IProjectCurator>()
             .SplitProjectAsync(User, jetson.Id, "Jetson home testing", new[] { loop.Id }, new[] { "object detection" });
@@ -82,8 +82,8 @@ public class ProjectCorrectionTests
         Assert.Equal("Jetson home testing", created.Name);
 
         // The moved loop and alias now belong to the new project; the source no longer has them.
-        Assert.Contains(await projects.GetOpenLoopsByProjectAsync(created.Id, onlyOpen: false), l => l.Id == loop.Id);
-        Assert.Empty(await projects.GetOpenLoopsByProjectAsync(jetson.Id, onlyOpen: true));
-        Assert.Contains(await projects.GetAliasesByProjectAsync(created.Id), a => a.Alias == "object detection");
+        Assert.Contains(await projects.GetOpenLoopsByProjectAsync(User, created.Id, onlyOpen: false), l => l.Id == loop.Id);
+        Assert.Empty(await projects.GetOpenLoopsByProjectAsync(User, jetson.Id, onlyOpen: true));
+        Assert.Contains(await projects.GetAliasesByProjectAsync(User, created.Id), a => a.Alias == "object detection");
     }
 }

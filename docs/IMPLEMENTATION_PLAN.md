@@ -19,7 +19,7 @@ and required tests.
 ## Phase 1 — Repository assessment ✅
 
 **Status: complete.** See `CURRENT_ARCHITECTURE_ASSESSMENT.md`. Finding: the repository
-is empty, so this is a greenfield build. No code was modified during assessment.
+*started* empty, so this was a greenfield build (it is now fully implemented on .NET 9).
 
 ## Phase 2 — Minimal vertical slice
 
@@ -169,7 +169,7 @@ reference scenarios run as a repeatable benchmark.
 
 ## Project status: all phases complete
 
-Phases 0–6 are implemented with 70 passing tests. The system fulfills the success criteria in
+Phases 0–6 are implemented and the full test suite passes (`dotnet test`). The system fulfills the success criteria in
 `PERSISTENT_COMPANION_VISION.md`: it resumes months-old discussions, retrieves the right
 project without flooding the prompt, keeps outdated information out of "current", attaches
 evidence and confidence to memories, lets the user inspect and correct them, never resurfaces

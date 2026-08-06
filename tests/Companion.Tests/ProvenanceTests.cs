@@ -26,7 +26,7 @@ public class ProvenanceTests
 
         foreach (var memory in all)
         {
-            var evidence = await memories.GetEvidenceAsync(memory.Id);
+            var evidence = await memories.GetEvidenceAsync(CompanionSeeder.DemoUserId, memory.Id);
             Assert.NotEmpty(evidence); // no memory without provenance
 
             foreach (var e in evidence)

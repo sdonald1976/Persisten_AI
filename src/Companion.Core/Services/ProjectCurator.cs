@@ -113,7 +113,7 @@ public sealed class ProjectCurator : IProjectCurator
             }
         }
 
-        var sourceAliases = await _projects.GetAliasesByProjectAsync(sourceId, ct);
+        var sourceAliases = await _projects.GetAliasesByProjectAsync(userId, sourceId, ct);
         foreach (var alias in sourceAliases.Where(a => aliasesToMove.Contains(a.Alias, StringComparer.OrdinalIgnoreCase)))
         {
             alias.ProjectId = created.Id;

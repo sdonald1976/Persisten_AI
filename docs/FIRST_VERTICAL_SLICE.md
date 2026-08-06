@@ -1,18 +1,21 @@
 # First Vertical Slice — Proposed Files
 
+> **Historical planning document.** This was the pre-implementation proposal for the Phase 2
+> vertical slice, written when the repository was empty. The slice (and much more) has since been
+> built — see `README.md` for the current state. Kept for provenance.
+
 This is the exact set of files the **Phase 2** vertical slice would add. It is scoped to
 the smallest complete loop that produces real value and is fully runnable/testable with
-**mock models** (no network, no GPU). Nothing here is built yet — this is the proposal to
-approve before implementation.
+**mock models** (no network, no GPU).
 
-Since the repository is empty, every file below is **added** (none changed).
+Since the repository started empty, every file below was **added** (none changed).
 
 ## Solution & build
 
 | File | Purpose |
 |------|---------|
 | `Persisten_AI.sln` | Solution referencing the four projects. |
-| `Directory.Build.props` | `net8.0`, `<Nullable>enable</Nullable>`, `<ImplicitUsings>enable</ImplicitUsings>`, `<LangVersion>latest</LangVersion>`. |
+| `Directory.Build.props` | `net9.0`, `<Nullable>enable</Nullable>`, `<ImplicitUsings>enable</ImplicitUsings>`, `<LangVersion>latest</LangVersion>`. |
 | `.gitignore` | Standard .NET ignore (bin/obj, `*.db`, user secrets). |
 | `README.md` | How to build, seed, and run the CLI. |
 

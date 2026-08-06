@@ -2,6 +2,13 @@
 
 _Date: 2026-08-05_
 
+> **Status update (historical document).** This records the repository's state at the very start
+> of the project, when it was empty. That is no longer true: the companion is now fully
+> implemented — five projects (`Companion.Core`, `Companion.Infrastructure`, `Companion.Cli`,
+> `Companion.Api`, `Companion.Tests`) on **.NET 9**, with EF Core migrations, a full turn
+> pipeline, and an extensive test suite. See the `README.md` and the other `docs/` for the
+> current architecture. The text below is kept as the original greenfield-assessment record.
+
 ## Summary
 
 **The repository is empty.** At the time of this assessment it contained no source
@@ -46,7 +53,7 @@ deliberately guards against that (see "Risks" below).
 Nothing internal. Externally we will reuse well-understood, low-risk building blocks
 rather than writing them ourselves:
 
-- **.NET 8 (LTS)** — the stated language/runtime expectation for this project.
+- **.NET 9** — the language/runtime the project targets (originally scoped as .NET 8; the build now pins .NET 9).
 - **EF Core + SQLite** — authoritative relational storage, local-first, zero-ops.
 - **`System.Text.Json`** — structured (JSON-schema-guided) model I/O for extraction.
 - **`Microsoft.Extensions.*`** — DI, configuration binding, structured logging, hosting.

@@ -10,6 +10,12 @@ public interface IConversationStore
 
     Task AddMessageAsync(Message message, CancellationToken ct = default);
 
+    /// <summary>The conversation, scoped to its owner (null if not found or not owned).</summary>
+    Task<Conversation?> GetConversationAsync(Guid conversationId, string userId, CancellationToken ct = default);
+
+    /// <summary>Sets the privacy flag: when true, the conversation creates no durable derived memory.</summary>
+    Task SetDoNotRememberAsync(Guid conversationId, string userId, bool value, CancellationToken ct = default);
+
     /// <summary>Most recent messages in a conversation, returned oldest-first.</summary>
     Task<IReadOnlyList<Message>> GetRecentMessagesAsync(
         Guid conversationId, string userId, int count, CancellationToken ct = default);
