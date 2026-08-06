@@ -26,11 +26,12 @@ as the CLI, against `Database:Path`.
 
 - **Loopback only.** The API binds to `http://127.0.0.1:5266` by default and is never exposed on
   LAN interfaces unless you explicitly set `Urls` / `ASPNETCORE_URLS`.
-- **Local token auth.** Every REST/SSE/WebSocket call must present the local API token. On first
-  startup a random token is generated and saved to `.companion-api-token` next to the database
-  (or set `Api:Token`). Send it as `Authorization: Bearer <token>` or `X-Companion-Key: <token>`;
-  because `EventSource` and browser WebSockets can't set headers, SSE/WS also accept
-  `?access_token=<token>`. Set `Api:AuthEnabled=false` only for explicit local development.
+- **Local token auth (available; shipped off).** The bundled `appsettings.json` sets
+  `Api:AuthEnabled=false` for solo local convenience, so calls need no token out of the box. Set
+  `Api:AuthEnabled=true` to require one: a random token is generated on first startup and saved to
+  `.companion-api-token` next to the database (or set `Api:Token`). Send it as
+  `Authorization: Bearer <token>` or `X-Companion-Key: <token>`; because `EventSource` and browser
+  WebSockets can't set headers, SSE/WS also accept `?access_token=<token>`.
 - **CORS allow-list.** Only origins in `Api:AllowedOrigins` (default `http://localhost:5173`,
   `http://127.0.0.1:5173`) may call the API from a browser. There is no wildcard, and no cookies
   are used — auth is an explicit header/token, so CSRF does not apply.

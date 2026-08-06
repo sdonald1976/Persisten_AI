@@ -92,24 +92,17 @@
       'Local API token — find it in the server console ("Generated a local API token…") ' +
       'or in the .companion-api-token file next to your database. Leave blank if auth is disabled.';
 
-    function askForToken() {
-      const t = (window.prompt(TOKEN_HELP) || '').trim();
-      localStorage.setItem('companionApiToken', t);
-      return t;
-    }
     // Exposed for convenience: run resetToken() in the browser console to re-enter it.
     window.resetToken = () => { localStorage.removeItem('companionApiToken'); location.reload(); };
 
-    function apiToken() {
-      const t = localStorage.getItem('companionApiToken');
-      return t === null ? askForToken() : t;
-    }
-
-    let authenticated = false;   // true once the server accepts us (a 'ready' frame arrives)
+    let authenticated = false;     // true once the server accepts us (a 'ready' frame arrives)
+    let failsSinceReady = 0;       // consecutive closes before authenticating
 
     function connect() {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const token = apiToken();
+      // Connect with a stored token if we have one — but DON'T prompt eagerly. With auth turned
+      // off (the local default), this just connects and never asks for a token.
+      const token = localStorage.getItem('companionApiToken') || '';
       const q = token ? `?access_token=${encodeURIComponent(token)}` : '';
       authenticated = false;
       socket = new WebSocket(`${proto}://${location.host}/ws${q}`);
@@ -117,12 +110,21 @@
       socket.onopen = () => { status.className = 'online'; statusText.textContent = 'connected'; send.disabled = false; };
       socket.onclose = () => {
         status.className = ''; send.disabled = true;
-        // Closed before we ever authenticated, while holding a token → the token is probably wrong.
-        // Forget it and ask again (this is what was silently looping before).
-        if (!authenticated && localStorage.getItem('companionApiToken')) {
-          localStorage.removeItem('companionApiToken');
-          add('sys', '⚠ Could not authenticate — that token was rejected. ' + TOKEN_HELP);
-          statusText.textContent = 'auth failed — re-enter token';
+        if (!authenticated) {
+          failsSinceReady++;
+          if (token) {
+            // A token was sent and rejected → forget it and fall back to trying without one.
+            localStorage.removeItem('companionApiToken');
+            add('sys', '⚠ That token was rejected. ' + TOKEN_HELP);
+            statusText.textContent = 'auth failed — re-enter token';
+          } else if (failsSinceReady >= 2) {
+            // Repeatedly can't connect without a token → the server probably has auth ON.
+            const t = (window.prompt(TOKEN_HELP) || '').trim();
+            if (t) localStorage.setItem('companionApiToken', t);
+            statusText.textContent = 'retrying…';
+          } else {
+            statusText.textContent = 'connecting…';
+          }
         } else {
           statusText.textContent = 'disconnected — retrying…';
         }
