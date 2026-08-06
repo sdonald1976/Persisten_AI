@@ -104,6 +104,9 @@ public static class DependencyInjection
         services.AddScoped<IContextAssembler, ContextAssembler>();
         services.AddScoped<ICompanion, Core.Services.Companion>();
 
+        // The brain facade every face (CLI, HTTP, voice, avatar) drives the companion through.
+        services.AddScoped<IAgent, Agent>();
+
         services.AddScoped<Seeding.CompanionSeeder>();
 
         return services;

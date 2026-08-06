@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+    The companion "face" boundary: a headless, local HTTP + WebSocket service that wraps the
+    same brain (IAgent) the CLI uses. A web page, a Unity/desktop app, or a voice+avatar
+    front-end plugs in over the wire without embedding .NET. Core stays pure; this project only
+    translates HTTP/WebSocket to IAgent calls and streams the results back.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Companion.Api</RootNamespace>
+    <AssemblyName>companion-api</AssemblyName>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Companion.Core\Companion.Core.csproj" />
+    <ProjectReference Include="..\Companion.Infrastructure\Companion.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
