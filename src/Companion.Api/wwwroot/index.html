@@ -86,26 +86,46 @@
     }
 
     // Local API token: browsers can't set headers on a WebSocket, so it travels as ?access_token=.
-    // Paste the token printed in the server console at first startup (stored locally after that).
-    // If the server has auth disabled, leave it blank.
-    function apiToken() {
-      let t = localStorage.getItem('companionApiToken');
-      if (t === null) {
-        t = (window.prompt('Local API token (from the server console; leave blank if auth is disabled):') || '').trim();
-        localStorage.setItem('companionApiToken', t);
-      }
+    // The token is printed in the server console at first startup and saved to a file called
+    // `.companion-api-token` next to the database. If the server has auth disabled, leave it blank.
+    const TOKEN_HELP =
+      'Local API token — find it in the server console ("Generated a local API token…") ' +
+      'or in the .companion-api-token file next to your database. Leave blank if auth is disabled.';
+
+    function askForToken() {
+      const t = (window.prompt(TOKEN_HELP) || '').trim();
+      localStorage.setItem('companionApiToken', t);
       return t;
     }
+    // Exposed for convenience: run resetToken() in the browser console to re-enter it.
+    window.resetToken = () => { localStorage.removeItem('companionApiToken'); location.reload(); };
+
+    function apiToken() {
+      const t = localStorage.getItem('companionApiToken');
+      return t === null ? askForToken() : t;
+    }
+
+    let authenticated = false;   // true once the server accepts us (a 'ready' frame arrives)
 
     function connect() {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const token = apiToken();
       const q = token ? `?access_token=${encodeURIComponent(token)}` : '';
+      authenticated = false;
       socket = new WebSocket(`${proto}://${location.host}/ws${q}`);
 
       socket.onopen = () => { status.className = 'online'; statusText.textContent = 'connected'; send.disabled = false; };
       socket.onclose = () => {
-        status.className = ''; statusText.textContent = 'disconnected — retrying…'; send.disabled = true;
+        status.className = ''; send.disabled = true;
+        // Closed before we ever authenticated, while holding a token → the token is probably wrong.
+        // Forget it and ask again (this is what was silently looping before).
+        if (!authenticated && localStorage.getItem('companionApiToken')) {
+          localStorage.removeItem('companionApiToken');
+          add('sys', '⚠ Could not authenticate — that token was rejected. ' + TOKEN_HELP);
+          statusText.textContent = 'auth failed — re-enter token';
+        } else {
+          statusText.textContent = 'disconnected — retrying…';
+        }
         setTimeout(connect, 1500);
       };
       socket.onerror = () => socket.close();
@@ -114,6 +134,7 @@
         const m = JSON.parse(e.data);
         switch (m.type) {
           case 'ready':
+            authenticated = true;
             conversationId = m.conversationId;
             // The companion opens the conversation so you don't have to. Show its message and
             // offer the memory-grounded starters as clickable chips (or just type your own).
