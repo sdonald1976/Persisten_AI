@@ -8,12 +8,18 @@ namespace Companion.Infrastructure.Models;
 /// that share content words get a high cosine, which makes retrieval behave sensibly in
 /// tests and demos with no network or GPU. Uses the same <see cref="Tokenizer"/> as keyword
 /// matching so the two signals stay consistent. Swap for a real embedding model in prod.
+///
+/// The dimension count must be large relative to the vocabulary so distinct tokens rarely hash
+/// to the same slot: a small space (a few hundred dims) produces spurious cosine between
+/// unrelated texts (two different words colliding into one dimension), which reads as fake
+/// similarity. A wide space keeps unrelated texts near-orthogonal — closer to how a real
+/// embedding behaves — so relevance thresholds mean what they say.
 /// </summary>
 public sealed class MockEmbeddingModel : IEmbeddingModel
 {
     public int Dimensions { get; }
 
-    public MockEmbeddingModel(int dimensions = 128) => Dimensions = dimensions;
+    public MockEmbeddingModel(int dimensions = 4096) => Dimensions = dimensions;
 
     public Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
     {

@@ -23,6 +23,16 @@ public sealed class CompanionOptions
     /// <summary>Minimum combined score for a memory to be eligible for inclusion.</summary>
     public double MinScore { get; set; } = 0.05;
 
+    /// <summary>
+    /// Minimum topical relevance — raw semantic similarity + keyword overlap + project match — a
+    /// memory must reach before it can enter the context packet. Recency, importance, and confidence
+    /// rank the relevant memories but never admit one on their own; without this floor a recent or
+    /// important fact scores above <see cref="MinScore"/> with zero relevance to the current turn,
+    /// so unrelated things the companion "knows about the user" bleed into every reply. Also gates
+    /// the open-loop boost (an unresolved item is only surfaced when the turn is already relevant to it).
+    /// </summary>
+    public double RelevanceFloor { get; set; } = 0.15;
+
     /// <summary>Per-signal weights for the hybrid retrieval score.</summary>
     public RetrievalWeights Weights { get; set; } = new();
 

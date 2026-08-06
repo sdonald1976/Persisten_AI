@@ -1,4 +1,5 @@
 using Companion.Core.Abstractions;
+using Companion.Core.Domain;
 using Companion.Infrastructure.Seeding;
 using Companion.Tests.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,7 +56,7 @@ public class RetrievalRankingTests
     }
 
     [Fact]
-    public async Task AmbiguousBoardReference_SurfacesBothHardwareProjects()
+    public async Task AmbiguousBoardReference_SurfacesTheLiteralBoardMemory_NotUnrelatedFacts()
     {
         await using var host = await SeededHostAsync();
         using var scope = host.CreateScope();
@@ -64,8 +65,16 @@ public class RetrievalRankingTests
         var outcome = await retriever.RetrieveAsync(CompanionSeeder.DemoUserId, "That board finally arrived.");
 
         var contents = outcome.Selected.Select(r => r.Memory.Content).ToList();
-        Assert.Contains(contents, c => c.Contains("Jetson", StringComparison.OrdinalIgnoreCase));
+
+        // The buoy's sensor board is the only memory whose text is actually about a board — it
+        // surfaces. The word "board" links to the Jetson project only through a project *alias*,
+        // not through any Jetson memory's content, so the retriever (which scores content) must not
+        // inject the unrelated Jetson deployment memory here; the buoy-vs-Jetson ambiguity is
+        // surfaced by the resolver's clarification question instead (see ScenarioTests.C_… ).
         Assert.Contains(contents, c => c.Contains("buoy", StringComparison.OrdinalIgnoreCase));
+
+        // And an unrelated preference (cooking) must not ride in on recency/importance.
+        Assert.DoesNotContain(contents, c => c.Contains("cooking", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -102,6 +111,45 @@ public class RetrievalRankingTests
         var plain = await retriever.RetrieveAsync(CompanionSeeder.DemoUserId, "any hardware updates?");
 
         Assert.True(JetsonScore(withProject) > JetsonScore(plain));
+    }
+
+    [Fact]
+    public async Task RecentImportantButUnrelatedMemory_IsNotInjected()
+    {
+        await using var host = await SeededHostAsync();
+        using var scope = host.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMemoryStore>();
+        var embeddings = scope.ServiceProvider.GetRequiredService<IEmbeddingModel>();
+
+        // A brand-new, maximally important, high-confidence fact with no topical link to the query.
+        // Before the relevance floor its recency+importance+confidence alone cleared MinScore and it
+        // bled into every turn — the "it keeps adding things it knows about me" bug.
+        const string fact = "The user is allergic to peanuts.";
+        await store.AddSemanticAsync(new SemanticMemory
+        {
+            Id = Guid.NewGuid(),
+            UserId = CompanionSeeder.DemoUserId,
+            Subject = "user",
+            Predicate = "allergic_to",
+            Value = "peanuts",
+            NormalizedFact = fact,
+            Confidence = 1.0,
+            Importance = 1.0,
+            Status = MemoryStatus.Active,
+            LastConfirmed = Now,
+            CreatedAt = Now,
+            Embedding = await embeddings.EmbedAsync(fact),
+        });
+
+        var retriever = scope.ServiceProvider.GetRequiredService<IRetriever>();
+        var outcome = await retriever.RetrieveAsync(
+            CompanionSeeder.DemoUserId, "How is the Jetson board coming along?");
+
+        bool Mentions(RetrievalResult r) =>
+            r.Memory.Content.Contains("peanut", StringComparison.OrdinalIgnoreCase);
+
+        Assert.DoesNotContain(outcome.Selected, Mentions); // not admitted on recency/importance alone
+        Assert.Contains(outcome.Excluded, Mentions);        // still scored + explainable, just not injected
     }
 
     [Fact]

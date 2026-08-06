@@ -13,9 +13,6 @@ namespace Companion.Core.Services;
 /// </summary>
 public sealed class Retriever : IRetriever
 {
-    /// <summary>Minimum keyword/semantic/project relevance before an open loop gets its boost.</summary>
-    private const double OpenLoopRelevanceFloor = 0.15;
-
     private readonly IMemoryStore _memories;
     private readonly IEmbeddingModel _embeddings;
     private readonly IVectorIndex _vectorIndex;
@@ -62,6 +59,10 @@ public sealed class Retriever : IRetriever
         var weights = _options.Weights;
 
         var scored = new List<RetrievalResult>(candidates.Count);
+        // Raw topical relevance per memory (similarity + keyword + project), before recency/importance
+        // weighting. A memory must clear the RelevanceFloor on THIS to be admitted, so a merely
+        // recent or important fact can't bleed into an unrelated turn.
+        var relevance = new Dictionary<Guid, double>(candidates.Count);
         foreach (var memory in candidates)
         {
             var sim = similarity.GetValueOrDefault(memory.Id, 0.0);
@@ -77,8 +78,9 @@ public sealed class Retriever : IRetriever
             // (a real keyword/semantic hit or a project match), so unresolved items surface in
             // context rather than nagging — and mock-embedding noise doesn't trigger the boost.
             var baseRelevance = sim + kw + (projectMatch ? 1.0 : 0.0);
+            relevance[memory.Id] = baseRelevance;
             var isOpenLoop = memory is EpisodicMemory { IsOpenLoop: true };
-            var applyOpenLoop = isOpenLoop && baseRelevance >= OpenLoopRelevanceFloor;
+            var applyOpenLoop = isOpenLoop && baseRelevance >= _options.RelevanceFloor;
 
             var signals = new Dictionary<string, double>
             {
@@ -103,7 +105,8 @@ public sealed class Retriever : IRetriever
 
         var ranked = scored.OrderByDescending(r => r.Score).ToList();
         var selected = ranked
-            .Where(r => r.Score >= _options.MinScore)
+            .Where(r => r.Score >= _options.MinScore
+                && relevance.GetValueOrDefault(r.Memory.Id) >= _options.RelevanceFloor)
             .Take(_options.TopK)
             .ToList();
         var excluded = ranked.Except(selected).ToList();
