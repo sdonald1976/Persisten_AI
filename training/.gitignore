@@ -1,0 +1,6 @@
+# Never commit personal training data or model artifacts.
+data/
+outputs/
+*.jsonl
+*.gguf
+.venv/

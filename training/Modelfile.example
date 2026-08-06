@@ -1,0 +1,11 @@
+# Load a fine-tuned model into Ollama, then point the companion at it.
+#
+#   ollama create companion-extractor -f Modelfile.example
+#   # then in appsettings.json: Models.Extraction.Model = "companion-extractor"
+#
+# finetune.py exports a MERGED GGUF (LoRA baked into the base), so FROM points at that file.
+
+FROM ./outputs/companion-extractor/unsloth.Q4_K_M.gguf
+
+# Low temperature for reliable structured output.
+PARAMETER temperature 0.2

@@ -180,9 +180,17 @@ deterministic (`MockChatModel`, `MockEmbeddingModel`, `RuleBasedMemoryExtractor`
 `MockSummarizer`), so everything runs offline. Real local/hosted providers — including
 `LlmMemoryExtractor` and an LLM summarizer — plug in behind the same interfaces.
 
+## Fine-tuning (optional, experimental)
+
+You can turn the companion's own validated data into a small LoRA fine-tune (best target: the
+extraction model) and load it back into Ollama. It's entirely optional and runs **outside** the
+app — the chat loop never trains or swaps models on its own, and **facts stay in memory, never
+baked into weights**. See [`training/README.md`](training/README.md) for the build → train →
+evaluate → promote (→ rollback) workflow. `training/build_dataset.py` reads `companion.db`
+directly (skipping anything you've `/forget`-ten), so there's no separate export step.
+
 ## Where next
 
-The six-phase plan in `docs/IMPLEMENTATION_PLAN.md` is complete. Natural follow-ups: wire a
-real local/hosted model behind the `IChatModel` / `IEmbeddingModel` / `IMemoryExtractor` /
-`ISummarizer` interfaces, and (per the design docs) harden the privacy/export controls and swap
-the in-process vector index for a dedicated ANN store.
+The six-phase plan in `docs/IMPLEMENTATION_PLAN.md` is complete. Natural follow-ups: capture
+per-reply feedback (to unlock style/DPO fine-tuning), harden the privacy/export controls, and
+swap the in-process vector index for a dedicated ANN store.

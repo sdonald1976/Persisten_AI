@@ -1,0 +1,10 @@
+# Fine-tuning stack (GPU required). build_dataset.py needs NONE of this — only the stdlib.
+# Install into a fresh venv on your training box:
+#   python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+#
+# Unsloth pulls compatible torch/transformers/trl/peft; pin as needed for your CUDA version.
+unsloth
+trl>=0.9
+transformers>=4.44
+datasets>=2.20
+# On Apple Silicon, Unsloth isn't supported — use MLX-LM (mlx_lm.lora) instead; see README.
