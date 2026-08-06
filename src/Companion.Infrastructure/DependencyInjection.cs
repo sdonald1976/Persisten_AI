@@ -123,6 +123,9 @@ public static class DependencyInjection
         services.AddScoped<IContextAssembler, ContextAssembler>();
         services.AddScoped<ICompanion, Core.Services.Companion>();
 
+        // Session openers so the user never faces a blank prompt (the companion initiates).
+        services.AddScoped<IGreeter, Greeter>();
+
         // The brain facade every face (CLI, HTTP, voice, avatar) drives the companion through.
         services.AddScoped<IAgent, Agent>();
 

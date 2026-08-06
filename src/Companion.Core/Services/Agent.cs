@@ -22,6 +22,7 @@ public sealed class Agent : IAgent
     private readonly IFeedbackStore _feedback;
     private readonly IProjectStore _projects;
     private readonly IMemoryConsolidator _consolidator;
+    private readonly IGreeter _greeter;
     private readonly TimeProvider _clock;
 
     public Agent(
@@ -34,6 +35,7 @@ public sealed class Agent : IAgent
         IFeedbackStore feedback,
         IProjectStore projects,
         IMemoryConsolidator consolidator,
+        IGreeter greeter,
         TimeProvider clock)
     {
         _intents = intents;
@@ -45,6 +47,7 @@ public sealed class Agent : IAgent
         _feedback = feedback;
         _projects = projects;
         _consolidator = consolidator;
+        _greeter = greeter;
         _clock = clock;
     }
 
@@ -70,6 +73,7 @@ public sealed class Agent : IAgent
             IntentKind.FeedbackPositive => await FeedbackAsync(userId, conversationId, FeedbackRating.Positive, intent.Argument, ct),
             IntentKind.FeedbackNegative => await FeedbackAsync(userId, conversationId, FeedbackRating.Negative, intent.Argument, ct),
             IntentKind.PrivacyDoNotRemember => await SetPrivacyAsync(userId, conversationId, ct),
+            IntentKind.Greeting => await GreetAsync(userId, ct),
             _ => await ChatAsync(userId, conversationId, input, tokenSink, ct),
         };
     }
@@ -206,6 +210,12 @@ public sealed class Agent : IAgent
         foreach (var g in result.Created)
             sb.AppendLine($"  - {g.Content}  (from {g.SourceMemoryIds.Count} memories, {g.EvidenceCount} evidence)");
         return AgentReply.Act(IntentKind.Consolidate, sb.ToString().TrimEnd());
+    }
+
+    private async Task<AgentReply> GreetAsync(string userId, CancellationToken ct)
+    {
+        var greeting = await _greeter.GreetAsync(userId, ct);
+        return AgentReply.Act(IntentKind.Greeting, greeting.ToDisplayText());
     }
 
     private async Task<AgentReply> SetPrivacyAsync(string userId, Guid conversationId, CancellationToken ct)

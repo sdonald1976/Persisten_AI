@@ -64,6 +64,7 @@ All endpoints require the API token (see Security). Bodies/queries never carry a
 | Method | Path | Body / query | Returns |
 |--------|------|--------------|---------|
 | `GET`  | `/health` | — | status + active provider/models |
+| `GET`  | `/greeting` | — | `{ message, openers[] }` — memory-grounded session openers |
 | `POST` | `/conversations` | `{ title?, source? }` | `{ conversationId }` |
 | `POST` | `/chat` | `{ conversationId, message }` | `AgentReply` (404 if unknown conversation) |
 | `POST` | `/chat/confirm` | `{ conversationId, confirmationToken, confirmed }` | `AgentReply` |
@@ -110,7 +111,7 @@ a fresh `conversationId`, then it's request/response.
 
 **Server → client**
 ```json
-{ "type": "ready", "conversationId": "…" }
+{ "type": "ready", "conversationId": "…", "message": "…", "openers": ["…"] }  // openers = session starters
 { "type": "token", "text": "…" }                      // one per chunk, for chat turns
 { "type": "reply", "kind": "Chat|Action|Confirmation", "intent": "…",
   "text": "…", "confirmationToken": null }            // terminates a turn

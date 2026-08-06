@@ -46,6 +46,12 @@ public sealed class ChatLoop
             var conv = await conversations.StartConversationAsync(
                 _userId, title: "CLI session", modelUsed: "mock", source: "cli", ct);
             _conversationId = conv.Id;
+
+            // The companion opens the conversation so you don't have to. It surfaces where you left
+            // off; you can pick a starter, type your own, or just say "hi".
+            var greeting = await scope.ServiceProvider.GetRequiredService<IGreeter>().GreetAsync(_userId, ct);
+            Console.WriteLine("companion> " + greeting.ToDisplayText());
+            Console.WriteLine();
         }
 
         while (!ct.IsCancellationRequested)
