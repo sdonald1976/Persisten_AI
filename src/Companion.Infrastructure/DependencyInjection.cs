@@ -95,6 +95,11 @@ public static class DependencyInjection
                 new LlmMemoryExtractor(
                     sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Extraction),
                     sp.GetRequiredService<ILogger<LlmMemoryExtractor>>()));
+
+            // The semantic completion check runs on the cheap summarizer-role model, never the big one.
+            services.AddSingleton<ICompletionJudge>(sp => new LlmCompletionJudge(
+                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Summarizer),
+                sp.GetRequiredService<ILogger<LlmCompletionJudge>>()));
         }
         else
         {
@@ -102,7 +107,20 @@ public static class DependencyInjection
             services.AddSingleton<IChatModel, MockChatModel>();
             services.AddSingleton<ISummarizer, MockSummarizer>();
             services.AddScoped<IMemoryExtractor, RuleBasedMemoryExtractor>();
+
+            // Offline replies are deterministic and self-contained — nothing to continue.
+            services.AddSingleton<ICompletionJudge, AlwaysCompleteJudge>();
         }
+
+        // The reply generator owns "when to keep going": it continues a cut-off reply (finish_reason
+        // length) and asks the completion judge about a self-stopped one, feeding the text so far
+        // back each round so it resumes the same task. Reads its policy from the conversational
+        // endpoint's options (AutoContinue / MaxContinuations / CompletionCheck).
+        services.AddSingleton<IReplyGenerator>(sp => new ReplyGenerator(
+            sp.GetRequiredService<IChatModel>(),
+            sp.GetRequiredService<ICompletionJudge>(),
+            modelOptions.Chat,
+            sp.GetRequiredService<ILogger<ReplyGenerator>>()));
 
         services.AddScoped<IMemoryPipeline, MemoryPipeline>();
 

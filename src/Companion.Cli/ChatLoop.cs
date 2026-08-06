@@ -572,8 +572,8 @@ public sealed class ChatLoop
 
         await CheckAsync("chat", async () =>
         {
-            var reply = await sp.GetRequiredService<IChatModel>().CompleteAsync("You are a health check.", "ping", jsonMode: false, ct);
-            return string.IsNullOrWhiteSpace(reply) ? "empty reply" : "ok";
+            var reply = await sp.GetRequiredService<IChatModel>().CompleteAsync("You are a health check.", "ping", jsonMode: false, ct: ct);
+            return string.IsNullOrWhiteSpace(reply.Text) ? "empty reply" : "ok";
         });
         await CheckAsync("embeddings", async () =>
         {

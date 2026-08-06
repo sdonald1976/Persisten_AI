@@ -69,11 +69,17 @@ phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity
 
 ## Long tasks: finish in-turn now, background jobs later
 
-- **Now (built):** completion is detected deterministically from the server's `finish_reason` —
-  `"length"` means "cut off by the token limit", so the provider auto-continues from exactly
-  where the reply stopped until the model finishes naturally (`"stop"`), bounded by
-  `MaxContinuations`. Long outputs stream continuously to the CLI/web client, so a story or plan
-  completes in one turn with no "keep going".
+- **Now (built):** an `IReplyGenerator` owns "when to keep going" over two signals, because one
+  isn't enough. (1) The transport truth — `finish_reason: "length"` means the server cut the reply
+  off mid-answer, so continue. (2) A **semantic completion check** — small local/abliterated models
+  often *self-truncate* (write a chunk of a story and stop, reporting a normal `"stop"`), which
+  `finish_reason` can't catch, so for a long-enough reply a cheap model is asked "is this actually
+  finished, or cut off?" and generation continues on CONTINUE. Each continuation feeds the text so
+  far back so the model resumes the **same** task instead of starting over, bounded by
+  `MaxContinuations`, and the whole thing streams to the CLI/web client. The judge fails closed
+  (any doubt → complete) so it can never trap the user in runaway generation. Every reply is stored
+  with its generation metadata (`finish_reason`, rounds, truncated, model, token usage) so "why did
+  it stop" is answerable, and `LogPayloads` logs the exact prompt+reply for debugging.
 - **Later (if in-turn ever isn't enough):** a small **background job runner** — "work on X and
   tell me when it's done": queue a task, run the same auto-continuing generation off-turn,
   persist progress + result, and surface completion as a WebSocket frame / next-session opener

@@ -10,8 +10,9 @@ namespace Companion.Infrastructure.Models;
 /// </summary>
 public sealed class MockChatModel : IChatModel
 {
-    public Task<string> CompleteAsync(
-        string systemPrompt, string userMessage, bool jsonMode = false, CancellationToken ct = default)
+    public Task<ChatCompletion> CompleteAsync(
+        string systemPrompt, string userMessage, bool jsonMode = false,
+        string? assistantPrefix = null, CancellationToken ct = default)
     {
         var bullets = systemPrompt
             .Split('\n')
@@ -38,19 +39,23 @@ public sealed class MockChatModel : IChatModel
             sb.Append($" Regarding \"{userMessage}\" — happy to pick that back up.");
         }
 
-        return Task.FromResult(sb.ToString());
+        return Task.FromResult(ChatCompletion.FromText(sb.ToString(), model: "mock"));
     }
 
-    public async IAsyncEnumerable<string> StreamAsync(
-        string systemPrompt, string userMessage,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    public async Task<ChatCompletion> StreamAsync(
+        string systemPrompt, string userMessage, IProgress<string> sink,
+        string? assistantPrefix = null, CancellationToken ct = default)
     {
-        // Simulate streaming by yielding the deterministic reply word by word.
-        var full = await CompleteAsync(systemPrompt, userMessage, jsonMode: false, ct);
-        foreach (var word in full.Split(' '))
+        // Simulate streaming by reporting the deterministic reply in word-sized chunks. The chunks
+        // reconstruct the text EXACTLY (space re-added only between words), so a caller that
+        // concatenates the stream gets back the same string this returns.
+        var full = await CompleteAsync(systemPrompt, userMessage, jsonMode: false, assistantPrefix, ct);
+        var words = full.Text.Split(' ');
+        for (var i = 0; i < words.Length; i++)
         {
             ct.ThrowIfCancellationRequested();
-            yield return word + " ";
+            sink.Report(i < words.Length - 1 ? words[i] + " " : words[i]);
         }
+        return full;
     }
 }

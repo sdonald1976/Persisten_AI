@@ -97,6 +97,28 @@ public sealed class EndpointOptions
     public int MaxContinuations { get; set; } = 6;
 
     /// <summary>
+    /// After a reply that stopped on its own (not cut off by the token limit), ask a small model
+    /// whether it actually finished the task — the only reliable way to catch a model that
+    /// self-truncates (writes a chunk of a story/plan and stops). Only consulted for replies at
+    /// least <see cref="CompletionCheckMinChars"/> long, so short chat turns pay nothing.
+    /// Requires <see cref="AutoContinue"/>. Applies to the conversational endpoint only.
+    /// </summary>
+    public bool CompletionCheck { get; set; } = true;
+
+    /// <summary>
+    /// Minimum reply length (characters) before the semantic completion check runs. Short answers
+    /// are self-evidently complete; only long-form output risks being cut off partway.
+    /// </summary>
+    public int CompletionCheckMinChars { get; set; } = 600;
+
+    /// <summary>
+    /// Log the full system prompt, user message, and raw reply for every call to this endpoint (at
+    /// Information level) so you can see exactly what the model received and produced. Verbose and
+    /// includes remembered context — off by default; turn on with the log level raised to see it.
+    /// </summary>
+    public bool LogPayloads { get; set; }
+
+    /// <summary>
     /// Max transient-failure retries (429 / 5xx / connection blips / timeouts) with exponential
     /// backoff. 0 disables retries. Only ever applied to these stateless model calls.
     /// </summary>

@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Companion.Core.Abstractions;
 
 namespace Companion.Tests.Fixtures;
@@ -10,18 +9,19 @@ public sealed class CannedChatModel : IChatModel
 
     public CannedChatModel(string response) => _response = response;
 
-    public Task<string> CompleteAsync(
-        string systemPrompt, string userMessage, bool jsonMode = false, CancellationToken ct = default)
-        => Task.FromResult(_response);
+    public Task<ChatCompletion> CompleteAsync(
+        string systemPrompt, string userMessage, bool jsonMode = false,
+        string? assistantPrefix = null, CancellationToken ct = default)
+        => Task.FromResult(ChatCompletion.FromText(_response));
 
-    public async IAsyncEnumerable<string> StreamAsync(
-        string systemPrompt, string userMessage, [EnumeratorCancellation] CancellationToken ct = default)
+    public Task<ChatCompletion> StreamAsync(
+        string systemPrompt, string userMessage, IProgress<string> sink,
+        string? assistantPrefix = null, CancellationToken ct = default)
     {
         // Emit the canned response as a few chunks so streaming can be exercised.
-        foreach (var word in _response.Split(' '))
-        {
-            await Task.Yield();
-            yield return word + " ";
-        }
+        var words = _response.Split(' ');
+        for (var i = 0; i < words.Length; i++)
+            sink.Report(i < words.Length - 1 ? words[i] + " " : words[i]);
+        return Task.FromResult(ChatCompletion.FromText(_response));
     }
 }

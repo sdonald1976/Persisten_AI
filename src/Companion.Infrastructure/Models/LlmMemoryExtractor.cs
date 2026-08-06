@@ -36,7 +36,7 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
             transcript.AppendLine($"{m.Role}: {m.Content}");
 
         // Ask for JSON explicitly (structured-output mode where the server supports it).
-        var raw = await _chat.CompleteAsync(SystemPrompt, transcript.ToString(), jsonMode: true, ct);
+        var raw = (await _chat.CompleteAsync(SystemPrompt, transcript.ToString(), jsonMode: true, ct: ct)).Text;
 
         // Bound the untrusted body before parsing so a runaway response can't be a problem here.
         if (raw.Length > MaxRawChars)

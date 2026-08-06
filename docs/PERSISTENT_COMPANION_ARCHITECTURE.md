@@ -125,8 +125,13 @@ Three distinct timestamps, plus validity:
 3. **Detect** likely entities and project references (alias match + embeddings).
 4. **Retrieve** relevant memories (ranked, explained) under a token budget.
 5. **Assemble** a bounded `ContextPacket` (fact vs. inference vs. stale clearly labeled).
-6. **Generate** the assistant response via `IChatModel`.
-7. **Store** the response.
+6. **Generate** the assistant response via `IReplyGenerator`, which drives the `IChatModel`
+   transport and owns *when to keep going*: continue a reply cut off by the token limit
+   (`finish_reason: "length"`), or — for a reply that stopped on its own but looks unfinished —
+   ask a small-model `ICompletionJudge` and continue on its say-so, feeding the text so far back
+   each round so it resumes the same task. Bounded by `MaxContinuations`; the judge fails closed.
+7. **Store** the response, with its generation metadata (`finish_reason`, rounds, truncated,
+   model, token usage) so how each reply was produced is recorded, not guessed.
 8. **Extract** candidate memory updates via `IMemoryExtractor`.
 9. **Validate & persist** accepted updates through the deterministic pipeline.
 10. **Update** project state and open loops.
@@ -207,6 +212,12 @@ system to it:
 | Memory extraction | `IMemoryExtractor` | Mock (rule-based) → LLM-backed |
 | Summarization | `ISummarizer` | Mock → LLM-backed |
 | Reranking | `IReranker` | identity (score-order) → LLM/cross-encoder |
+| Reply generation (continuation policy) | `IReplyGenerator` | `ReplyGenerator` over `IChatModel` |
+| Completion check | `ICompletionJudge` | `AlwaysComplete` (mock) → small-model `LlmCompletionJudge` |
+
+`IReplyGenerator` and `ICompletionJudge` sit *above* the raw `IChatModel` transport: the transport
+is one request → one reply (+ metadata), and the policy of whether to continue lives in the
+generator, so the adapter stays thin and the completion judge can use a separate, cheaper model.
 
 The Mock providers make the entire system runnable and deterministic in tests with no
 network or GPU.

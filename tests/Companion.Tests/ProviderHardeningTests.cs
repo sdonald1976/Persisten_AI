@@ -56,7 +56,7 @@ public class ProviderHardeningTests
     {
         var handler = new StubHttpMessageHandler().Enqueue(HttpStatusCode.OK, ChatOk);
         var reply = await Chat(handler, Options()).CompleteAsync("sys", "hi");
-        Assert.Equal("hello from the model", reply);
+        Assert.Equal("hello from the model", reply.Text);
         Assert.Equal(1, handler.CallCount);
     }
 
@@ -76,7 +76,7 @@ public class ProviderHardeningTests
             .Enqueue(HttpStatusCode.ServiceUnavailable, "{}") // 503
             .Enqueue(HttpStatusCode.OK, ChatOk);
         var reply = await Chat(handler, Options(retries: 3)).CompleteAsync("sys", "hi");
-        Assert.Equal("hello from the model", reply);
+        Assert.Equal("hello from the model", reply.Text);
         Assert.Equal(3, handler.CallCount); // two failures + success
     }
 
@@ -101,7 +101,7 @@ public class ProviderHardeningTests
             .EnqueueWithRetryAfter(HttpStatusCode.TooManyRequests, retryAfterSeconds: 1)
             .Enqueue(HttpStatusCode.OK, ChatOk);
         var reply = await Chat(handler, Options(retries: 1)).CompleteAsync("sys", "hi");
-        Assert.Equal("hello from the model", reply);
+        Assert.Equal("hello from the model", reply.Text);
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public class ProviderHardeningTests
         using var cts = new CancellationTokenSource();
         cts.CancelAfter(TimeSpan.FromMilliseconds(100));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => Chat(handler, Options(retries: 2, timeoutSeconds: 30)).CompleteAsync("sys", "hi", jsonMode: false, cts.Token));
+            () => Chat(handler, Options(retries: 2, timeoutSeconds: 30)).CompleteAsync("sys", "hi", jsonMode: false, ct: cts.Token));
     }
 
     [Fact]

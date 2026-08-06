@@ -75,6 +75,8 @@ public sealed class CompanionDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.UserId).HasMaxLength(200);
             e.Property(x => x.Role).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.FinishReason).HasMaxLength(40);
+            e.Property(x => x.ModelUsed).HasMaxLength(200);
             e.HasIndex(x => new { x.ConversationId, x.Timestamp });
             e.HasIndex(x => x.UserId);
             // A message cannot exist without its conversation — enforced by a real FK, not just app
