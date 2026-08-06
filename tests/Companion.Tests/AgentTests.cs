@@ -53,8 +53,9 @@ public class AgentTests
         var sp = scope.ServiceProvider;
         var conversationId = await StartConversationAsync(sp);
 
+        // A genuinely plain message (a bare greeting like "hello there" is now its own intent).
         var reply = await sp.GetRequiredService<IAgent>()
-            .HandleAsync(User, conversationId, "hello there");
+            .HandleAsync(User, conversationId, "what should we work on today?");
 
         Assert.Equal(AgentReplyKind.Chat, reply.Kind);
         Assert.Equal(IntentKind.Chat, reply.Intent);

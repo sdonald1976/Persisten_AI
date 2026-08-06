@@ -46,8 +46,18 @@ public sealed class RuleBasedIntentParser : IIntentParser
             ?? TryRecall(text)
             ?? TryLists(text)
             ?? TryConsolidate(text)
+            ?? TryGreeting(text)
             ?? Intent.Chat;
     }
+
+    // A bare greeting only — "hi", "hello there", "good morning" — not a greeting that carries a
+    // real request ("hi, can you help with X"), which should be handled as a normal turn.
+    private static readonly Regex GreetingRx = new(
+        @"^(hi|hii+|hey+|hello|heya|hiya|yo|sup|howdy|greetings|good (?:morning|afternoon|evening)|" +
+        @"morning|hi there|hey there|hello there)[\s!.,]*$", Opts);
+
+    private static Intent? TryGreeting(string text)
+        => GreetingRx.IsMatch(text) ? new Intent { Kind = IntentKind.Greeting, Argument = null } : null;
 
     private static readonly Regex PrivacyRx = new(
         @"\b(do ?n'?t (?:remember|save|store|record|log) this|" +

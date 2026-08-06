@@ -127,6 +127,14 @@ app.MapGet("/health", (ModelOptions models) =>
     });
 });
 
+// ---- greeting (so the client never shows a blank prompt) ----
+
+app.MapGet("/greeting", async (IUserContext user, IGreeter greeter, CancellationToken ct) =>
+{
+    var greeting = await greeter.GreetAsync(user.UserId, ct);
+    return Results.Ok(new { message = greeting.Message, openers = greeting.Openers });
+});
+
 // ---- conversations ----
 
 app.MapPost("/conversations", async (StartConversationRequest? req, IUserContext user, IConversationStore store, CancellationToken ct) =>
@@ -235,7 +243,13 @@ app.Map("/ws", async (HttpContext ctx, IUserContext user, IServiceScopeFactory s
 
     // Each connection gets its own conversation. The user comes from trusted context, not the query.
     var conv = await conversations.StartConversationAsync(user.UserId, "WebSocket session", null, "ws", ct);
-    await WebSocketConversation.RunAsync(socket, scopes, logger, user.UserId, conv.Id, ct);
+
+    // Open with memory-grounded starters so the client can show them and the user needn't initiate.
+    Greeting greeting;
+    using (var greetScope = scopes.CreateScope())
+        greeting = await greetScope.ServiceProvider.GetRequiredService<IGreeter>().GreetAsync(user.UserId, ct);
+
+    await WebSocketConversation.RunAsync(socket, scopes, logger, user.UserId, conv.Id, greeting, ct);
 });
 
 // ---- structured read endpoints (for rich UIs; the conversational path covers the same ground) ----
@@ -319,9 +333,16 @@ app.Run();
 internal static class WebSocketConversation
 {
     public static async Task RunAsync(
-        WebSocket socket, IServiceScopeFactory scopes, ILogger logger, string userId, Guid defaultConversationId, CancellationToken ct)
+        WebSocket socket, IServiceScopeFactory scopes, ILogger logger, string userId, Guid defaultConversationId,
+        Greeting greeting, CancellationToken ct)
     {
-        await SendAsync(socket, new { type = "ready", conversationId = defaultConversationId.ToString() }, ct);
+        await SendAsync(socket, new
+        {
+            type = "ready",
+            conversationId = defaultConversationId.ToString(),
+            message = greeting.Message,
+            openers = greeting.Openers,
+        }, ct);
 
         var buffer = new byte[8 * 1024];
         while (socket.State == WebSocketState.Open && !ct.IsCancellationRequested)

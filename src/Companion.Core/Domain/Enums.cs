@@ -97,6 +97,9 @@ public enum IntentKind
 
     /// <summary>"Don't remember this conversation / private session." (skip durable memory)</summary>
     PrivacyDoNotRemember,
+
+    /// <summary>A bare greeting ("hi", "hello") — answered with memory-grounded openers.</summary>
+    Greeting,
 }
 
 /// <summary>How the user rated a reply — the signal a style fine-tune (DPO) later learns from.</summary>

@@ -38,7 +38,7 @@
     .you { align-self: flex-end; background: var(--you); color: var(--you-ink); border-bottom-right-radius: 4px; }
     .bot { align-self: flex-start; background: var(--bot); color: var(--bot-ink); border-bottom-left-radius: 4px; }
     .sys { align-self: center; color: var(--muted); font-size: 12.5px; font-style: italic; }
-    .confirm { align-self: flex-start; display: flex; gap: 8px; }
+    .confirm { align-self: flex-start; display: flex; gap: 8px; flex-wrap: wrap; max-width: 90%; }
     .confirm button { border: 1px solid var(--line); background: var(--panel); color: var(--ink);
       border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 14px; }
     .confirm button.yes { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -115,6 +115,10 @@
         switch (m.type) {
           case 'ready':
             conversationId = m.conversationId;
+            // The companion opens the conversation so you don't have to. Show its message and
+            // offer the memory-grounded starters as clickable chips (or just type your own).
+            if (m.message) add('bot', m.message);
+            if (Array.isArray(m.openers) && m.openers.length) offerOpeners(m.openers);
             break;
           case 'token':
             if (!currentBot) currentBot = add('bot', '');
@@ -156,6 +160,21 @@
 
     function confirmChoice(token, confirmed) {
       socket.send(JSON.stringify({ type: 'confirm', token, confirmed, conversationId }));
+    }
+
+    // Render the opener suggestions as chips. Clicking one drops it into the input (you can edit
+    // before sending) — you're never forced to pick one; typing anything works too.
+    function offerOpeners(openers) {
+      const row = document.createElement('div');
+      row.className = 'msg confirm';
+      openers.forEach(text => {
+        const b = document.createElement('button');
+        b.textContent = text;
+        b.onclick = () => { input.value = text; input.focus(); };
+        row.appendChild(b);
+      });
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
     }
 
     function submit() {
