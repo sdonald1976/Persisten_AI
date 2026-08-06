@@ -133,9 +133,12 @@ The four jobs map to distinct model slots internally
 models — even different servers — independently.
 
 Each chat/vision endpoint also accepts optional sampling controls: `Temperature` (lower =
-less random; ~0.2 for extraction, ~0.6 for conversation) and `MaxTokens`. Leave them out to
-use the server's defaults. On startup the CLI prints a banner showing the active provider and
-the per-role models (or `Mock (offline)`), so you can tell at a glance what you're running.
+less random; ~0.2 for extraction, ~0.6 for conversation), `MaxTokens`, and — the fix if a small
+local model **repeats itself** — `FrequencyPenalty` and `PresencePenalty` (both honored by Ollama
+and LM Studio; try ~0.6 / ~0.3 on the conversational model, which the shipped config sets). Leave
+any of them out to use the server's defaults. On startup the CLI prints a banner showing the
+active provider and the per-role models (or `Mock (offline)`), so you can tell at a glance what
+you're running.
 
 **LM Studio** (start its local server; default port 1234):
 ```jsonc

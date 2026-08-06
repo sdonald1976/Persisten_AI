@@ -16,6 +16,11 @@ internal static class ChatRequest
             body["temperature"] = temperature;
         if (options.MaxTokens is { } maxTokens)
             body["max_tokens"] = maxTokens;
+        // Anti-repetition levers — the fix for small local models that loop / repeat themselves.
+        if (options.FrequencyPenalty is { } frequencyPenalty)
+            body["frequency_penalty"] = frequencyPenalty;
+        if (options.PresencePenalty is { } presencePenalty)
+            body["presence_penalty"] = presencePenalty;
         // OpenAI-compatible structured-output hint; Ollama and LM Studio both honor json_object.
         if (jsonMode)
             body["response_format"] = new { type = "json_object" };

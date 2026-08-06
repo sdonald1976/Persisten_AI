@@ -73,6 +73,19 @@ public sealed class EndpointOptions
     public int? MaxTokens { get; set; }
 
     /// <summary>
+    /// Penalizes tokens by how often they've already appeared (OpenAI-compatible; honored by Ollama
+    /// and LM Studio). The main lever against a model repeating itself — small local/abliterated
+    /// models loop without it. Try ~0.3–0.8. Null = use the server's default.
+    /// </summary>
+    public double? FrequencyPenalty { get; set; }
+
+    /// <summary>
+    /// Penalizes tokens that have appeared at all, nudging the model toward new topics. Complements
+    /// <see cref="FrequencyPenalty"/> against repetition. Try ~0.2–0.6. Null = server default.
+    /// </summary>
+    public double? PresencePenalty { get; set; }
+
+    /// <summary>
     /// Max transient-failure retries (429 / 5xx / connection blips / timeouts) with exponential
     /// backoff. 0 disables retries. Only ever applied to these stateless model calls.
     /// </summary>
