@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Companion.Core.Abstractions;
@@ -10,11 +11,22 @@ namespace Companion.Infrastructure.Models;
 /// <summary>
 /// Chat completion against any OpenAI-compatible server — Ollama (<c>/v1</c>) or LM Studio
 /// (<c>/v1</c>). Sends the assembled context as the system prompt and the user's message, and
-/// returns the assistant's reply. Point it at a base URL and model via configuration.
+/// returns the assistant's reply.
+///
+/// Completion detection: the server reports WHY generation stopped (<c>finish_reason</c>).
+/// <c>"stop"</c> means the model finished; <c>"length"</c> means it hit the output-token limit
+/// mid-answer. On <c>"length"</c> this adapter automatically asks the model to continue exactly
+/// where it stopped and stitches the parts together (bounded by
+/// <see cref="EndpointOptions.MaxContinuations"/>), so a long task completes in one turn instead
+/// of the user having to say "keep going".
 /// </summary>
 public sealed class OpenAiCompatibleChatModel : IChatModel
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
+
+    private const string ContinuePrompt =
+        "Continue your previous answer from exactly where it stopped. Do not repeat anything you " +
+        "already wrote, do not summarize, and do not add any preamble — output only the continuation.";
 
     private readonly Func<HttpClient> _client;
     private readonly EndpointOptions _options;
@@ -39,74 +51,136 @@ public sealed class OpenAiCompatibleChatModel : IChatModel
     public async Task<string> CompleteAsync(
         string systemPrompt, string userMessage, bool jsonMode = false, CancellationToken ct = default)
     {
-        var request = ChatRequest.Build(_options, new[]
-        {
-            new { role = "system", content = systemPrompt },
-            new { role = "user", content = userMessage },
-        }, stream: false, jsonMode: jsonMode);
-
         var http = _client();
-        using var response = await ProviderHttp.SendAsync(
-            c => http.PostAsJsonAsync("chat/completions", request, c), _options, "chat", _logger, ct);
-        var body = await ProviderHttp.ReadCappedJsonAsync<ChatResponse>(response, _options.MaxResponseBytes, ct);
-        var content = body?.Choices?.FirstOrDefault()?.Message?.Content;
-        return string.IsNullOrWhiteSpace(content) ? "(the model returned an empty response)" : content.Trim();
+        var buffer = new StringBuilder();
+
+        for (var round = 0; ; round++)
+        {
+            var request = ChatRequest.Build(
+                _options, BuildMessages(systemPrompt, userMessage, round == 0 ? null : buffer.ToString()),
+                stream: false, jsonMode: jsonMode);
+
+            using var response = await ProviderHttp.SendAsync(
+                c => http.PostAsJsonAsync("chat/completions", request, c), _options, "chat", _logger, ct);
+            var body = await ProviderHttp.ReadCappedJsonAsync<ChatResponse>(response, _options.MaxResponseBytes, ct);
+            var choice = body?.Choices?.FirstOrDefault();
+            buffer.Append(choice?.Message?.Content);
+
+            // Structured (JSON-mode) output is never stitched — half a JSON document is useless,
+            // and the extraction path treats an unparseable reply as "no candidates" anyway.
+            if (!ShouldContinue(choice?.FinishReason, round, jsonMode))
+                break;
+        }
+
+        var text = buffer.ToString();
+        return string.IsNullOrWhiteSpace(text) ? "(the model returned an empty response)" : text.Trim();
     }
 
     public async IAsyncEnumerable<string> StreamAsync(
         string systemPrompt, string userMessage, [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var request = ChatRequest.Build(_options, new[]
-        {
-            new { role = "system", content = systemPrompt },
-            new { role = "user", content = userMessage },
-        }, stream: true);
-
-        // Streaming reads the body incrementally (not buffered), so it uses the resilient send for
-        // the initial request/headers but its own read loop for the SSE stream.
         var http = _client();
-        var response = await ProviderHttp.SendAsync(
-            c => http.SendAsync(
-                new HttpRequestMessage(HttpMethod.Post, "chat/completions") { Content = JsonContent.Create(request) },
-                HttpCompletionOption.ResponseHeadersRead, c),
-            _options, "chat", _logger, ct);
+        var accumulated = new StringBuilder();
 
-        using (response)
+        for (var round = 0; ; round++)
         {
-            await using var stream = await response.Content.ReadAsStreamAsync(ct);
-            using var reader = new StreamReader(stream);
+            var request = ChatRequest.Build(
+                _options, BuildMessages(systemPrompt, userMessage, round == 0 ? null : accumulated.ToString()),
+                stream: true);
 
-            while (!reader.EndOfStream)
+            // Streaming reads the body incrementally (not buffered), so it uses the resilient send
+            // for the initial request/headers but its own read loop for the SSE stream.
+            var response = await ProviderHttp.SendAsync(
+                c => http.SendAsync(
+                    new HttpRequestMessage(HttpMethod.Post, "chat/completions") { Content = JsonContent.Create(request) },
+                    HttpCompletionOption.ResponseHeadersRead, c),
+                _options, "chat", _logger, ct);
+
+            string? finishReason = null;
+            using (response)
             {
-                var line = await reader.ReadLineAsync(ct);
-                if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data:", StringComparison.Ordinal))
-                    continue;
+                await using var stream = await response.Content.ReadAsStreamAsync(ct);
+                using var reader = new StreamReader(stream);
 
-                var payload = line["data:".Length..].Trim();
-                if (payload == "[DONE]")
-                    break;
-
-                string? content = null;
-                try
+                while (!reader.EndOfStream)
                 {
-                    content = JsonSerializer.Deserialize<StreamChunk>(payload, Json)?.Choices?.FirstOrDefault()?.Delta?.Content;
-                }
-                catch (JsonException)
-                {
-                    // ignore keep-alive / non-JSON lines
-                }
+                    var line = await reader.ReadLineAsync(ct);
+                    if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data:", StringComparison.Ordinal))
+                        continue;
 
-                if (!string.IsNullOrEmpty(content))
-                    yield return content;
+                    var payload = line["data:".Length..].Trim();
+                    if (payload == "[DONE]")
+                        break;
+
+                    string? content = null;
+                    try
+                    {
+                        var choice = JsonSerializer.Deserialize<StreamChunk>(payload, Json)?.Choices?.FirstOrDefault();
+                        content = choice?.Delta?.Content;
+                        finishReason = choice?.FinishReason ?? finishReason;
+                    }
+                    catch (JsonException)
+                    {
+                        // ignore keep-alive / non-JSON lines
+                    }
+
+                    if (!string.IsNullOrEmpty(content))
+                    {
+                        accumulated.Append(content);
+                        yield return content;
+                    }
+                }
             }
+
+            if (!ShouldContinue(finishReason, round, jsonMode: false))
+                yield break;
         }
     }
 
+    /// <summary>Base messages, plus the continuation exchange when resuming a cut-off answer.</summary>
+    private static object BuildMessages(string systemPrompt, string userMessage, string? partialSoFar)
+        => partialSoFar is null
+            ? new object[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userMessage },
+            }
+            : new object[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userMessage },
+                new { role = "assistant", content = partialSoFar },
+                new { role = "user", content = ContinuePrompt },
+            };
+
+    private bool ShouldContinue(string? finishReason, int round, bool jsonMode)
+    {
+        var truncated = string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase);
+        if (!truncated || jsonMode || !_options.AutoContinue)
+            return false;
+
+        if (round >= _options.MaxContinuations)
+        {
+            _logger.LogWarning(
+                "Reply from {Model} still truncated after {Rounds} auto-continuations; stopping (raise MaxTokens or MaxContinuations).",
+                _options.Model, round + 1);
+            return false;
+        }
+
+        _logger.LogDebug("Reply from {Model} was cut off (finish_reason=length); auto-continuing (round {Round}).",
+            _options.Model, round + 1);
+        return true;
+    }
+
     private sealed record ChatResponse([property: JsonPropertyName("choices")] List<Choice>? Choices);
-    private sealed record Choice([property: JsonPropertyName("message")] ChatMessage? Message);
+    private sealed record Choice(
+        [property: JsonPropertyName("message")] ChatMessage? Message,
+        [property: JsonPropertyName("finish_reason")] string? FinishReason);
     private sealed record ChatMessage([property: JsonPropertyName("content")] string? Content);
 
     private sealed record StreamChunk([property: JsonPropertyName("choices")] List<StreamChoice>? Choices);
-    private sealed record StreamChoice([property: JsonPropertyName("delta")] Delta? Delta);
+    private sealed record StreamChoice(
+        [property: JsonPropertyName("delta")] Delta? Delta,
+        [property: JsonPropertyName("finish_reason")] string? FinishReason);
     private sealed record Delta([property: JsonPropertyName("content")] string? Content);
 }
