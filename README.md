@@ -219,12 +219,14 @@ dotnet run --project src/Companion.Api     # http://127.0.0.1:5266 (loopback onl
 #  open http://127.0.0.1:5266 for the reference chat client (paste the token when prompted)
 ```
 
-**Secure by default:** it binds to **loopback only**, requires a **local API token** on every
-REST/SSE/WebSocket call (auto-generated on first startup and saved to `.companion-api-token` next
-to the DB; send it as `Authorization: Bearer <token>` / `X-Companion-Key`, or `?access_token=` for
-SSE/WebSocket), and restricts browser access to an explicit **CORS allow-list**
-(`Api:AllowedOrigins`). Set `Api:AuthEnabled=false` only for local development. Errors come back
-sanitized as `{ error, message, correlationId }`; the detail stays in the server log.
+**Local-first security.** It always binds to **loopback only** and restricts browser access to an
+explicit **CORS allow-list** (`Api:AllowedOrigins`). Token auth is **available but shipped off**
+for solo local convenience (`Api:AuthEnabled=false` in `appsettings.json`) — the web client just
+connects. Turn it on by setting `Api:AuthEnabled=true`: a token is then auto-generated on first
+startup and saved to `.companion-api-token` next to the DB, and every REST/SSE/WebSocket call must
+present it (`Authorization: Bearer <token>` / `X-Companion-Key`, or `?access_token=` for
+SSE/WebSocket — the web client prompts for it and remembers it). Errors always come back sanitized
+as `{ error, message, correlationId }`; the detail stays in the server log.
 
 It defaults to the offline mocks (no model server needed) and uses the same `Models`
 configuration as the CLI when you want a real model. Replies stream token-by-token over
