@@ -16,4 +16,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Companion.Core\Companion.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Test seam: lets the test project construct providers over a mocked HttpMessageHandler. -->
+    <InternalsVisibleTo Include="Companion.Tests" />
+  </ItemGroup>
 </Project>

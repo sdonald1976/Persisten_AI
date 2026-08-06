@@ -49,7 +49,7 @@ public class ScenarioTests
         using var scope = host.CreateScope();
         var projects = scope.ServiceProvider.GetRequiredService<IProjectStore>();
         var jetson = (await projects.GetProjectsAsync(User)).Single(p => p.Name == CompanionSeeder.JetsonProject);
-        Assert.Empty(await projects.GetOpenLoopsByProjectAsync(jetson.Id, onlyOpen: true));
+        Assert.Empty(await projects.GetOpenLoopsByProjectAsync(User, jetson.Id, onlyOpen: true));
     }
 
     [Fact] // Scenario B — Changed preference
@@ -130,7 +130,7 @@ public class ScenarioTests
             var vStore = verify.ServiceProvider.GetRequiredService<IMemoryStore>();
             var corrected = await vStore.GetSemanticAsync(memId, User);
             Assert.Equal(CompanionSeeder.BuoyProject, corrected!.RelatedProject); // re-associated
-            Assert.Contains(await vStore.GetRevisionsAsync(memId), r => r.Kind == RevisionKind.Updated); // audit trail
+            Assert.Contains(await vStore.GetRevisionsAsync(User, memId), r => r.Kind == RevisionKind.Updated); // audit trail
         }
     }
 

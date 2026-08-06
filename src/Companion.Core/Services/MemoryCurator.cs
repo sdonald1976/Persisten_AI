@@ -45,9 +45,9 @@ public sealed class MemoryCurator : IMemoryCurator
         replacement.Status = MemoryStatus.Active;
         await _memories.AddSemanticAsync(replacement, ct);
 
-        await RevisionAsync(old.Id, MemoryKind.Semantic, RevisionKind.Superseded, reason,
+        await RevisionAsync(userId, old.Id, MemoryKind.Semantic, RevisionKind.Superseded, reason,
             before, $"superseded by {replacement.Id}", ct);
-        await RevisionAsync(replacement.Id, MemoryKind.Semantic, RevisionKind.Created,
+        await RevisionAsync(userId, replacement.Id, MemoryKind.Semantic, RevisionKind.Created,
             $"Supersedes {old.Id}: {reason}", old.NormalizedFact, replacement.NormalizedFact, ct);
 
         _logger.LogInformation("Superseded semantic {Old} with {New} for {User}", old.Id, replacement.Id, userId);
@@ -66,7 +66,7 @@ public sealed class MemoryCurator : IMemoryCurator
         m.Embedding = await _embeddings.EmbedAsync(newNormalizedFact, ct); // keep the index consistent
         await _memories.UpdateSemanticAsync(m, ct);
 
-        await RevisionAsync(m.Id, MemoryKind.Semantic, RevisionKind.Updated,
+        await RevisionAsync(userId, m.Id, MemoryKind.Semantic, RevisionKind.Updated,
             "Corrected by user.", before, newNormalizedFact, ct);
         return true;
     }
@@ -80,7 +80,7 @@ public sealed class MemoryCurator : IMemoryCurator
             var before = sem.RelatedProject ?? "(none)";
             sem.RelatedProject = newProject;
             await _memories.UpdateSemanticAsync(sem, ct);
-            await RevisionAsync(sem.Id, MemoryKind.Semantic, RevisionKind.Updated,
+            await RevisionAsync(userId, sem.Id, MemoryKind.Semantic, RevisionKind.Updated,
                 "Re-associated project.", before, newProject ?? "(none)", ct);
             return true;
         }
@@ -89,7 +89,7 @@ public sealed class MemoryCurator : IMemoryCurator
             var before = epi.RelatedProject ?? "(none)";
             epi.RelatedProject = newProject;
             await _memories.UpdateEpisodicAsync(epi, ct);
-            await RevisionAsync(epi.Id, MemoryKind.Episodic, RevisionKind.Updated,
+            await RevisionAsync(userId, epi.Id, MemoryKind.Episodic, RevisionKind.Updated,
                 "Re-associated project.", before, newProject ?? "(none)", ct);
             return true;
         }
@@ -112,12 +112,13 @@ public sealed class MemoryCurator : IMemoryCurator
             return false;
 
         // Move the source's evidence onto the target so provenance is preserved.
-        var evidence = await _memories.GetEvidenceAsync(sourceId, ct);
+        var evidence = await _memories.GetEvidenceAsync(userId, sourceId, ct);
         if (evidence.Count > 0)
         {
-            await _memories.AddEvidenceAsync(evidence.Select(e => new MemoryEvidence
+            await _memories.AddEvidenceAsync(userId, evidence.Select(e => new MemoryEvidence
             {
                 Id = Guid.NewGuid(),
+                UserId = userId,
                 MemoryId = targetId,
                 MemoryKind = targetKind.Value,
                 MessageId = e.MessageId,
@@ -128,7 +129,7 @@ public sealed class MemoryCurator : IMemoryCurator
 
         await SetStatusAsync(userId, sourceId, MemoryStatus.Deleted, RevisionKind.Merged,
             $"Merged into {targetId}.", purgeEmbedding: true, ct);
-        await RevisionAsync(targetId, targetKind.Value, RevisionKind.Merged,
+        await RevisionAsync(userId, targetId, targetKind.Value, RevisionKind.Merged,
             $"Absorbed {sourceId}.", null, null, ct);
         return true;
     }
@@ -145,7 +146,7 @@ public sealed class MemoryCurator : IMemoryCurator
             candidate.Status = MemoryStatus.Deleted;
             candidate.Embedding = null;
             await _memories.UpdateSemanticAsync(candidate, ct);
-            await RevisionAsync(candidate.Id, MemoryKind.Semantic, RevisionKind.Deleted,
+            await RevisionAsync(userId, candidate.Id, MemoryKind.Semantic, RevisionKind.Deleted,
                 "Review rejected.", null, null, ct);
             return true;
         }
@@ -164,14 +165,14 @@ public sealed class MemoryCurator : IMemoryCurator
             conflicting.Validity = Validity.Superseded;
             conflicting.SupersededById = candidate.Id;
             await _memories.UpdateSemanticAsync(conflicting, ct);
-            await RevisionAsync(conflicting.Id, MemoryKind.Semantic, RevisionKind.Superseded,
+            await RevisionAsync(userId, conflicting.Id, MemoryKind.Semantic, RevisionKind.Superseded,
                 "Superseded on review acceptance.", conflicting.NormalizedFact, candidate.NormalizedFact, ct);
         }
 
         candidate.Status = MemoryStatus.Active;
         candidate.LastConfirmed = _clock.GetUtcNow();
         await _memories.UpdateSemanticAsync(candidate, ct);
-        await RevisionAsync(candidate.Id, MemoryKind.Semantic, RevisionKind.Confirmed,
+        await RevisionAsync(userId, candidate.Id, MemoryKind.Semantic, RevisionKind.Confirmed,
             "Promoted from review.", null, candidate.NormalizedFact, ct);
         return true;
     }
@@ -187,7 +188,7 @@ public sealed class MemoryCurator : IMemoryCurator
             sem.Status = status;
             if (purgeEmbedding) sem.Embedding = null;
             await _memories.UpdateSemanticAsync(sem, ct);
-            await RevisionAsync(sem.Id, MemoryKind.Semantic, revision, reason, before, status.ToString(), ct);
+            await RevisionAsync(userId, sem.Id, MemoryKind.Semantic, revision, reason, before, status.ToString(), ct);
             return true;
         }
         if (epi is not null)
@@ -196,7 +197,7 @@ public sealed class MemoryCurator : IMemoryCurator
             epi.Status = status;
             if (purgeEmbedding) epi.Embedding = null;
             await _memories.UpdateEpisodicAsync(epi, ct);
-            await RevisionAsync(epi.Id, MemoryKind.Episodic, revision, reason, before, status.ToString(), ct);
+            await RevisionAsync(userId, epi.Id, MemoryKind.Episodic, revision, reason, before, status.ToString(), ct);
             return true;
         }
         return false;
@@ -212,11 +213,12 @@ public sealed class MemoryCurator : IMemoryCurator
     }
 
     private Task RevisionAsync(
-        Guid memoryId, MemoryKind kind, RevisionKind revision, string note,
+        string userId, Guid memoryId, MemoryKind kind, RevisionKind revision, string note,
         string? before, string? after, CancellationToken ct)
-        => _memories.AddRevisionAsync(new MemoryRevision
+        => _memories.AddRevisionAsync(userId, new MemoryRevision
         {
             Id = Guid.NewGuid(),
+            UserId = userId,
             MemoryId = memoryId,
             MemoryKind = kind,
             Kind = revision,

@@ -30,11 +30,15 @@ public class CompanionTurnTests
         using (var scope = host.CreateScope())
         {
             var companion = scope.ServiceProvider.GetRequiredService<ICompanion>();
+            // Use an unambiguous reference ("the Jetson") so this exercises a normal answered turn;
+            // an ambiguous reference like "that board" now deliberately pauses for clarification,
+            // which is covered by AmbiguityControlFlowTests.
             trace = await companion.RespondAsync(
-                CompanionSeeder.DemoUserId, conversationId, "I finally tested that board at home.");
+                CompanionSeeder.DemoUserId, conversationId, "I finally tested the Jetson at home.");
         }
 
         // Retrieval happened and continuity reached the packet.
+        Assert.Equal(TurnStatus.Answered, trace.Status);
         Assert.NotEmpty(trace.Retrieved);
         Assert.Contains("Jetson", trace.Packet.Render(), StringComparison.OrdinalIgnoreCase);
         Assert.False(string.IsNullOrWhiteSpace(trace.Response));

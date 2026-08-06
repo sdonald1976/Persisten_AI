@@ -45,8 +45,8 @@ public sealed class ProjectStore : IProjectStore
         => await _db.ProjectAliases.Where(a => a.UserId == userId).ToListAsync(ct);
 
     public async Task<IReadOnlyList<ProjectAlias>> GetAliasesByProjectAsync(
-        Guid projectId, CancellationToken ct = default)
-        => await _db.ProjectAliases.Where(a => a.ProjectId == projectId).ToListAsync(ct);
+        string userId, Guid projectId, CancellationToken ct = default)
+        => await _db.ProjectAliases.Where(a => a.ProjectId == projectId && a.UserId == userId).ToListAsync(ct);
 
     public async Task DeleteProjectAsync(Guid id, string userId, CancellationToken ct = default)
     {
@@ -82,10 +82,10 @@ public sealed class ProjectStore : IProjectStore
     }
 
     public async Task<IReadOnlyList<ProjectEvent>> GetRecentEventsAsync(
-        Guid projectId, int count, CancellationToken ct = default)
+        string userId, Guid projectId, int count, CancellationToken ct = default)
     {
         var recent = await _db.ProjectEvents
-            .Where(e => e.ProjectId == projectId)
+            .Where(e => e.ProjectId == projectId && e.UserId == userId)
             .OrderByDescending(e => e.Timestamp)
             .Take(count)
             .ToListAsync(ct);
@@ -99,9 +99,10 @@ public sealed class ProjectStore : IProjectStore
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task<IReadOnlyList<Decision>> GetDecisionsAsync(Guid projectId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<Decision>> GetDecisionsAsync(
+        string userId, Guid projectId, CancellationToken ct = default)
         => await _db.Decisions
-            .Where(d => d.ProjectId == projectId && d.Status != MemoryStatus.Deleted)
+            .Where(d => d.ProjectId == projectId && d.UserId == userId && d.Status != MemoryStatus.Deleted)
             .OrderBy(d => d.DecidedAt)
             .ToListAsync(ct);
 
@@ -127,8 +128,8 @@ public sealed class ProjectStore : IProjectStore
             .ToListAsync(ct);
 
     public async Task<IReadOnlyList<OpenLoop>> GetOpenLoopsByProjectAsync(
-        Guid projectId, bool onlyOpen, CancellationToken ct = default)
+        string userId, Guid projectId, bool onlyOpen, CancellationToken ct = default)
         => await _db.OpenLoops
-            .Where(l => l.ProjectId == projectId && (!onlyOpen || l.Status == OpenLoopStatus.Open))
+            .Where(l => l.ProjectId == projectId && l.UserId == userId && (!onlyOpen || l.Status == OpenLoopStatus.Open))
             .ToListAsync(ct);
 }

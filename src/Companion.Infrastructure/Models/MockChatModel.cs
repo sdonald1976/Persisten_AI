@@ -10,7 +10,8 @@ namespace Companion.Infrastructure.Models;
 /// </summary>
 public sealed class MockChatModel : IChatModel
 {
-    public Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken ct = default)
+    public Task<string> CompleteAsync(
+        string systemPrompt, string userMessage, bool jsonMode = false, CancellationToken ct = default)
     {
         var bullets = systemPrompt
             .Split('\n')
@@ -45,7 +46,7 @@ public sealed class MockChatModel : IChatModel
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         // Simulate streaming by yielding the deterministic reply word by word.
-        var full = await CompleteAsync(systemPrompt, userMessage, ct);
+        var full = await CompleteAsync(systemPrompt, userMessage, jsonMode: false, ct);
         foreach (var word in full.Split(' '))
         {
             ct.ThrowIfCancellationRequested();

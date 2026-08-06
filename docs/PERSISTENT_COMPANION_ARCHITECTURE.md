@@ -18,7 +18,7 @@ single developer should be able to hold the whole thing in their head.
 
 ## Technology choices
 
-- **Runtime:** .NET 8 (LTS), nullable reference types on, async + `CancellationToken`.
+- **Runtime:** .NET 9, nullable reference types on, async + `CancellationToken`.
 - **Storage:** EF Core over **SQLite** (authoritative). Embeddings stored as `BLOB`.
 - **Vector search (initial):** in-process cosine similarity behind `IVectorIndex`.
 - **Models:** `Mock` (default, for dev/tests), `Ollama` (local), `OpenAiCompatible`

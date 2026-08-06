@@ -16,7 +16,8 @@ public interface IProjectStore
     Task AddAliasAsync(ProjectAlias alias, CancellationToken ct = default);
     Task UpdateAliasAsync(ProjectAlias alias, CancellationToken ct = default);
     Task<IReadOnlyList<ProjectAlias>> GetAliasesAsync(string userId, CancellationToken ct = default);
-    Task<IReadOnlyList<ProjectAlias>> GetAliasesByProjectAsync(Guid projectId, CancellationToken ct = default);
+    Task<IReadOnlyList<ProjectAlias>> GetAliasesByProjectAsync(
+        string userId, Guid projectId, CancellationToken ct = default);
     Task DeleteProjectAsync(Guid id, string userId, CancellationToken ct = default);
 
     /// <summary>Moves all aliases, events, decisions, and open loops from one project to another.</summary>
@@ -24,14 +25,16 @@ public interface IProjectStore
 
     // Activity log & decisions
     Task AddEventAsync(ProjectEvent projectEvent, CancellationToken ct = default);
-    Task<IReadOnlyList<ProjectEvent>> GetRecentEventsAsync(Guid projectId, int count, CancellationToken ct = default);
+    Task<IReadOnlyList<ProjectEvent>> GetRecentEventsAsync(
+        string userId, Guid projectId, int count, CancellationToken ct = default);
     Task AddDecisionAsync(Decision decision, CancellationToken ct = default);
-    Task<IReadOnlyList<Decision>> GetDecisionsAsync(Guid projectId, CancellationToken ct = default);
+    Task<IReadOnlyList<Decision>> GetDecisionsAsync(string userId, Guid projectId, CancellationToken ct = default);
 
     // Open loops
     Task AddOpenLoopAsync(OpenLoop openLoop, CancellationToken ct = default);
     Task UpdateOpenLoopAsync(OpenLoop openLoop, CancellationToken ct = default);
     Task<OpenLoop?> GetOpenLoopAsync(Guid id, string userId, CancellationToken ct = default);
     Task<IReadOnlyList<OpenLoop>> GetOpenLoopsAsync(string userId, bool onlyOpen, CancellationToken ct = default);
-    Task<IReadOnlyList<OpenLoop>> GetOpenLoopsByProjectAsync(Guid projectId, bool onlyOpen, CancellationToken ct = default);
+    Task<IReadOnlyList<OpenLoop>> GetOpenLoopsByProjectAsync(
+        string userId, Guid projectId, bool onlyOpen, CancellationToken ct = default);
 }

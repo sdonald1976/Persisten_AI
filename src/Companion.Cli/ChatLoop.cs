@@ -169,6 +169,10 @@ public sealed class ChatLoop
                     Console.WriteLine(TraceRenderer.Render(_lastTrace));
                 return false;
 
+            case "/health":
+                await HealthAsync(ct);
+                return false;
+
             case "/image":
                 await ImageAsync(Arg(input), ct);
                 return false;
@@ -546,6 +550,46 @@ public sealed class ChatLoop
         _ => "image/png",
     };
 
+    /// <summary>Connection test: pings the configured chat + embedding endpoints and reports each.</summary>
+    private async Task HealthAsync(CancellationToken ct)
+    {
+        var options = _services.GetService<ModelOptions>();
+        if (options is null || !options.UsesRealModel)
+        {
+            Console.WriteLine("Provider: Mock (offline). Nothing to connect to — everything runs locally and deterministically.");
+            return;
+        }
+
+        Console.WriteLine($"Provider: {options.Provider}. Testing endpoints…");
+        using var scope = _services.CreateScope();
+        var sp = scope.ServiceProvider;
+
+        await CheckAsync("chat", async () =>
+        {
+            var reply = await sp.GetRequiredService<IChatModel>().CompleteAsync("You are a health check.", "ping", jsonMode: false, ct);
+            return string.IsNullOrWhiteSpace(reply) ? "empty reply" : "ok";
+        });
+        await CheckAsync("embeddings", async () =>
+        {
+            var v = await sp.GetRequiredService<IEmbeddingModel>().EmbedAsync("ping", ct);
+            return $"ok ({v.Length} dims)";
+        });
+    }
+
+    private static async Task CheckAsync(string role, Func<Task<string>> probe)
+    {
+        var start = DateTimeOffset.UtcNow;
+        try
+        {
+            var result = await probe();
+            Console.WriteLine($"  {role,-11} ✓ {result}  ({(DateTimeOffset.UtcNow - start).TotalMilliseconds:0} ms)");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.WriteLine($"  {role,-11} ✗ {ex.Message}");
+        }
+    }
+
     private void PrintProviderBanner()
     {
         var options = _services.GetService<ModelOptions>();
@@ -591,6 +635,7 @@ public sealed class ChatLoop
         Console.WriteLine("  /image <path> …   Share an image (needs a vision model)");
         Console.WriteLine("  /transcribe <f>   Transcribe an audio file and send it (needs a Whisper server)");
         Console.WriteLine("  /why              Explain how the last response was retrieved");
+        Console.WriteLine("  /health           Test the configured model provider connections");
         Console.WriteLine("  /help             Show this help");
         Console.WriteLine("  /exit             Quit");
     }

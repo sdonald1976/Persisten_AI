@@ -26,19 +26,27 @@ public interface IMemoryStore
     Task UpdateSemanticAsync(SemanticMemory memory, CancellationToken ct = default);
     Task UpdateEpisodicAsync(EpisodicMemory memory, CancellationToken ct = default);
 
-    /// <summary>Adds evidence rows to an already-persisted memory (used when merging).</summary>
-    Task AddEvidenceAsync(IReadOnlyList<MemoryEvidence> evidence, CancellationToken ct = default);
+    /// <summary>Adds evidence rows to an already-persisted memory owned by <paramref name="userId"/>.</summary>
+    Task AddEvidenceAsync(string userId, IReadOnlyList<MemoryEvidence> evidence, CancellationToken ct = default);
 
     /// <summary>Re-points every memory referencing <paramref name="oldProject"/> to a new project name (or null).</summary>
     Task<int> ReassignProjectAsync(
         string userId, string oldProject, string? newProject, CancellationToken ct = default);
 
-    /// <summary>Evidence supporting a given memory (provenance).</summary>
-    Task<IReadOnlyList<MemoryEvidence>> GetEvidenceAsync(Guid memoryId, CancellationToken ct = default);
+    /// <summary>
+    /// Evidence supporting a memory (provenance), scoped to its owner. Ownership is enforced in
+    /// the query (MemoryId AND UserId), so a foreign memory id returns an empty list.
+    /// </summary>
+    Task<IReadOnlyList<MemoryEvidence>> GetEvidenceAsync(
+        string userId, Guid memoryId, CancellationToken ct = default);
 
-    /// <summary>Appends an audit-trail entry.</summary>
-    Task AddRevisionAsync(MemoryRevision revision, CancellationToken ct = default);
+    /// <summary>Appends an audit-trail entry for a memory owned by <paramref name="userId"/>.</summary>
+    Task AddRevisionAsync(string userId, MemoryRevision revision, CancellationToken ct = default);
 
-    /// <summary>The audit trail for a memory, oldest-first.</summary>
-    Task<IReadOnlyList<MemoryRevision>> GetRevisionsAsync(Guid memoryId, CancellationToken ct = default);
+    /// <summary>
+    /// The audit trail for a memory, oldest-first, scoped to its owner. Ownership is enforced in
+    /// the query (MemoryId AND UserId), so a foreign memory id returns an empty list.
+    /// </summary>
+    Task<IReadOnlyList<MemoryRevision>> GetRevisionsAsync(
+        string userId, Guid memoryId, CancellationToken ct = default);
 }

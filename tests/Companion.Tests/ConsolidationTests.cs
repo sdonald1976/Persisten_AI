@@ -63,7 +63,7 @@ public class ConsolidationTests
         var all = await store.GetRetrievableMemoriesAsync(User);
         var consolidated = all.OfType<SemanticMemory>().Single(m => m.Origin == MemoryOrigin.Consolidated);
         Assert.Equal(MemoryStatus.Active, consolidated.Status);
-        Assert.True((await store.GetEvidenceAsync(consolidated.Id)).Count >= 3);
+        Assert.True((await store.GetEvidenceAsync(User, consolidated.Id)).Count >= 3);
 
         // Originals are retained (not destroyed).
         Assert.Equal(3, all.OfType<SemanticMemory>().Count(m => m.Origin == MemoryOrigin.Stated));

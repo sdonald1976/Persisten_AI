@@ -71,4 +71,16 @@ public sealed class EndpointOptions
 
     /// <summary>Optional cap on generated tokens. Null = use the server's default.</summary>
     public int? MaxTokens { get; set; }
+
+    /// <summary>
+    /// Max transient-failure retries (429 / 5xx / connection blips / timeouts) with exponential
+    /// backoff. 0 disables retries. Only ever applied to these stateless model calls.
+    /// </summary>
+    public int MaxRetries { get; set; } = 2;
+
+    /// <summary>
+    /// Hard cap on a (non-streaming) response body, in bytes. A larger body is rejected rather
+    /// than buffered, bounding memory against a hostile or malfunctioning endpoint.
+    /// </summary>
+    public long MaxResponseBytes { get; set; } = 8 * 1024 * 1024;
 }

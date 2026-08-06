@@ -21,38 +21,33 @@ public sealed class OpenAiCompatibleChatModel : IChatModel, IDisposable
     private readonly ILogger<OpenAiCompatibleChatModel> _logger;
 
     public OpenAiCompatibleChatModel(EndpointOptions options, ILogger<OpenAiCompatibleChatModel> logger)
+        : this(options, HttpClientFactory.Create(options), logger) { }
+
+    /// <summary>Test seam: supply a pre-built <see cref="HttpClient"/> (e.g. over a mock handler).</summary>
+    internal OpenAiCompatibleChatModel(EndpointOptions options, HttpClient http, ILogger<OpenAiCompatibleChatModel> logger)
     {
         _options = options;
         _logger = logger;
-        _http = HttpClientFactory.Create(options);
+        _http = http;
     }
 
     /// <summary>The configured model name (which model this instance talks to).</summary>
     public string ModelName => _options.Model;
 
-    public async Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken ct = default)
+    public async Task<string> CompleteAsync(
+        string systemPrompt, string userMessage, bool jsonMode = false, CancellationToken ct = default)
     {
         var request = ChatRequest.Build(_options, new[]
         {
             new { role = "system", content = systemPrompt },
             new { role = "user", content = userMessage },
-        }, stream: false);
+        }, stream: false, jsonMode: jsonMode);
 
-        try
-        {
-            using var response = await _http.PostAsJsonAsync("chat/completions", request, ct);
-            response.EnsureSuccessStatusCode();
-            var body = await response.Content.ReadFromJsonAsync<ChatResponse>(Json, ct);
-            var content = body?.Choices?.FirstOrDefault()?.Message?.Content;
-            return string.IsNullOrWhiteSpace(content) ? "(the model returned an empty response)" : content.Trim();
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            _logger.LogError(ex, "Chat request to {BaseUrl} (model {Model}) failed", _options.BaseUrl, _options.Model);
-            throw new InvalidOperationException(
-                $"Couldn't reach the chat model at {_options.BaseUrl} (model '{_options.Model}'). " +
-                "Is the server running and the model pulled/loaded?", ex);
-        }
+        using var response = await ProviderHttp.SendAsync(
+            c => _http.PostAsJsonAsync("chat/completions", request, c), _options, "chat", _logger, ct);
+        var body = await ProviderHttp.ReadCappedJsonAsync<ChatResponse>(response, _options.MaxResponseBytes, ct);
+        var content = body?.Choices?.FirstOrDefault()?.Message?.Content;
+        return string.IsNullOrWhiteSpace(content) ? "(the model returned an empty response)" : content.Trim();
     }
 
     public async IAsyncEnumerable<string> StreamAsync(
@@ -64,23 +59,13 @@ public sealed class OpenAiCompatibleChatModel : IChatModel, IDisposable
             new { role = "user", content = userMessage },
         }, stream: true);
 
-        HttpResponseMessage response;
-        try
-        {
-            var message = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
-            {
-                Content = JsonContent.Create(request),
-            };
-            response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
-            response.EnsureSuccessStatusCode();
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            _logger.LogError(ex, "Streaming chat request to {BaseUrl} (model {Model}) failed", _options.BaseUrl, _options.Model);
-            throw new InvalidOperationException(
-                $"Couldn't reach the chat model at {_options.BaseUrl} (model '{_options.Model}'). " +
-                "Is the server running and the model pulled/loaded?", ex);
-        }
+        // Streaming reads the body incrementally (not buffered), so it uses the resilient send for
+        // the initial request/headers but its own read loop for the SSE stream.
+        var response = await ProviderHttp.SendAsync(
+            c => _http.SendAsync(
+                new HttpRequestMessage(HttpMethod.Post, "chat/completions") { Content = JsonContent.Create(request) },
+                HttpCompletionOption.ResponseHeadersRead, c),
+            _options, "chat", _logger, ct);
 
         using (response)
         {

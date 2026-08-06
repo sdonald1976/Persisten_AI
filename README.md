@@ -19,8 +19,8 @@ ambiguous), retrieve ranked+explained memories and open loops into a bounded,
 provenance-labeled context packet, generate a reply, then extract candidate memories through a
 validate-before-store pipeline, update project/open-loop state, and revise over time
 (supersession, correction, forgetting) — all with an audit trail. Everything runs offline on
-deterministic mock/rule-based providers. **All 112 tests pass**, including the five reference
-scenarios. Design docs are under `docs/`.
+deterministic mock/rule-based providers. The full test suite passes (`dotnet test`), including
+the five reference scenarios. Design docs are under `docs/`.
 
 The companion logic is a **headless brain** (`IAgent`) that every face drives identically: the
 CLI is a thin client over it, and a local **HTTP + WebSocket API** (`Companion.Api`) exposes the
@@ -42,14 +42,14 @@ avatar can plug in without embedding .NET. See [`docs/API.md`](docs/API.md).
 | Document | What it covers |
 |----------|----------------|
 | [`docs/PERSISTENT_COMPANION_VISION.md`](docs/PERSISTENT_COMPANION_VISION.md) | Product goal, non-goals, UX, capabilities, success criteria. |
-| [`docs/CURRENT_ARCHITECTURE_ASSESSMENT.md`](docs/CURRENT_ARCHITECTURE_ASSESSMENT.md) | Assessment of the existing repository (finding: empty → greenfield). |
+| [`docs/CURRENT_ARCHITECTURE_ASSESSMENT.md`](docs/CURRENT_ARCHITECTURE_ASSESSMENT.md) | The initial (now historical) assessment — the repo began empty, hence a greenfield build. |
 | [`docs/PERSISTENT_COMPANION_ARCHITECTURE.md`](docs/PERSISTENT_COMPANION_ARCHITECTURE.md) | Components, data flow, storage, retrieval, memory lifecycle, model boundaries, Mermaid diagram. |
 | [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | Phased tasks, dependencies, acceptance criteria, test requirements. |
 | [`docs/FIRST_VERTICAL_SLICE.md`](docs/FIRST_VERTICAL_SLICE.md) | Exact files proposed for the first vertical slice. |
 
 ## Stack
 
-.NET 8 · EF Core + SQLite (authoritative store) · in-process vector index (swappable) ·
+.NET 9 · EF Core + SQLite (authoritative store) · in-process vector index (swappable) ·
 mockable model providers (local/hosted/mock) · xUnit.
 
 ## Project layout
@@ -62,7 +62,7 @@ src/Companion.Cli             thin console face over IAgent: chat + plain-langua
                               /seed, /remember, /projects, /loops, /forget, /correct, /consolidate … shortcuts
 src/Companion.Api             headless HTTP + WebSocket face over IAgent: /chat, SSE /chat/stream, /ws,
                               and structured /memories, /projects, /loops, /persona, /feedback (+ reference web client)
-tests/Companion.Tests         112 tests: retrieval, packet, provenance, isolation, score math,
+tests/Companion.Tests         the test suite (run `dotnet test`): retrieval, packet, provenance, isolation, score math,
                               extraction (accept/merge/reject/review/supersede), confidence, normalizer,
                               LLM parsing, resolution + clarification, project summary, open-loop create/close,
                               supersession, correction/forget/dispute/merge, project merge/split,
@@ -70,6 +70,9 @@ tests/Companion.Tests         112 tests: retrieval, packet, provenance, isolatio
 ```
 
 ## Build & run
+
+Requires the **.NET 9 SDK** (the repo pins `9.0.3xx` via `global.json`; a .NET 8 SDK will not
+build it). Install it from https://dotnet.microsoft.com/download, then:
 
 ```bash
 dotnet build                                   # build the solution
@@ -218,6 +221,34 @@ app — the chat loop never trains or swaps models on its own, and **facts stay 
 baked into weights**. See [`training/README.md`](training/README.md) for the build → train →
 evaluate → promote (→ rollback) workflow. `training/build_dataset.py` reads `companion.db`
 directly (skipping anything you've `/forget`-ten), so there's no separate export step.
+
+## Safety, privacy & provider hardening
+
+The companion is built to be safe for real local use, not just a demo:
+
+- **User isolation is enforced in the database, not just the app.** Every user-owned read/write
+  (memories, evidence, revisions, projects, events, decisions, open loops, conversations,
+  messages, pending clarifications) is scoped by `userId` in the query itself — possession of a
+  record id owned by another user reveals nothing and mutates nothing. The active user comes from
+  a trusted `IUserContext`, never from an API request body.
+- **Ambiguity is a control-flow state.** When a reference like "that board" matches two projects,
+  the turn asks a deterministic clarifying question and stores a **pending clarification** — it
+  does not retrieve-to-answer, call the model, extract memories, or touch project state. The next
+  message resolves it ("the buoy one", "the first one", "never mind"); vague replies ask again
+  rather than guess, and the pending item survives a restart.
+- **Model output is untrusted.** LM Studio/Ollama calls (one adapter, both speak OpenAI `/v1`) get
+  per-role timeouts, bounded exponential-backoff retries (429/5xx/timeouts, honoring `Retry-After`),
+  clean cancellation-vs-timeout mapping, provider-specific errors, a response-size cap, and
+  embedding-dimension validation. Extraction requests JSON mode and is parsed by a validated,
+  balanced-bracket parser (not "first `[` to last `]`"); the model proposes memories, deterministic
+  code decides what persists. `/health` (CLI) tests the configured endpoints.
+- **Privacy controls.** Say "don't remember this conversation" (or "keep this off the record") and
+  the turn still replies but creates **no durable memory** — extraction and project updates are
+  skipped (raw messages are still stored for in-session context). Obvious credentials (API keys,
+  tokens, private keys, `password: …`) are rejected from memory persistence outright.
+
+Schema changes ship as EF Core migrations (`AddEvidenceRevisionUserId` — with ownership backfill,
+`AddPendingClarifications`, `AddConversationDoNotRemember`) applied automatically on startup.
 
 ## Where next
 

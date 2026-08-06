@@ -50,6 +50,33 @@ public sealed class ProjectContextService : IProjectContextService
         };
     }
 
+    public async Task<ProjectContext> BuildForProjectAsync(
+        string userId, string query, Guid projectId, CancellationToken ct = default)
+    {
+        var project = await _projects.GetProjectAsync(projectId, userId, ct);
+        if (project is null)
+            return await BuildAsync(userId, query, ct); // project vanished — fall back to normal resolution
+
+        var match = new ProjectMatch
+        {
+            Project = project,
+            Score = 1.0,
+            Confidence = 1.0,
+            Reason = "resolved via clarification",
+        };
+        return new ProjectContext
+        {
+            Resolution = new EntityResolution
+            {
+                Candidates = new[] { match },
+                Best = match,
+                RequiresClarification = false,
+            },
+            Summary = await BuildSummaryAsync(project, ct),
+            OpenLoops = await RetrieveOpenLoopsAsync(userId, query, project.Id, ct),
+        };
+    }
+
     public async Task<ProjectSummary?> GetSummaryAsync(string userId, Guid projectId, CancellationToken ct = default)
     {
         var project = await _projects.GetProjectAsync(projectId, userId, ct);
@@ -58,9 +85,9 @@ public sealed class ProjectContextService : IProjectContextService
 
     private async Task<ProjectSummary> BuildSummaryAsync(Project project, CancellationToken ct)
     {
-        var openLoops = await _projects.GetOpenLoopsByProjectAsync(project.Id, onlyOpen: true, ct);
-        var decisions = await _projects.GetDecisionsAsync(project.Id, ct);
-        var events = await _projects.GetRecentEventsAsync(project.Id, RecentEventCount, ct);
+        var openLoops = await _projects.GetOpenLoopsByProjectAsync(project.UserId, project.Id, onlyOpen: true, ct);
+        var decisions = await _projects.GetDecisionsAsync(project.UserId, project.Id, ct);
+        var events = await _projects.GetRecentEventsAsync(project.UserId, project.Id, RecentEventCount, ct);
 
         return new ProjectSummary
         {

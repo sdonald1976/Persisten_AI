@@ -26,6 +26,7 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<Decision> Decisions => Set<Decision>();
     public DbSet<OpenLoop> OpenLoops => Set<OpenLoop>();
     public DbSet<FeedbackRecord> Feedback => Set<FeedbackRecord>();
+    public DbSet<PendingClarification> PendingClarifications => Set<PendingClarification>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -56,6 +57,17 @@ public sealed class CompanionDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.UserId).HasMaxLength(200);
             e.HasIndex(x => x.UserId);
+        });
+
+        b.Entity<PendingClarification>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.AmbiguityType).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            // Resolving the next message queries (ConversationId, Status); reads are user-scoped.
+            e.HasIndex(x => new { x.ConversationId, x.Status });
+            e.HasIndex(x => new { x.UserId, x.Status });
         });
 
         b.Entity<Message>(e =>
@@ -98,17 +110,21 @@ public sealed class CompanionDbContext : DbContext
         b.Entity<MemoryEvidence>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
             e.Property(x => x.MemoryKind).HasConversion<string>().HasMaxLength(20);
-            e.HasIndex(x => x.MemoryId);
+            // Ownership-scoped provenance lookups query (UserId, MemoryId).
+            e.HasIndex(x => new { x.UserId, x.MemoryId });
         });
 
         b.Entity<MemoryRevision>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
             e.Property(x => x.MemoryKind).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Actor).HasMaxLength(100);
-            e.HasIndex(x => x.MemoryId);
+            // Ownership-scoped audit-trail lookups query (UserId, MemoryId).
+            e.HasIndex(x => new { x.UserId, x.MemoryId });
         });
 
         b.Entity<Project>(e =>

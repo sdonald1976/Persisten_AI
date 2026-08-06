@@ -8,6 +8,13 @@ namespace Companion.Core.Domain;
 public class MemoryRevision
 {
     public Guid Id { get; set; }
+
+    /// <summary>
+    /// The owning user. Carried explicitly so audit-trail reads enforce ownership at the query
+    /// level (WHERE MemoryId = ? AND UserId = ?) rather than trusting a bare memory id.
+    /// </summary>
+    public string UserId { get; set; } = default!;
+
     public Guid MemoryId { get; set; }
     public MemoryKind MemoryKind { get; set; }
 

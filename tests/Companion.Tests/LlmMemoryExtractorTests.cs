@@ -61,4 +61,47 @@ public class LlmMemoryExtractorTests
 
         Assert.Empty(await extractor.ExtractAsync("u", new[] { msg }));
     }
+
+    [Fact]
+    public async Task ParsesEnvelopeObject_WithMemoriesArray()
+    {
+        var msg = UserMsg("I use a Jetson Nano.");
+        var json = """{"memories":[{"kind":"semantic","content":"The user uses a Jetson Nano.","excerpt":"Jetson Nano"}]}""";
+        var extractor = new LlmMemoryExtractor(new CannedChatModel(json), NullLogger<LlmMemoryExtractor>.Instance);
+
+        var c = Assert.Single(await extractor.ExtractAsync("u", new[] { msg }));
+        Assert.Equal("The user uses a Jetson Nano.", c.Content);
+    }
+
+    [Fact]
+    public async Task ParsesMarkdownFencedArray()
+    {
+        var msg = UserMsg("I use a Jetson Nano.");
+        var json = "```json\n[{\"kind\":\"semantic\",\"content\":\"The user uses a Jetson Nano.\",\"excerpt\":\"Jetson Nano\"}]\n```";
+        var extractor = new LlmMemoryExtractor(new CannedChatModel(json), NullLogger<LlmMemoryExtractor>.Instance);
+
+        Assert.Single(await extractor.ExtractAsync("u", new[] { msg }));
+    }
+
+    [Fact]
+    public async Task ABracketInsideAStringValue_DoesNotBreakParsing()
+    {
+        // The naive "first [ to last ]" slice would mis-slice on the ] inside the content string.
+        var msg = UserMsg("I labeled it list[0].");
+        var json = """[{"kind":"semantic","content":"The user labeled it list[0].","excerpt":"list[0]"}] trailing prose ]""";
+        var extractor = new LlmMemoryExtractor(new CannedChatModel(json), NullLogger<LlmMemoryExtractor>.Instance);
+
+        var c = Assert.Single(await extractor.ExtractAsync("u", new[] { msg }));
+        Assert.Equal("The user labeled it list[0].", c.Content);
+    }
+
+    [Fact]
+    public async Task SchemaViolation_NonArrayJson_YieldsNoCandidates()
+    {
+        var msg = UserMsg("hello");
+        var extractor = new LlmMemoryExtractor(
+            new CannedChatModel("""{"unexpected":"shape","value":42}"""), NullLogger<LlmMemoryExtractor>.Instance);
+
+        Assert.Empty(await extractor.ExtractAsync("u", new[] { msg }));
+    }
 }

@@ -9,6 +9,12 @@ public class MemoryEvidence
 {
     public Guid Id { get; set; }
 
+    /// <summary>
+    /// The owning user. Carried explicitly so evidence reads can enforce ownership at the query
+    /// level (WHERE MemoryId = ? AND UserId = ?) instead of trusting possession of a memory id.
+    /// </summary>
+    public string UserId { get; set; } = default!;
+
     /// <summary>The memory this evidence supports.</summary>
     public Guid MemoryId { get; set; }
 

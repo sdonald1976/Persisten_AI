@@ -3,6 +3,7 @@ using System;
 using Companion.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Companion.Infrastructure.Migrations
 {
     [DbContext(typeof(CompanionDbContext))]
-    partial class CompanionDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260806145112_AddPendingClarifications")]
+    partial class AddPendingClarifications
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.18");
@@ -22,9 +25,6 @@ namespace Companion.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
-
-                    b.Property<bool>("DoNotRemember")
-                        .HasColumnType("INTEGER");
 
                     b.Property<long>("LastActivityAt")
                         .HasColumnType("INTEGER");

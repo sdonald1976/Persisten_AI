@@ -21,6 +21,11 @@ public static class DependencyInjection
 
         services.AddSingleton(TimeProvider.System);
 
+        // The active user is derived from trusted execution context, never from a request body.
+        // Local single-user default; a future auth boundary replaces this registration only.
+        var localUserId = configuration["User:Id"] ?? Seeding.CompanionSeeder.DemoUserId;
+        services.AddSingleton<IUserContext>(new FixedUserContext(localUserId));
+
         services.AddDbContext<CompanionDbContext>(o => o.UseSqlite(sqliteConnectionString));
 
         // Stores (authoritative) + vector index (derived).
@@ -29,6 +34,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectStore, ProjectStore>();
         services.AddScoped<IProfileStore, ProfileStore>();
         services.AddScoped<IFeedbackStore, FeedbackStore>();
+        services.AddScoped<IPendingClarificationStore, PendingClarificationStore>();
         services.AddScoped<IVectorIndex, SqliteBlobVectorIndex>();
 
         // Natural-language intent parsing (so slash commands aren't required).
@@ -38,6 +44,7 @@ public static class DependencyInjection
         // deterministic offline mocks; "OpenAiCompatible" (or "Ollama"/"LMStudio") uses a real
         // local server. When a real model is configured, extraction and summarization use it too.
         var modelOptions = configuration.GetSection(ModelOptions.SectionName).Get<ModelOptions>() ?? new ModelOptions();
+        ValidateModelOptions(modelOptions);
         services.AddSingleton(modelOptions); // so the CLI can see which optional models are configured
 
         // Optional multimodal models — registered only when configured.
@@ -110,6 +117,35 @@ public static class DependencyInjection
         services.AddScoped<Seeding.CompanionSeeder>();
 
         return services;
+    }
+
+    /// <summary>
+    /// Fails fast on obvious provider misconfiguration when a real model is selected: every role
+    /// that will actually be called needs a non-empty model name. Prevents opaque 400/404s at the
+    /// first turn and a silent "works on mock, breaks on real" gap.
+    /// </summary>
+    private static void ValidateModelOptions(ModelOptions options)
+    {
+        if (!options.UsesRealModel)
+            return;
+
+        var missing = new List<string>();
+        void Require(string role, EndpointOptions ep)
+        {
+            if (string.IsNullOrWhiteSpace(ep.Model)) missing.Add(role);
+        }
+
+        Require("Chat", options.Chat);
+        Require("Extraction", options.ExtractionOrChat);
+        Require("Summarizer", options.SummarizerOrChat);
+        Require("Embeddings", options.Embeddings);
+        if (options.Vision is { } v) Require("Vision", v);
+        if (options.Transcription is { } t) Require("Transcription", t);
+
+        if (missing.Count > 0)
+            throw new InvalidOperationException(
+                $"Provider '{options.Provider}' is selected but these roles have no model name configured: " +
+                $"{string.Join(", ", missing)}. Set Models.<Role>.Model in configuration.");
     }
 
     /// <summary>
