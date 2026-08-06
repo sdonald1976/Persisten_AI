@@ -169,11 +169,17 @@ When a real model is configured, extraction and summarization use it too
 
 If the model server isn't running, a turn prints a clear `⚠` message instead of crashing.
 
-`/project <name>` reconstructs a project's current state; `/projects` and `/loops` list
-projects and open loops. `/remember` shows stored memories with short ids you can pass to the
-correction commands: `/forget <id>`, `/dispute <id>`, `/correct <id> <fact>`, `/reassign <id>
-<project>`, and `/mergeprojects <a> into <b>`. `/consolidate` rolls repeated memories into
-higher-level knowledge. `/why` shows the full turn diagnostics — retrieval scores/reasons,
+**You mostly just talk to it — no slash commands needed.** Plain language is understood as
+intent: "what do you remember about me?", "forget that", "that's wrong", "be more concise" /
+"talk like a pirate" (editable **persona**), "that was great" / "that was unhelpful" (reply
+**feedback**, saved as style-tuning signal), "what am I working on?", "what's unfinished?",
+"consolidate your memories". Destructive actions ask for confirmation. Anything unrecognized is
+just a normal turn. See [`docs/FUTURE_UX_ROADMAP.md`](docs/FUTURE_UX_ROADMAP.md) for where this
+is heading (voice + 3D avatar).
+
+Slash commands remain as optional shortcuts: `/project <name>`, `/projects`, `/loops`,
+`/remember` (shows short ids), `/forget <id>`, `/dispute <id>`, `/correct <id> <fact>`,
+`/reassign <id> <project>`, `/mergeprojects <a> into <b>`, `/consolidate`. `/why` shows the full turn diagnostics — retrieval scores/reasons,
 project resolution (ranked candidates + any clarifying question), open loops surfaced,
 project-state updates, and extraction verdicts (incl. supersessions). The model providers are
 deterministic (`MockChatModel`, `MockEmbeddingModel`, `RuleBasedMemoryExtractor`,

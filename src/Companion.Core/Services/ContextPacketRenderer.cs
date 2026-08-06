@@ -14,6 +14,13 @@ public static class ContextPacketRenderer
     {
         var sb = new StringBuilder();
 
+        if (!string.IsNullOrWhiteSpace(packet.Persona))
+        {
+            sb.AppendLine("## Persona / style");
+            sb.AppendLine(packet.Persona!.Trim());
+            sb.AppendLine();
+        }
+
         sb.AppendLine(
             "You are a persistent AI companion. You remember this user across conversations. " +
             "Use the context below for continuity. Treat items marked (direct) as things the user " +

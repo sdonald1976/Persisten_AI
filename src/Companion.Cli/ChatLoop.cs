@@ -1,5 +1,6 @@
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.Core.Services;
 using Companion.Infrastructure.Models;
 using Companion.Infrastructure.Seeding;
 using Microsoft.Extensions.DependencyInjection;
@@ -64,7 +65,33 @@ public sealed class ChatLoop
                 continue;
             }
 
+            // Understand plain-language commands (forget that, be more concise, that was great…)
+            // so slash commands are never required. Anything unrecognized is a normal turn.
+            var intent = _services.GetRequiredService<IIntentParser>().Parse(input);
+            if (intent.Kind != IntentKind.Chat)
+            {
+                await DispatchIntentAsync(intent, ct);
+                continue;
+            }
+
             await RunTurnAsync(input, ct);
+        }
+    }
+
+    private async Task DispatchIntentAsync(Intent intent, CancellationToken ct)
+    {
+        switch (intent.Kind)
+        {
+            case IntentKind.Recall: await RecallAsync(intent.Argument, ct); break;
+            case IntentKind.Forget: await ForgetIntentAsync(intent.Argument, ct); break;
+            case IntentKind.Dispute: await DisputeIntentAsync(ct); break;
+            case IntentKind.ListProjects: await ShowProjectsAsync(ct); break;
+            case IntentKind.ListOpenLoops: await ShowLoopsAsync(ct); break;
+            case IntentKind.Consolidate: await ConsolidateAsync(ct); break;
+            case IntentKind.SetPersona: await SetPersonaAsync(intent.Argument, ct); break;
+            case IntentKind.AdjustStyle: await AdjustStyleAsync(intent.Argument, ct); break;
+            case IntentKind.FeedbackPositive: await FeedbackAsync(FeedbackRating.Positive, intent.Argument, ct); break;
+            case IntentKind.FeedbackNegative: await FeedbackAsync(FeedbackRating.Negative, intent.Argument, ct); break;
         }
     }
 
@@ -490,6 +517,159 @@ public sealed class ChatLoop
         _ => "image/png",
     };
 
+    // ---- natural-language intent handlers ----
+
+    private async Task RecallAsync(string? topic, CancellationToken ct)
+    {
+        using var scope = _services.CreateScope();
+        var memories = await scope.ServiceProvider.GetRequiredService<IMemoryStore>()
+            .GetRetrievableMemoriesAsync(_userId, ct);
+        if (memories.Count == 0)
+        {
+            Console.WriteLine("I don't have any memories for you yet. Try /seed for demo data.");
+            return;
+        }
+
+        IEnumerable<IMemory> selected = memories;
+        if (!string.IsNullOrWhiteSpace(topic))
+        {
+            selected = memories
+                .Select(m => (m, score: ScoreMath.KeywordOverlap(topic, m.Content)))
+                .Where(x => x.score > 0)
+                .OrderByDescending(x => x.score)
+                .Select(x => x.m);
+            Console.WriteLine($"What I remember about \"{topic}\":");
+        }
+        else
+        {
+            selected = memories.OrderByDescending(m => m.EffectiveAt);
+            Console.WriteLine($"I currently remember {memories.Count} things about you:");
+        }
+
+        var any = false;
+        foreach (var m in selected)
+        {
+            any = true;
+            var tag = m.Kind == MemoryKind.Semantic ? "fact " : "event";
+            var status = m is SemanticMemory { Validity: not Validity.Current } sm ? $" [{sm.Validity}]" : "";
+            Console.WriteLine($"  - [{m.Id.ToString()[..8]}] ({tag}) {m.Content}{status}");
+        }
+        if (!any)
+            Console.WriteLine("  (nothing on that topic)");
+    }
+
+    private async Task ForgetIntentAsync(string? reference, CancellationToken ct)
+    {
+        var target = await ResolveMemoryAsync(reference, ct);
+        if (target is null)
+        {
+            Console.WriteLine("I'm not sure which memory you mean — try naming it, e.g. \"forget the low-carb thing\".");
+            return;
+        }
+
+        Console.Write($"Forget this? \"{Truncate(target.Content)}\" (y/n): ");
+        var answer = Console.ReadLine()?.Trim().ToLowerInvariant();
+        if (answer is not ("y" or "yes"))
+        {
+            Console.WriteLine("Kept it.");
+            return;
+        }
+
+        using var scope = _services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IMemoryCurator>()
+            .ForgetAsync(_userId, target.Id, "user asked to forget", ct);
+        Console.WriteLine("Forgotten. I won't bring that up again.");
+    }
+
+    private async Task DisputeIntentAsync(CancellationToken ct)
+    {
+        var target = await ResolveMemoryAsync(null, ct);
+        if (target is null)
+        {
+            Console.WriteLine("I'm not sure which memory is wrong — mention it and I'll flag it.");
+            return;
+        }
+        using var scope = _services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IMemoryCurator>()
+            .DisputeAsync(_userId, target.Id, "user said it's wrong", ct);
+        Console.WriteLine($"Got it — I've flagged \"{Truncate(target.Content)}\" as disputed and won't rely on it.");
+    }
+
+    private async Task SetPersonaAsync(string? persona, CancellationToken ct)
+    {
+        using var scope = _services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IProfileStore>().SetPersonaAsync(_userId, persona, ct);
+        Console.WriteLine("Persona updated.");
+    }
+
+    private async Task AdjustStyleAsync(string? directive, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(directive))
+            return;
+        using var scope = _services.CreateScope();
+        var profiles = scope.ServiceProvider.GetRequiredService<IProfileStore>();
+        var profile = await profiles.GetOrCreateAsync(_userId, ct);
+        var line = "- " + char.ToUpperInvariant(directive[0]) + directive[1..].TrimEnd('.') + ".";
+        var persona = string.IsNullOrWhiteSpace(profile.Persona) ? line : profile.Persona!.TrimEnd() + "\n" + line;
+        await profiles.SetPersonaAsync(_userId, persona, ct);
+        Console.WriteLine($"Got it — from now on I'll {directive.TrimEnd('.')}.");
+    }
+
+    private async Task FeedbackAsync(FeedbackRating rating, string? note, CancellationToken ct)
+    {
+        if (_lastTrace is null)
+        {
+            Console.WriteLine("Nothing to rate yet — say something first.");
+            return;
+        }
+        using var scope = _services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IFeedbackStore>();
+        await store.AddAsync(new FeedbackRecord
+        {
+            UserId = _userId,
+            ConversationId = _conversationId,
+            UserMessage = _lastTrace.UserMessage,
+            Response = _lastTrace.Response,
+            Rating = rating,
+            Note = note,
+            CreatedAt = _clock.GetUtcNow(),
+        }, ct);
+        var total = await store.CountAsync(_userId, ct);
+        Console.WriteLine(rating == FeedbackRating.Positive
+            ? $"Thanks — glad that landed. ({total} ratings saved for tuning.)"
+            : $"Noted — I'll aim to do better. ({total} ratings saved for tuning.)");
+    }
+
+    /// <summary>Resolve which memory a plain-language reference points at.</summary>
+    private async Task<IMemory?> ResolveMemoryAsync(string? reference, CancellationToken ct)
+    {
+        using var scope = _services.CreateScope();
+        var memories = await scope.ServiceProvider.GetRequiredService<IMemoryStore>()
+            .GetRetrievableMemoriesAsync(_userId, ct);
+        if (memories.Count == 0)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(reference))
+        {
+            // "that" / "it" → what we were just talking about, else the most recent memory.
+            var top = _lastTrace?.Retrieved.FirstOrDefault()?.Memory;
+            return top ?? memories
+                .Where(m => m.Status == MemoryStatus.Active)
+                .OrderByDescending(m => m.CreatedAt)
+                .FirstOrDefault();
+        }
+
+        return memories
+            .Select(m => (m, score: ScoreMath.KeywordOverlap(reference, m.Content)))
+            .Where(x => x.score > 0)
+            .OrderByDescending(x => x.score)
+            .Select(x => x.m)
+            .FirstOrDefault();
+    }
+
+    private static string Truncate(string text, int max = 80)
+        => text.Length <= max ? text : text[..max] + "…";
+
     private void PrintProviderBanner()
     {
         var options = _services.GetService<ModelOptions>();
@@ -515,7 +695,12 @@ public sealed class ChatLoop
 
     private static void PrintHelp()
     {
-        Console.WriteLine("Commands:");
+        Console.WriteLine("You can just talk — no slash commands needed. For example:");
+        Console.WriteLine("  \"what do you remember about me?\"   \"forget that\"   \"that's wrong\"");
+        Console.WriteLine("  \"be more concise\"   \"talk like a pirate\"   \"that was great\" / \"that was unhelpful\"");
+        Console.WriteLine("  \"what am I working on?\"   \"what's unfinished?\"   \"consolidate your memories\"");
+        Console.WriteLine();
+        Console.WriteLine("Slash commands still work as shortcuts:");
         Console.WriteLine("  /seed             Load a few months of demo history");
         Console.WriteLine("  /remember         Show what I remember about you");
         Console.WriteLine("  /projects         List your projects");

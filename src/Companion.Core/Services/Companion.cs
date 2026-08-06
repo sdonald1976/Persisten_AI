@@ -16,6 +16,7 @@ public sealed class Companion : ICompanion
 {
     private readonly IConversationStore _conversations;
     private readonly IProjectContextService _projectContext;
+    private readonly IProfileStore _profiles;
     private readonly IRetriever _retriever;
     private readonly IContextAssembler _assembler;
     private readonly IChatModel _chat;
@@ -28,6 +29,7 @@ public sealed class Companion : ICompanion
     public Companion(
         IConversationStore conversations,
         IProjectContextService projectContext,
+        IProfileStore profiles,
         IRetriever retriever,
         IContextAssembler assembler,
         IChatModel chat,
@@ -39,6 +41,7 @@ public sealed class Companion : ICompanion
     {
         _conversations = conversations;
         _projectContext = projectContext;
+        _profiles = profiles;
         _retriever = retriever;
         _assembler = assembler;
         _chat = chat;
@@ -84,8 +87,9 @@ public sealed class Companion : ICompanion
             .Where(m => m.Id != userMsg.Id)
             .ToList();
 
-        // 5. Assemble a bounded, labeled context packet.
-        var packet = _assembler.Assemble(userMessage, recent, outcome.Selected, projectContext);
+        // 5. Assemble a bounded, labeled context packet (with the user's persona/style).
+        var profile = await _profiles.GetOrCreateAsync(userId, ct);
+        var packet = _assembler.Assemble(userMessage, recent, outcome.Selected, projectContext, profile.Persona);
 
         // 6. Generate the response — streamed to the sink when one is provided, otherwise in one shot.
         string response;

@@ -114,6 +114,30 @@ def source_of(conn, memory_id):
     return (row["MessageId"], row["Excerpt"]) if row else (None, None)
 
 
+def build_feedback_sft(conn):
+    """
+    Style SFT from thumbs-upped replies: (user message -> the reply you rated positive).
+    This is the clean signal for teaching *style* — only replies you approved. Populate it by
+    saying things like "that was great" in the app. (DPO pairs need a rejected+chosen for the
+    same prompt; capture both ratings over time to enable that later.)
+    """
+    system = (
+        "You are a persistent AI companion that remembers the user across conversations. "
+        "Reply helpfully and concisely, with continuity, in the user's preferred style."
+    )
+    rows = conn.execute(
+        "SELECT UserMessage, Response FROM Feedback WHERE Rating = 'Positive'"
+    )
+    return [
+        {"messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": r["UserMessage"]},
+            {"role": "assistant", "content": r["Response"]},
+        ]}
+        for r in rows
+    ]
+
+
 def build_chat_sft(conn):
     """
     EXPERIMENTAL: raw (user -> assistant) pairs. Lower quality than extraction because the
@@ -144,14 +168,19 @@ def build_chat_sft(conn):
 def main():
     parser = argparse.ArgumentParser(description="Build a fine-tuning dataset from companion.db")
     parser.add_argument("--db", default="companion.db", help="Path to the companion SQLite database")
-    parser.add_argument("--dataset", choices=["extraction", "chat-sft"], default="extraction")
+    parser.add_argument("--dataset", choices=["extraction", "feedback-sft", "chat-sft"], default="extraction")
     parser.add_argument("--out", default="data/dataset.jsonl", help="Output JSONL path")
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
 
-    examples = build_extraction(conn) if args.dataset == "extraction" else build_chat_sft(conn)
+    builders = {
+        "extraction": build_extraction,
+        "feedback-sft": build_feedback_sft,
+        "chat-sft": build_chat_sft,
+    }
+    examples = builders[args.dataset](conn)
 
     import os
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

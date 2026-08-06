@@ -25,6 +25,7 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<ProjectEvent> ProjectEvents => Set<ProjectEvent>();
     public DbSet<Decision> Decisions => Set<Decision>();
     public DbSet<OpenLoop> OpenLoops => Set<OpenLoop>();
+    public DbSet<FeedbackRecord> Feedback => Set<FeedbackRecord>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -40,6 +41,14 @@ public sealed class CompanionDbContext : DbContext
         {
             e.HasKey(x => x.UserId);
             e.Property(x => x.UserId).HasMaxLength(200);
+        });
+
+        b.Entity<FeedbackRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Rating).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(x => x.UserId);
         });
 
         b.Entity<Conversation>(e =>

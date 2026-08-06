@@ -8,5 +8,9 @@ public class UserProfile
 {
     public string UserId { get; set; } = default!;
     public string? DisplayName { get; set; }
+
+    /// <summary>Editable persona/style instructions prepended to the companion's system prompt.</summary>
+    public string? Persona { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 }
