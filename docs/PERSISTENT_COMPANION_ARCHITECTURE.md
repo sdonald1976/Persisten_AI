@@ -157,6 +157,14 @@ with its per-signal breakdown and a human-readable match reason. Retrieval retur
 the top-K that fit the token budget — **never a full dump**. Superseded/historical hits
 are included only when the user is clearly talking about the past, and are labeled as such.
 
+Before ranking, a memory must clear a **relevance floor** (`Companion.RelevanceFloor`,
+default `0.15`) on its *topical* signals alone — semantic similarity + keyword overlap +
+project match. Recency, importance, and confidence order the memories that pass, but they
+can't admit one on their own: without the floor a merely recent or important fact outscores
+`MinScore` with zero relevance to the turn, so unrelated things the companion "knows about
+the user" bleed into every reply (and a small model can fuse them into a fabricated claim).
+The floor is the same gate the open-loop boost already uses.
+
 ## Memory extraction & acceptance pipeline
 
 Extraction (LLM) is strictly separated from acceptance (deterministic):

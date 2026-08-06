@@ -98,7 +98,7 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddSingleton<IEmbeddingModel>(new MockEmbeddingModel(dimensions: 128));
+            services.AddSingleton<IEmbeddingModel>(new MockEmbeddingModel());
             services.AddSingleton<IChatModel, MockChatModel>();
             services.AddSingleton<ISummarizer, MockSummarizer>();
             services.AddScoped<IMemoryExtractor, RuleBasedMemoryExtractor>();
