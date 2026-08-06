@@ -140,6 +140,14 @@ any of them out to use the server's defaults. On startup the CLI prints a banner
 active provider and the per-role models (or `Mock (offline)`), so you can tell at a glance what
 you're running.
 
+**Long tasks finish in one turn.** Every reply comes back with the server's *reason* for
+stopping: finished naturally, or cut off by the output-token limit. When it's the latter, the
+companion automatically asks the model to continue exactly where it stopped and stitches the
+parts together (streaming the whole time), so "write me a story" runs to the end instead of
+stalling until you say "keep going". Controlled per endpoint by `AutoContinue` (default `true`)
+and `MaxContinuations` (default `6`, a runaway guard — raise it, or `MaxTokens`, for very long
+outputs). Structured/JSON output is never stitched.
+
 **LM Studio** (start its local server; default port 1234):
 ```jsonc
 "Models": {

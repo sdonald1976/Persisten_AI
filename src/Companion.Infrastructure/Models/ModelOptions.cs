@@ -86,6 +86,17 @@ public sealed class EndpointOptions
     public double? PresencePenalty { get; set; }
 
     /// <summary>
+    /// When the server reports the reply was cut off by the output-token limit
+    /// (<c>finish_reason: "length"</c>), automatically ask the model to continue where it stopped —
+    /// looping until it finishes naturally — so long tasks ("write me a story") complete in one
+    /// turn instead of needing the user to say "keep going". Bounded by <see cref="MaxContinuations"/>.
+    /// </summary>
+    public bool AutoContinue { get; set; } = true;
+
+    /// <summary>Hard cap on automatic continuation rounds per turn (runaway guard).</summary>
+    public int MaxContinuations { get; set; } = 6;
+
+    /// <summary>
     /// Max transient-failure retries (429 / 5xx / connection blips / timeouts) with exponential
     /// backoff. 0 disables retries. Only ever applied to these stateless model calls.
     /// </summary>

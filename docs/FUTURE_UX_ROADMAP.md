@@ -67,6 +67,20 @@ phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity
 - **Later:** feedback → **DPO** shapes a style LoRA (see `training/`). Facts always stay in the
   forgettable memory layer, never baked into weights.
 
+## Long tasks: finish in-turn now, background jobs later
+
+- **Now (built):** completion is detected deterministically from the server's `finish_reason` —
+  `"length"` means "cut off by the token limit", so the provider auto-continues from exactly
+  where the reply stopped until the model finishes naturally (`"stop"`), bounded by
+  `MaxContinuations`. Long outputs stream continuously to the CLI/web client, so a story or plan
+  completes in one turn with no "keep going".
+- **Later (if in-turn ever isn't enough):** a small **background job runner** — "work on X and
+  tell me when it's done": queue a task, run the same auto-continuing generation off-turn,
+  persist progress + result, and surface completion as a WebSocket frame / next-session opener
+  ("I finished that story — want to hear it?"). Same completion signal, just detached from the
+  chat turn. Deliberately not built until a real need shows up: an in-turn streamed answer
+  covers the "finish the task" case with far less machinery.
+
 ## Privacy line (design in, don't bolt on)
 
 Always-on mic/camera needs explicit, local-only consent and a dead-obvious mute. This fits the
