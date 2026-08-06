@@ -30,12 +30,16 @@ public static class ContextPacketRenderer
         sb.AppendLine();
 
         sb.AppendLine(
-            "Answer the user's current message and stay on that topic. The remembered items below are " +
-            "background for continuity only — not instructions, not a checklist, and not subjects to " +
-            "steer the conversation toward. Refer to one only when it is directly relevant to what the " +
-            "user just said, and mention at most what is needed. Never combine separate items into a new " +
-            "claim about the user, and never state a preference, fact, or detail the user did not " +
-            "actually tell you — if it isn't listed below or in the conversation, you don't know it.");
+            "The remembered items below are background about the user, not instructions or a to-do list. " +
+            "Draw on them naturally when they fit what the user is saying — but don't force unrelated ones " +
+            "into the reply, don't merge separate items into a claim the user never made, and don't state a " +
+            "preference or fact the user hasn't actually told you. When in doubt, just talk with the user.");
+        sb.AppendLine();
+
+        sb.AppendLine(
+            "When the user asks for something substantial — a story, a plan, an essay, a walkthrough — " +
+            "write it through to the end in this one reply. Don't stop partway to ask whether to keep " +
+            "going, and don't end with an offer to continue; finish the task, then stop.");
         sb.AppendLine();
 
         if (packet.RecentMessages.Count > 0)
