@@ -52,6 +52,24 @@ public class ModelSelectionTests
     }
 
     [Fact]
+    public void SamplingOptions_BindFromConfiguration()
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Models:Provider"] = "OpenAiCompatible",
+            ["Models:Chat:Model"] = "chat",
+            ["Models:Chat:Temperature"] = "0.4",
+            ["Models:Chat:MaxTokens"] = "512",
+        }).Build();
+
+        var options = config.GetSection(ModelOptions.SectionName).Get<ModelOptions>()!;
+
+        Assert.Equal(0.4, options.Chat.Temperature);
+        Assert.Equal(512, options.Chat.MaxTokens);
+        Assert.Null(options.Embeddings.Temperature); // unset stays null (use server default)
+    }
+
+    [Fact]
     public void UnconfiguredJobs_FallBackToTheConversationalModel()
     {
         using var sp = Build(new Dictionary<string, string?>

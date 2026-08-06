@@ -113,6 +113,11 @@ The four jobs map to distinct model slots internally
 (`IChatModel` per role via keyed DI, plus `IEmbeddingModel`), so they can point at different
 models — even different servers — independently.
 
+Each chat/vision endpoint also accepts optional sampling controls: `Temperature` (lower =
+less random; ~0.2 for extraction, ~0.6 for conversation) and `MaxTokens`. Leave them out to
+use the server's defaults. On startup the CLI prints a banner showing the active provider and
+the per-role models (or `Mock (offline)`), so you can tell at a glance what you're running.
+
 **LM Studio** (start its local server; default port 1234):
 ```jsonc
 "Models": {

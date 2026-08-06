@@ -34,6 +34,7 @@ public sealed class ChatLoop
     public async Task RunAsync(CancellationToken ct = default)
     {
         Console.WriteLine("Persistent AI Companion.");
+        PrintProviderBanner();
         Console.WriteLine("Type a message, or /help for commands. /exit to quit.");
         Console.WriteLine();
 
@@ -488,6 +489,29 @@ public sealed class ChatLoop
         ".bmp" => "image/bmp",
         _ => "image/png",
     };
+
+    private void PrintProviderBanner()
+    {
+        var options = _services.GetService<ModelOptions>();
+        if (options is null || !options.UsesRealModel)
+        {
+            Console.WriteLine("Model provider: Mock (offline — no LLM calls). Set Models.Provider to use Ollama/LM Studio.");
+            return;
+        }
+
+        static string Describe(EndpointOptions e) =>
+            e.Temperature is { } t ? $"{e.Model} @ temp {t:0.0#}" : e.Model;
+
+        Console.WriteLine($"Model provider: {options.Provider}");
+        Console.WriteLine($"  chat:       {Describe(options.Chat)}");
+        Console.WriteLine($"  extraction: {Describe(options.ExtractionOrChat)}");
+        Console.WriteLine($"  summarizer: {Describe(options.SummarizerOrChat)}");
+        Console.WriteLine($"  embeddings: {options.Embeddings.Model}");
+        if (options.Vision is { } vision)
+            Console.WriteLine($"  vision:     {vision.Model}");
+        if (options.Transcription is { } transcription)
+            Console.WriteLine($"  transcribe: {transcription.Model}");
+    }
 
     private static void PrintHelp()
     {
