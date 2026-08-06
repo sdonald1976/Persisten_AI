@@ -141,13 +141,21 @@ When a real model is configured, extraction and summarization use it too
   ollama pull llama3.2-vision   # or load a vision GGUF (e.g. llava/qwen2-vl) in LM Studio
   ```
 - **Voice / Whisper** (`/transcribe <audio file>`) — transcribes an audio file and sends it as a
-  turn. **Ollama and LM Studio don't do audio**, so this needs a separate server that exposes an
-  OpenAI-compatible `/v1/audio/transcriptions` endpoint — e.g. `whisper.cpp`'s server,
-  `faster-whisper-server`/`speaches`, or LocalAI:
-  ```jsonc
-  "Transcription": { "BaseUrl": "http://localhost:9000/v1", "Model": "whisper-1" }
+  turn. **Ollama and LM Studio cannot run Whisper** — they have no audio support, so there's
+  nothing to `ollama pull`. You need a *separate* server that exposes an OpenAI-compatible
+  `/v1/audio/transcriptions` endpoint. Easiest is **Speaches** (formerly `faster-whisper-server`):
+  ```bash
+  docker run --rm -p 8000:8000 ghcr.io/speaches-ai/speaches:latest-cpu   # or :latest-cuda with --gpus=all
   ```
-  (File-based, not live mic. Leave the block out to disable — `/transcribe` will say so.)
+  ```jsonc
+  "Transcription": {
+    "BaseUrl": "http://localhost:8000/v1",
+    "Model": "Systran/faster-whisper-small"   // -base / -medium / -large-v3; downloaded on first use
+  }
+  ```
+  Alternatives: `whisper.cpp`'s `whisper-server` (model chosen at launch, so `Model` is ignored),
+  or LocalAI (name the model in its config). `whisper-1` is OpenAI's *cloud* model id — it does
+  not exist locally. File-based, not live mic. Leave the block out to disable.
 
 > **Important:** pick your provider **before** running `seed`. Memories are stored with the
 > embedding model's vectors; if you seed with the mock (128-dim) and later switch to a real
