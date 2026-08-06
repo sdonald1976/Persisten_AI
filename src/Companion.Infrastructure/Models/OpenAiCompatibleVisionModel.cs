@@ -38,12 +38,8 @@ public sealed class OpenAiCompatibleVisionModel : IVisionModel, IDisposable
             parts.Add(new { type = "image_url", image_url = new { url = dataUrl } });
         }
 
-        var request = new
-        {
-            model = _options.Model,
-            stream = false,
-            messages = new object[] { new { role = "user", content = parts } },
-        };
+        var request = ChatRequest.Build(
+            _options, new object[] { new { role = "user", content = parts } }, stream: false);
 
         try
         {

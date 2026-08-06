@@ -32,16 +32,11 @@ public sealed class OpenAiCompatibleChatModel : IChatModel, IDisposable
 
     public async Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken ct = default)
     {
-        var request = new
+        var request = ChatRequest.Build(_options, new[]
         {
-            model = _options.Model,
-            stream = false,
-            messages = new[]
-            {
-                new { role = "system", content = systemPrompt },
-                new { role = "user", content = userMessage },
-            },
-        };
+            new { role = "system", content = systemPrompt },
+            new { role = "user", content = userMessage },
+        }, stream: false);
 
         try
         {
@@ -63,16 +58,11 @@ public sealed class OpenAiCompatibleChatModel : IChatModel, IDisposable
     public async IAsyncEnumerable<string> StreamAsync(
         string systemPrompt, string userMessage, [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var request = new
+        var request = ChatRequest.Build(_options, new[]
         {
-            model = _options.Model,
-            stream = true,
-            messages = new[]
-            {
-                new { role = "system", content = systemPrompt },
-                new { role = "user", content = userMessage },
-            },
-        };
+            new { role = "system", content = systemPrompt },
+            new { role = "user", content = userMessage },
+        }, stream: true);
 
         HttpResponseMessage response;
         try

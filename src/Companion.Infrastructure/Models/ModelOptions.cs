@@ -61,4 +61,14 @@ public sealed class EndpointOptions
 
     /// <summary>Informational only — the true dimension is whatever the model returns.</summary>
     public int Dimensions { get; set; } = 0;
+
+    /// <summary>
+    /// Sampling temperature (0 = deterministic, higher = more creative). Lower values reduce the
+    /// random free-association small models sometimes produce. Null = use the server's default.
+    /// Applies to chat/vision endpoints; ignored for embeddings.
+    /// </summary>
+    public double? Temperature { get; set; }
+
+    /// <summary>Optional cap on generated tokens. Null = use the server's default.</summary>
+    public int? MaxTokens { get; set; }
 }
