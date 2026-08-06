@@ -12,6 +12,16 @@ var builder = WebApplication.CreateBuilder(args);
 var dbPath = builder.Configuration["Database:Path"] ?? "companion.db";
 builder.Services.AddCompanion(builder.Configuration, $"Data Source={dbPath}");
 
+var apiOptions = builder.Configuration.GetSection(ApiOptions.SectionName).Get<ApiOptions>() ?? new ApiOptions();
+
+// Bind to loopback by default. The API is never exposed on LAN interfaces unless the host
+// explicitly configures Urls / ASPNETCORE_URLS.
+if (string.IsNullOrWhiteSpace(builder.Configuration["Urls"]) &&
+    string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
+{
+    builder.WebHost.UseUrls(apiOptions.DefaultUrl);
+}
+
 // camelCase + string enums for the model-bound endpoints; the hand-written SSE/WS frames use ApiJson.
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
@@ -19,9 +29,10 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 });
 
-// Local-first: allow a browser front-end served from anywhere on the machine to call the API.
+// CORS is an explicit allow-list — never a wildcard. Only the configured local dev origins may
+// call the API from a browser page. No credentials/cookies (auth uses an explicit header/token).
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
-    p.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod()));
+    p.WithOrigins(apiOptions.AllowedOrigins).AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
 
@@ -36,10 +47,59 @@ catch (InvalidOperationException ex)
     return;
 }
 
+var logger = app.Logger;
+var expectedToken = ApiToken.Resolve(apiOptions, dbPath, logger);
+
+// Outermost: turn any unhandled exception into a sanitized {error,message,correlationId} response.
+// The detailed exception is logged server-side only, keyed by the same correlation id.
+app.Use(async (ctx, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        var (status, code, message) = ApiError.Classify(ex);
+        var correlationId = ctx.TraceIdentifier;
+        logger.LogError(ex, "API error {Code} correlationId={CorrelationId}", code, correlationId);
+        if (!ctx.Response.HasStarted)
+        {
+            ctx.Response.Clear();
+            ctx.Response.StatusCode = status;
+            ctx.Response.ContentType = "application/json";
+            await ctx.Response.WriteAsync(ApiJson.Serialize(new ApiError(code, message, correlationId)));
+        }
+    }
+});
+
 app.UseCors();
 app.UseWebSockets();
-app.UseDefaultFiles();   // serve wwwroot/index.html at "/"
+app.UseDefaultFiles();   // serve wwwroot/index.html at "/" (static files need no token)
 app.UseStaticFiles();
+
+// Local API authentication: every REST/SSE/WebSocket call must present the local token (header
+// Authorization: Bearer / X-Companion-Key, or ?access_token= for EventSource/WebSocket which can't
+// set headers). Static files above are already served; preflight is handled by CORS.
+app.Use(async (ctx, next) =>
+{
+    if (expectedToken is null || HttpMethods.IsOptions(ctx.Request.Method))
+    {
+        await next();
+        return;
+    }
+
+    if (!ApiToken.Verify(ApiToken.FromRequest(ctx.Request), expectedToken))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        ctx.Response.ContentType = "application/json";
+        await ctx.Response.WriteAsync(ApiJson.Serialize(
+            new ApiError("Unauthorized", "A valid local API token is required.", ctx.TraceIdentifier)));
+        return;
+    }
+
+    await next();
+});
 
 // The active user always comes from the trusted IUserContext (a scoped/DI singleton), never
 // from the request. This keeps the API ownership-safe ahead of a real auth boundary.
@@ -78,19 +138,25 @@ app.MapPost("/conversations", async (StartConversationRequest? req, IUserContext
 
 // ---- chat (non-streaming) ----
 
-app.MapPost("/chat", async (ChatRequest req, IUserContext user, IAgent agent, CancellationToken ct) =>
+app.MapPost("/chat", async (ChatRequest req, IUserContext user, IConversationStore conversations, IAgent agent, CancellationToken ct) =>
 {
     if (!Guid.TryParse(req.ConversationId, out var convId))
-        return Results.BadRequest(new { error = "conversationId must be a GUID (start one via POST /conversations)." });
+        return ApiError.BadRequest("conversationId must be a GUID (start one via POST /conversations).");
+    // Validate existence + ownership before ANY work. A missing/foreign conversation is a 404 —
+    // no message stored, no retrieval, no extraction, no project/loop updates.
+    if (await conversations.GetConversationAsync(convId, user.UserId, ct) is null)
+        return ApiError.ConversationNotFound();
 
     var reply = await agent.HandleAsync(user.UserId, convId, req.Message, tokenSink: null, ct);
     return Results.Ok(ReplyDto.From(reply));
 });
 
-app.MapPost("/chat/confirm", async (ConfirmRequest req, IUserContext user, IAgent agent, CancellationToken ct) =>
+app.MapPost("/chat/confirm", async (ConfirmRequest req, IUserContext user, IConversationStore conversations, IAgent agent, CancellationToken ct) =>
 {
     if (!Guid.TryParse(req.ConversationId, out var convId))
-        return Results.BadRequest(new { error = "conversationId must be a GUID." });
+        return ApiError.BadRequest("conversationId must be a GUID.");
+    if (await conversations.GetConversationAsync(convId, user.UserId, ct) is null)
+        return ApiError.ConversationNotFound();
 
     var reply = await agent.ConfirmAsync(user.UserId, convId, req.ConfirmationToken, req.Confirmed, ct);
     return Results.Ok(ReplyDto.From(reply));
@@ -107,6 +173,19 @@ app.MapGet("/chat/stream", async (HttpContext ctx, IUserContext user, IServiceSc
         return;
     }
 
+    using var scope = scopes.CreateScope();
+    var sp = scope.ServiceProvider;
+
+    // Validate existence + ownership before streaming anything (clean 404, no side effects).
+    if (await sp.GetRequiredService<IConversationStore>().GetConversationAsync(convId, user.UserId, ct) is null)
+    {
+        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        ctx.Response.ContentType = "application/json";
+        await ctx.Response.WriteAsync(ApiJson.Serialize(
+            new ApiError("ConversationNotFound", "The conversation was not found.", ctx.TraceIdentifier)), ct);
+        return;
+    }
+
     ctx.Response.Headers.ContentType = "text/event-stream";
     ctx.Response.Headers.CacheControl = "no-cache";
     ctx.Response.Headers["X-Accel-Buffering"] = "no"; // don't let a proxy buffer the stream
@@ -117,8 +196,7 @@ app.MapGet("/chat/stream", async (HttpContext ctx, IUserContext user, IServiceSc
         await ctx.Response.Body.FlushAsync(ct);
     }
 
-    using var scope = scopes.CreateScope();
-    var agent = scope.ServiceProvider.GetRequiredService<IAgent>();
+    var agent = sp.GetRequiredService<IAgent>();
     var sink = new TokenChannelSink();
 
     async Task<AgentReply> Run()
@@ -137,7 +215,10 @@ app.MapGet("/chat/stream", async (HttpContext ctx, IUserContext user, IServiceSc
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
-        await Send("error", new { message = ex.Message });
+        // Sanitized error over the stream; the detail is logged server-side by correlation id.
+        var (_, code, safe) = ApiError.Classify(ex);
+        logger.LogError(ex, "SSE error {Code} correlationId={CorrelationId}", code, ctx.TraceIdentifier);
+        await Send("error", new ApiError(code, safe, ctx.TraceIdentifier));
     }
 });
 
@@ -154,7 +235,7 @@ app.Map("/ws", async (HttpContext ctx, IUserContext user, IServiceScopeFactory s
 
     // Each connection gets its own conversation. The user comes from trusted context, not the query.
     var conv = await conversations.StartConversationAsync(user.UserId, "WebSocket session", null, "ws", ct);
-    await WebSocketConversation.RunAsync(socket, scopes, user.UserId, conv.Id, ct);
+    await WebSocketConversation.RunAsync(socket, scopes, logger, user.UserId, conv.Id, ct);
 });
 
 // ---- structured read endpoints (for rich UIs; the conversational path covers the same ground) ----
@@ -216,10 +297,12 @@ app.MapPut("/persona", async (PersonaRequest req, IUserContext user, IProfileSto
 
 // Thumbs up/down for a rich UI. Routed through the brain so it uses the exact same last-exchange
 // reconstruction as saying "that was great" out loud.
-app.MapPost("/feedback", async (FeedbackRequest req, IUserContext user, IAgent agent, CancellationToken ct) =>
+app.MapPost("/feedback", async (FeedbackRequest req, IUserContext user, IConversationStore conversations, IAgent agent, CancellationToken ct) =>
 {
     if (!Guid.TryParse(req.ConversationId, out var convId))
-        return Results.BadRequest(new { error = "conversationId must be a GUID." });
+        return ApiError.BadRequest("conversationId must be a GUID.");
+    if (await conversations.GetConversationAsync(convId, user.UserId, ct) is null)
+        return ApiError.ConversationNotFound();
 
     var positive = req.Rating.Equals("positive", StringComparison.OrdinalIgnoreCase);
     var phrase = positive ? "that was great" : "that was unhelpful";
@@ -236,7 +319,7 @@ app.Run();
 internal static class WebSocketConversation
 {
     public static async Task RunAsync(
-        WebSocket socket, IServiceScopeFactory scopes, string userId, Guid defaultConversationId, CancellationToken ct)
+        WebSocket socket, IServiceScopeFactory scopes, ILogger logger, string userId, Guid defaultConversationId, CancellationToken ct)
     {
         await SendAsync(socket, new { type = "ready", conversationId = defaultConversationId.ToString() }, ct);
 
@@ -278,7 +361,11 @@ internal static class WebSocketConversation
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                await SendAsync(socket, new { type = "error", message = ex.Message }, ct);
+                // Sanitized error frame; the detail is logged server-side by correlation id.
+                var (_, code, safe) = ApiError.Classify(ex);
+                var correlationId = Guid.NewGuid().ToString("N")[..8];
+                logger.LogError(ex, "WebSocket error {Code} correlationId={CorrelationId}", code, correlationId);
+                await SendAsync(socket, new { type = "error", error = code, message = safe, correlationId }, ct);
             }
         }
 

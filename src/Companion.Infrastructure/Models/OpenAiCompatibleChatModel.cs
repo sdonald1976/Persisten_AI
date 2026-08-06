@@ -12,23 +12,25 @@ namespace Companion.Infrastructure.Models;
 /// (<c>/v1</c>). Sends the assembled context as the system prompt and the user's message, and
 /// returns the assistant's reply. Point it at a base URL and model via configuration.
 /// </summary>
-public sealed class OpenAiCompatibleChatModel : IChatModel, IDisposable
+public sealed class OpenAiCompatibleChatModel : IChatModel
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
-    private readonly HttpClient _http;
+    private readonly Func<HttpClient> _client;
     private readonly EndpointOptions _options;
     private readonly ILogger<OpenAiCompatibleChatModel> _logger;
 
-    public OpenAiCompatibleChatModel(EndpointOptions options, ILogger<OpenAiCompatibleChatModel> logger)
-        : this(options, HttpClientFactory.Create(options), logger) { }
+    public OpenAiCompatibleChatModel(
+        EndpointOptions options, IHttpClientFactory httpClientFactory, string clientName,
+        ILogger<OpenAiCompatibleChatModel> logger)
+        : this(options, () => httpClientFactory.CreateClient(clientName), logger) { }
 
-    /// <summary>Test seam: supply a pre-built <see cref="HttpClient"/> (e.g. over a mock handler).</summary>
-    internal OpenAiCompatibleChatModel(EndpointOptions options, HttpClient http, ILogger<OpenAiCompatibleChatModel> logger)
+    /// <summary>Test seam: supply the client factory directly (e.g. a client over a mock handler).</summary>
+    internal OpenAiCompatibleChatModel(EndpointOptions options, Func<HttpClient> client, ILogger<OpenAiCompatibleChatModel> logger)
     {
         _options = options;
         _logger = logger;
-        _http = http;
+        _client = client;
     }
 
     /// <summary>The configured model name (which model this instance talks to).</summary>
@@ -43,8 +45,9 @@ public sealed class OpenAiCompatibleChatModel : IChatModel, IDisposable
             new { role = "user", content = userMessage },
         }, stream: false, jsonMode: jsonMode);
 
+        var http = _client();
         using var response = await ProviderHttp.SendAsync(
-            c => _http.PostAsJsonAsync("chat/completions", request, c), _options, "chat", _logger, ct);
+            c => http.PostAsJsonAsync("chat/completions", request, c), _options, "chat", _logger, ct);
         var body = await ProviderHttp.ReadCappedJsonAsync<ChatResponse>(response, _options.MaxResponseBytes, ct);
         var content = body?.Choices?.FirstOrDefault()?.Message?.Content;
         return string.IsNullOrWhiteSpace(content) ? "(the model returned an empty response)" : content.Trim();
@@ -61,8 +64,9 @@ public sealed class OpenAiCompatibleChatModel : IChatModel, IDisposable
 
         // Streaming reads the body incrementally (not buffered), so it uses the resilient send for
         // the initial request/headers but its own read loop for the SSE stream.
+        var http = _client();
         var response = await ProviderHttp.SendAsync(
-            c => _http.SendAsync(
+            c => http.SendAsync(
                 new HttpRequestMessage(HttpMethod.Post, "chat/completions") { Content = JsonContent.Create(request) },
                 HttpCompletionOption.ResponseHeadersRead, c),
             _options, "chat", _logger, ct);
@@ -97,8 +101,6 @@ public sealed class OpenAiCompatibleChatModel : IChatModel, IDisposable
             }
         }
     }
-
-    public void Dispose() => _http.Dispose();
 
     private sealed record ChatResponse([property: JsonPropertyName("choices")] List<Choice>? Choices);
     private sealed record Choice([property: JsonPropertyName("message")] ChatMessage? Message);

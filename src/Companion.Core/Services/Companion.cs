@@ -67,6 +67,13 @@ public sealed class Companion : ICompanion
         if (string.IsNullOrWhiteSpace(userMessage))
             throw new ArgumentException("User message must not be empty.", nameof(userMessage));
 
+        // The conversation must exist and belong to this user before ANY work happens — no message
+        // storage, retrieval, generation, extraction, or project/open-loop mutation on an unknown
+        // or foreign conversation. A missing conversation is an invalid request, not a new one.
+        var conversation = await _conversations.GetConversationAsync(conversationId, userId, ct);
+        if (conversation is null)
+            throw new ConversationNotFoundException(conversationId);
+
         var now = _clock.GetUtcNow();
 
         // 1–2. Store the raw user message. (Raw storage is unconditional — private turns skip

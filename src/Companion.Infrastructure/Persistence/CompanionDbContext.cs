@@ -77,6 +77,12 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Role).HasConversion<string>().HasMaxLength(20);
             e.HasIndex(x => new { x.ConversationId, x.Timestamp });
             e.HasIndex(x => x.UserId);
+            // A message cannot exist without its conversation — enforced by a real FK, not just app
+            // code. Deleting a conversation cascades to its messages.
+            e.HasOne<Conversation>()
+                .WithMany()
+                .HasForeignKey(x => x.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<SemanticMemory>(e =>

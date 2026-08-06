@@ -37,13 +37,16 @@ public sealed class ConversationStore : IConversationStore
 
     public async Task AddMessageAsync(Message message, CancellationToken ct = default)
     {
-        _db.Messages.Add(message);
-
+        // Refuse orphan inserts at the persistence boundary: a message may only be stored into a
+        // conversation that exists AND is owned by the same user. This is enforced here (not only
+        // in the API) so no code path can create an orphan or cross-user message.
         var conversation = await _db.Conversations
             .FirstOrDefaultAsync(c => c.Id == message.ConversationId && c.UserId == message.UserId, ct);
-        if (conversation is not null)
-            conversation.LastActivityAt = message.Timestamp;
+        if (conversation is null)
+            throw new ConversationNotFoundException(message.ConversationId);
 
+        _db.Messages.Add(message);
+        conversation.LastActivityAt = message.Timestamp;
         await _db.SaveChangesAsync(ct);
     }
 

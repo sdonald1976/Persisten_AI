@@ -89,9 +89,17 @@ dotnet run --project src/Companion.Cli
 ```
 
 The schema is managed with **EF Core migrations** and applied automatically on startup, so it
-upgrades in place as new versions add tables. If you have a local database created before
-migrations were introduced, delete it (e.g. `companion.db`) and re-run — it will be recreated,
-then reload demo data with `seed`.
+upgrades in place as new versions add tables. Before applying any pending migration the database
+is **backed up** (`companion.db.bak-<timestamp>`), and if a migration fails it is **restored** —
+you never lose memories to a schema change. You can also snapshot/restore explicitly:
+
+```bash
+dotnet run --project src/Companion.Cli -- export my-memories.db   # consistent snapshot
+dotnet run --project src/Companion.Cli -- import my-memories.db   # restore (backs up current first)
+```
+
+(A database created before migrations existed can't be upgraded in place — `export` it, delete
+`companion.db`, re-run to recreate, then `import`.)
 
 ## Using a real model (Ollama / LM Studio)
 
@@ -202,16 +210,24 @@ deterministic (`MockChatModel`, `MockEmbeddingModel`, `RuleBasedMemoryExtractor`
 The CLI is just one face. The same brain runs as a local service for web/desktop/voice front-ends:
 
 ```bash
-dotnet run --project src/Companion.Api     # http://localhost:5266
-#  open http://localhost:5266 for the reference chat client (streams over WebSocket)
+dotnet run --project src/Companion.Api     # http://127.0.0.1:5266 (loopback only)
+#  open http://127.0.0.1:5266 for the reference chat client (paste the token when prompted)
 ```
+
+**Secure by default:** it binds to **loopback only**, requires a **local API token** on every
+REST/SSE/WebSocket call (auto-generated on first startup and saved to `.companion-api-token` next
+to the DB; send it as `Authorization: Bearer <token>` / `X-Companion-Key`, or `?access_token=` for
+SSE/WebSocket), and restricts browser access to an explicit **CORS allow-list**
+(`Api:AllowedOrigins`). Set `Api:AuthEnabled=false` only for local development. Errors come back
+sanitized as `{ error, message, correlationId }`; the detail stays in the server log.
 
 It defaults to the offline mocks (no model server needed) and uses the same `Models`
 configuration as the CLI when you want a real model. Replies stream token-by-token over
 Server-Sent Events (`GET /chat/stream`) and the bidirectional `/ws` channel; plain-language
 intents, persona edits, and feedback all work over the wire, and there are structured
-`/memories`, `/projects`, `/loops`, and `/persona` endpoints for rich UIs. Full endpoint and
-frame reference: [`docs/API.md`](docs/API.md).
+`/memories`, `/projects`, `/loops`, and `/persona` endpoints for rich UIs. A request for a
+conversation that doesn't exist or isn't yours returns 404. Full endpoint, auth, and frame
+reference: [`docs/API.md`](docs/API.md).
 
 ## Fine-tuning (optional, experimental)
 
@@ -226,29 +242,40 @@ directly (skipping anything you've `/forget`-ten), so there's no separate export
 
 The companion is built to be safe for real local use, not just a demo:
 
+- **The local API is locked down.** Loopback-only binding, a required local **API token** on
+  every REST/SSE/WebSocket call, and an explicit **CORS allow-list** (no wildcard, no cookies).
+  Errors are returned sanitized (`{ error, message, correlationId }`) with detail kept server-side.
 - **User isolation is enforced in the database, not just the app.** Every user-owned read/write
   (memories, evidence, revisions, projects, events, decisions, open loops, conversations,
   messages, pending clarifications) is scoped by `userId` in the query itself — possession of a
   record id owned by another user reveals nothing and mutates nothing. The active user comes from
-  a trusted `IUserContext`, never from an API request body.
+  a trusted `IUserContext`, never from an API request. A message can only belong to an existing,
+  owned conversation (enforced by a foreign key and the store); an unknown/foreign conversation is
+  a 404, never a silent orphan.
+- **No fabricated provenance.** An extracted memory is stored only when its cited excerpt is
+  actually found in a real user message; unverifiable candidates are rejected, never back-filled.
 - **Ambiguity is a control-flow state.** When a reference like "that board" matches two projects,
   the turn asks a deterministic clarifying question and stores a **pending clarification** — it
   does not retrieve-to-answer, call the model, extract memories, or touch project state. The next
   message resolves it ("the buoy one", "the first one", "never mind"); vague replies ask again
   rather than guess, and the pending item survives a restart.
-- **Model output is untrusted.** LM Studio/Ollama calls (one adapter, both speak OpenAI `/v1`) get
-  per-role timeouts, bounded exponential-backoff retries (429/5xx/timeouts, honoring `Retry-After`),
-  clean cancellation-vs-timeout mapping, provider-specific errors, a response-size cap, and
-  embedding-dimension validation. Extraction requests JSON mode and is parsed by a validated,
-  balanced-bracket parser (not "first `[` to last `]`"); the model proposes memories, deterministic
-  code decides what persists. `/health` (CLI) tests the configured endpoints.
+- **Model output is untrusted.** LM Studio/Ollama calls go through Microsoft's `IHttpClientFactory`
+  (named clients per role, managed handler lifetime) with a **Polly** transient-retry policy
+  (429/5xx, honoring `Retry-After`), per-role timeouts, clean cancellation-vs-timeout mapping,
+  provider-specific errors, a response-size cap, and embedding-dimension validation. The provider
+  value itself is validated at startup (unknown providers fail fast, no silent fallback).
+  Extraction requests JSON mode and is parsed by a validated, balanced-bracket parser (not
+  "first `[` to last `]`"); the model proposes memories, deterministic code decides what persists.
+  `/health` (CLI) tests the configured endpoints.
 - **Privacy controls.** Say "don't remember this conversation" (or "keep this off the record") and
   the turn still replies but creates **no durable memory** — extraction and project updates are
   skipped (raw messages are still stored for in-session context). Obvious credentials (API keys,
   tokens, private keys, `password: …`) are rejected from memory persistence outright.
+- **Safe upgrades.** Migrations back up the database first and restore it on failure; `export` /
+  `import` give explicit snapshots — a schema change never costs you your memories.
 
-Schema changes ship as EF Core migrations (`AddEvidenceRevisionUserId` — with ownership backfill,
-`AddPendingClarifications`, `AddConversationDoNotRemember`) applied automatically on startup.
+Schema changes ship as EF Core migrations applied automatically on startup, each preceded by an
+automatic backup.
 
 ## Where next
 

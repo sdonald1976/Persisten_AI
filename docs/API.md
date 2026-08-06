@@ -19,36 +19,62 @@ dotnet run --project src/Companion.Api          # serves http://localhost:5266
 By default it runs on the **offline mocks** (no model server needed). To use a real local model,
 set the `Models` section exactly as the CLI does (see the main README) — Ollama/LM Studio for
 chat/extraction/embeddings, plus optional vision and a separate Whisper server. The schema is
-created/upgraded on startup via EF Core migrations, same as the CLI, against `Database:Path`.
+created/upgraded on startup via EF Core migrations (with an automatic pre-migration backup), same
+as the CLI, against `Database:Path`.
 
-CORS is open to any local origin so a browser front-end served from anywhere on the machine can
-call it. It binds to `localhost` only — nothing is exposed off the box.
+## Security (secure-by-default)
+
+- **Loopback only.** The API binds to `http://127.0.0.1:5266` by default and is never exposed on
+  LAN interfaces unless you explicitly set `Urls` / `ASPNETCORE_URLS`.
+- **Local token auth.** Every REST/SSE/WebSocket call must present the local API token. On first
+  startup a random token is generated and saved to `.companion-api-token` next to the database
+  (or set `Api:Token`). Send it as `Authorization: Bearer <token>` or `X-Companion-Key: <token>`;
+  because `EventSource` and browser WebSockets can't set headers, SSE/WS also accept
+  `?access_token=<token>`. Set `Api:AuthEnabled=false` only for explicit local development.
+- **CORS allow-list.** Only origins in `Api:AllowedOrigins` (default `http://localhost:5173`,
+  `http://127.0.0.1:5173`) may call the API from a browser. There is no wildcard, and no cookies
+  are used — auth is an explicit header/token, so CSRF does not apply.
+- **Sanitized errors.** Failures return `{ "error", "message", "correlationId" }` with a safe
+  message; the detailed exception is only in the server log, keyed by the same correlation id.
+
+Example `Api` configuration:
+```jsonc
+"Api": {
+  "AuthEnabled": true,
+  "Token": "",                                  // empty → generated + saved to .companion-api-token
+  "AllowedOrigins": [ "http://localhost:5173", "http://127.0.0.1:5173" ]
+}
+```
 
 ## Concepts
 
 - **Conversation** — start one with `POST /conversations`; pass its `conversationId` on every
-  chat call. (A WebSocket connection auto-creates one and sends it in the `ready` frame.)
-- **User** — single-user local app; every request defaults to the demo user. Pass `userId` to
-  scope to someone else.
+  chat call. (A WebSocket connection auto-creates one and sends it in the `ready` frame.) A
+  request for a conversation that doesn't exist or isn't yours returns **404** — nothing is stored,
+  retrieved, or extracted.
+- **User** — single-user local app; the active user is derived from the server's trusted context,
+  **never** from the request. There is no `userId` parameter on any endpoint.
 - **AgentReply** — every conversational call returns one: `kind` is `Chat` (a generated turn),
   `Action` (an intent was carried out), or `Confirmation` (a yes/no is required before acting).
 
 ## HTTP endpoints
 
+All endpoints require the API token (see Security). Bodies/queries never carry a user id.
+
 | Method | Path | Body / query | Returns |
 |--------|------|--------------|---------|
 | `GET`  | `/health` | — | status + active provider/models |
-| `POST` | `/conversations` | `{ userId?, title?, source? }` | `{ conversationId }` |
-| `POST` | `/chat` | `{ conversationId, message, userId? }` | `AgentReply` (non-streaming) |
-| `POST` | `/chat/confirm` | `{ conversationId, confirmationToken, confirmed, userId? }` | `AgentReply` |
-| `GET`  | `/chat/stream` | `?conversationId=&message=&userId=` | **SSE** token stream |
-| `GET`  | `/memories` | `?userId=` | `[{ id, kind, content, status, validity, confidence }]` |
-| `GET`  | `/projects` | `?userId=` | `[{ name, status, purpose }]` |
-| `GET`  | `/projects/{name}` | `?userId=` | reconstructed project summary |
-| `GET`  | `/loops` | `?userId=` | `[{ id, description }]` |
-| `GET`  | `/persona` | `?userId=` | `{ persona }` |
-| `PUT`  | `/persona` | `{ persona, userId? }` | `{ persona }` |
-| `POST` | `/feedback` | `{ conversationId, rating: "positive"\|"negative", note?, userId? }` | `AgentReply` |
+| `POST` | `/conversations` | `{ title?, source? }` | `{ conversationId }` |
+| `POST` | `/chat` | `{ conversationId, message }` | `AgentReply` (404 if unknown conversation) |
+| `POST` | `/chat/confirm` | `{ conversationId, confirmationToken, confirmed }` | `AgentReply` |
+| `GET`  | `/chat/stream` | `?conversationId=&message=` | **SSE** token stream |
+| `GET`  | `/memories` | — | `[{ id, kind, content, status, validity, confidence }]` |
+| `GET`  | `/projects` | — | `[{ name, status, purpose }]` |
+| `GET`  | `/projects/{name}` | — | reconstructed project summary |
+| `GET`  | `/loops` | — | `[{ id, description }]` |
+| `GET`  | `/persona` | — | `{ persona }` |
+| `PUT`  | `/persona` | `{ persona }` | `{ persona }` |
+| `POST` | `/feedback` | `{ conversationId, rating: "positive"\|"negative", note? }` | `AgentReply` |
 
 `AgentReply` shape:
 ```json
@@ -62,17 +88,18 @@ call it. It binds to `localhost` only — nothing is exposed off the box.
 ### Streaming with Server-Sent Events
 
 ```
-GET /chat/stream?conversationId=<guid>&message=hello
+GET /chat/stream?conversationId=<guid>&message=hello&access_token=<token>
 → event: token   data: {"text":"I "}
   event: token   data: {"text":"remember "}
   …
-  event: done    data: { …AgentReply… }      # or  event: error  data: {"message":"…"}
+  event: done    data: { …AgentReply… }      # or  event: error  data: {"error":"…","message":"…","correlationId":"…"}
 ```
-`EventSource` in the browser is GET-only, hence the query string.
+`EventSource` in the browser is GET-only and can't set headers, hence the query string (including
+`access_token`).
 
 ## WebSocket `/ws` (the avatar/voice channel)
 
-Connect to `ws://localhost:5266/ws` (optional `?userId=`). The server sends a `ready` frame with
+Connect to `ws://127.0.0.1:5266/ws?access_token=<token>`. The server sends a `ready` frame with
 a fresh `conversationId`, then it's request/response.
 
 **Client → server**
@@ -87,7 +114,7 @@ a fresh `conversationId`, then it's request/response.
 { "type": "token", "text": "…" }                      // one per chunk, for chat turns
 { "type": "reply", "kind": "Chat|Action|Confirmation", "intent": "…",
   "text": "…", "confirmationToken": null }            // terminates a turn
-{ "type": "error", "message": "…" }
+{ "type": "error", "error": "…", "message": "…", "correlationId": "…" }   // sanitized
 ```
 
 A chat turn streams `token` frames then a final `reply`. Actions/confirmations send just a
