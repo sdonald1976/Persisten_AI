@@ -1,5 +1,4 @@
 using System.Net.Http.Json;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -10,15 +9,11 @@ namespace Companion.Infrastructure.Models;
 
 /// <summary>
 /// Chat completion against any OpenAI-compatible server — Ollama (<c>/v1</c>) or LM Studio
-/// (<c>/v1</c>). Sends the assembled context as the system prompt and the user's message, and
-/// returns the assistant's reply.
-///
-/// Completion detection: the server reports WHY generation stopped (<c>finish_reason</c>).
-/// <c>"stop"</c> means the model finished; <c>"length"</c> means it hit the output-token limit
-/// mid-answer. On <c>"length"</c> this adapter automatically asks the model to continue exactly
-/// where it stopped and stitches the parts together (bounded by
-/// <see cref="EndpointOptions.MaxContinuations"/>), so a long task completes in one turn instead
-/// of the user having to say "keep going".
+/// (<c>/v1</c>). A thin transport: ONE request per call, returning the reply text plus the signals
+/// around it (<c>finish_reason</c>, token usage, model). It does not loop or decide whether to keep
+/// going — that policy lives in <see cref="ReplyGenerator"/> — but it knows how to <em>format</em> a
+/// continuation: when given a partial assistant answer it asks the model to resume from exactly
+/// where that text stopped.
 /// </summary>
 public sealed class OpenAiCompatibleChatModel : IChatModel
 {
@@ -48,98 +43,109 @@ public sealed class OpenAiCompatibleChatModel : IChatModel
     /// <summary>The configured model name (which model this instance talks to).</summary>
     public string ModelName => _options.Model;
 
-    public async Task<string> CompleteAsync(
-        string systemPrompt, string userMessage, bool jsonMode = false, CancellationToken ct = default)
+    public async Task<ChatCompletion> CompleteAsync(
+        string systemPrompt, string userMessage, bool jsonMode = false,
+        string? assistantPrefix = null, CancellationToken ct = default)
     {
         var http = _client();
-        var buffer = new StringBuilder();
+        LogRequest(systemPrompt, userMessage, assistantPrefix, streaming: false);
 
-        for (var round = 0; ; round++)
+        var request = ChatRequest.Build(
+            _options, BuildMessages(systemPrompt, userMessage, assistantPrefix), stream: false, jsonMode: jsonMode);
+
+        using var response = await ProviderHttp.SendAsync(
+            c => http.PostAsJsonAsync("chat/completions", request, c), _options, "chat", _logger, ct);
+        var body = await ProviderHttp.ReadCappedJsonAsync<ChatResponse>(response, _options.MaxResponseBytes, ct);
+        var choice = body?.Choices?.FirstOrDefault();
+        var text = choice?.Message?.Content ?? string.Empty;
+
+        LogReply(text, choice?.FinishReason, body?.Usage);
+        return new ChatCompletion
         {
-            var request = ChatRequest.Build(
-                _options, BuildMessages(systemPrompt, userMessage, round == 0 ? null : buffer.ToString()),
-                stream: false, jsonMode: jsonMode);
-
-            using var response = await ProviderHttp.SendAsync(
-                c => http.PostAsJsonAsync("chat/completions", request, c), _options, "chat", _logger, ct);
-            var body = await ProviderHttp.ReadCappedJsonAsync<ChatResponse>(response, _options.MaxResponseBytes, ct);
-            var choice = body?.Choices?.FirstOrDefault();
-            buffer.Append(choice?.Message?.Content);
-
-            // Structured (JSON-mode) output is never stitched — half a JSON document is useless,
-            // and the extraction path treats an unparseable reply as "no candidates" anyway.
-            if (!ShouldContinue(choice?.FinishReason, round, jsonMode))
-                break;
-        }
-
-        var text = buffer.ToString();
-        return string.IsNullOrWhiteSpace(text) ? "(the model returned an empty response)" : text.Trim();
+            Text = text,
+            FinishReason = choice?.FinishReason,
+            Model = body?.Model ?? _options.Model,
+            PromptTokens = body?.Usage?.PromptTokens,
+            CompletionTokens = body?.Usage?.CompletionTokens,
+        };
     }
 
-    public async IAsyncEnumerable<string> StreamAsync(
-        string systemPrompt, string userMessage, [EnumeratorCancellation] CancellationToken ct = default)
+    public async Task<ChatCompletion> StreamAsync(
+        string systemPrompt, string userMessage, IProgress<string> sink,
+        string? assistantPrefix = null, CancellationToken ct = default)
     {
         var http = _client();
+        LogRequest(systemPrompt, userMessage, assistantPrefix, streaming: true);
+
+        var request = ChatRequest.Build(
+            _options, BuildMessages(systemPrompt, userMessage, assistantPrefix), stream: true);
+
+        // Streaming reads the body incrementally (not buffered), so it uses the resilient send for
+        // the initial request/headers but its own read loop for the SSE stream.
+        var response = await ProviderHttp.SendAsync(
+            c => http.SendAsync(
+                new HttpRequestMessage(HttpMethod.Post, "chat/completions") { Content = JsonContent.Create(request) },
+                HttpCompletionOption.ResponseHeadersRead, c),
+            _options, "chat", _logger, ct);
+
         var accumulated = new StringBuilder();
+        string? finishReason = null;
+        string? model = null;
+        Usage? usage = null;
 
-        for (var round = 0; ; round++)
+        using (response)
         {
-            var request = ChatRequest.Build(
-                _options, BuildMessages(systemPrompt, userMessage, round == 0 ? null : accumulated.ToString()),
-                stream: true);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var reader = new StreamReader(stream);
 
-            // Streaming reads the body incrementally (not buffered), so it uses the resilient send
-            // for the initial request/headers but its own read loop for the SSE stream.
-            var response = await ProviderHttp.SendAsync(
-                c => http.SendAsync(
-                    new HttpRequestMessage(HttpMethod.Post, "chat/completions") { Content = JsonContent.Create(request) },
-                    HttpCompletionOption.ResponseHeadersRead, c),
-                _options, "chat", _logger, ct);
-
-            string? finishReason = null;
-            using (response)
+            while (!reader.EndOfStream)
             {
-                await using var stream = await response.Content.ReadAsStreamAsync(ct);
-                using var reader = new StreamReader(stream);
+                var line = await reader.ReadLineAsync(ct);
+                if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data:", StringComparison.Ordinal))
+                    continue;
 
-                while (!reader.EndOfStream)
+                var payload = line["data:".Length..].Trim();
+                if (payload == "[DONE]")
+                    break;
+
+                string? content = null;
+                try
                 {
-                    var line = await reader.ReadLineAsync(ct);
-                    if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data:", StringComparison.Ordinal))
-                        continue;
+                    var chunk = JsonSerializer.Deserialize<StreamChunk>(payload, Json);
+                    var choice = chunk?.Choices?.FirstOrDefault();
+                    content = choice?.Delta?.Content;
+                    finishReason = choice?.FinishReason ?? finishReason;
+                    model ??= chunk?.Model;
+                    usage ??= chunk?.Usage;
+                }
+                catch (JsonException)
+                {
+                    // ignore keep-alive / non-JSON lines
+                }
 
-                    var payload = line["data:".Length..].Trim();
-                    if (payload == "[DONE]")
-                        break;
-
-                    string? content = null;
-                    try
-                    {
-                        var choice = JsonSerializer.Deserialize<StreamChunk>(payload, Json)?.Choices?.FirstOrDefault();
-                        content = choice?.Delta?.Content;
-                        finishReason = choice?.FinishReason ?? finishReason;
-                    }
-                    catch (JsonException)
-                    {
-                        // ignore keep-alive / non-JSON lines
-                    }
-
-                    if (!string.IsNullOrEmpty(content))
-                    {
-                        accumulated.Append(content);
-                        yield return content;
-                    }
+                if (!string.IsNullOrEmpty(content))
+                {
+                    accumulated.Append(content);
+                    sink.Report(content);
                 }
             }
-
-            if (!ShouldContinue(finishReason, round, jsonMode: false))
-                yield break;
         }
+
+        var text = accumulated.ToString();
+        LogReply(text, finishReason, usage);
+        return new ChatCompletion
+        {
+            Text = text,
+            FinishReason = finishReason,
+            Model = model ?? _options.Model,
+            PromptTokens = usage?.PromptTokens,
+            CompletionTokens = usage?.CompletionTokens,
+        };
     }
 
     /// <summary>Base messages, plus the continuation exchange when resuming a cut-off answer.</summary>
-    private static object BuildMessages(string systemPrompt, string userMessage, string? partialSoFar)
-        => partialSoFar is null
+    private static object BuildMessages(string systemPrompt, string userMessage, string? assistantPrefix)
+        => string.IsNullOrEmpty(assistantPrefix)
             ? new object[]
             {
                 new { role = "system", content = systemPrompt },
@@ -149,38 +155,48 @@ public sealed class OpenAiCompatibleChatModel : IChatModel
             {
                 new { role = "system", content = systemPrompt },
                 new { role = "user", content = userMessage },
-                new { role = "assistant", content = partialSoFar },
+                new { role = "assistant", content = assistantPrefix },
                 new { role = "user", content = ContinuePrompt },
             };
 
-    private bool ShouldContinue(string? finishReason, int round, bool jsonMode)
+    private void LogRequest(string systemPrompt, string userMessage, string? assistantPrefix, bool streaming)
     {
-        var truncated = string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase);
-        if (!truncated || jsonMode || !_options.AutoContinue)
-            return false;
-
-        if (round >= _options.MaxContinuations)
-        {
-            _logger.LogWarning(
-                "Reply from {Model} still truncated after {Rounds} auto-continuations; stopping (raise MaxTokens or MaxContinuations).",
-                _options.Model, round + 1);
-            return false;
-        }
-
-        _logger.LogDebug("Reply from {Model} was cut off (finish_reason=length); auto-continuing (round {Round}).",
-            _options.Model, round + 1);
-        return true;
+        if (!_options.LogPayloads || !_logger.IsEnabled(LogLevel.Information))
+            return;
+        _logger.LogInformation(
+            "LLM request → {Model} (stream={Stream}, continuation={Continuation})\n--- system ---\n{System}\n--- user ---\n{User}",
+            _options.Model, streaming, assistantPrefix is not null, systemPrompt, userMessage);
     }
 
-    private sealed record ChatResponse([property: JsonPropertyName("choices")] List<Choice>? Choices);
+    private void LogReply(string text, string? finishReason, Usage? usage)
+    {
+        _logger.LogDebug(
+            "LLM reply ← {Model}: finish_reason={Finish}, chars={Chars}, promptTokens={Prompt}, completionTokens={Completion}",
+            _options.Model, finishReason ?? "(none)", text.Length, usage?.PromptTokens, usage?.CompletionTokens);
+
+        if (_options.LogPayloads && _logger.IsEnabled(LogLevel.Information))
+            _logger.LogInformation("LLM reply ← {Model} (finish_reason={Finish})\n{Text}", _options.Model, finishReason ?? "(none)", text);
+    }
+
+    private sealed record ChatResponse(
+        [property: JsonPropertyName("choices")] List<Choice>? Choices,
+        [property: JsonPropertyName("model")] string? Model,
+        [property: JsonPropertyName("usage")] Usage? Usage);
     private sealed record Choice(
         [property: JsonPropertyName("message")] ChatMessage? Message,
         [property: JsonPropertyName("finish_reason")] string? FinishReason);
     private sealed record ChatMessage([property: JsonPropertyName("content")] string? Content);
 
-    private sealed record StreamChunk([property: JsonPropertyName("choices")] List<StreamChoice>? Choices);
+    private sealed record StreamChunk(
+        [property: JsonPropertyName("choices")] List<StreamChoice>? Choices,
+        [property: JsonPropertyName("model")] string? Model,
+        [property: JsonPropertyName("usage")] Usage? Usage);
     private sealed record StreamChoice(
         [property: JsonPropertyName("delta")] Delta? Delta,
         [property: JsonPropertyName("finish_reason")] string? FinishReason);
     private sealed record Delta([property: JsonPropertyName("content")] string? Content);
+
+    private sealed record Usage(
+        [property: JsonPropertyName("prompt_tokens")] int? PromptTokens,
+        [property: JsonPropertyName("completion_tokens")] int? CompletionTokens);
 }

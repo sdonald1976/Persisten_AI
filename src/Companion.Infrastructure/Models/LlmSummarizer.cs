@@ -18,12 +18,13 @@ public sealed class LlmSummarizer : ISummarizer
 
     public LlmSummarizer(IChatModel chat) => _chat = chat;
 
-    public Task<string> SummarizeAsync(IReadOnlyList<string> statements, CancellationToken ct = default)
+    public async Task<string> SummarizeAsync(IReadOnlyList<string> statements, CancellationToken ct = default)
     {
         if (statements.Count == 0)
-            return Task.FromResult("No supporting statements.");
+            return "No supporting statements.";
 
         var joined = string.Join("\n- ", statements);
-        return _chat.CompleteAsync(SystemPrompt, $"Observations:\n- {joined}", jsonMode: false, ct);
+        var result = await _chat.CompleteAsync(SystemPrompt, $"Observations:\n- {joined}", jsonMode: false, ct: ct);
+        return result.Text;
     }
 }

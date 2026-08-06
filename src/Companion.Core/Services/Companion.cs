@@ -1,4 +1,3 @@
-using System.Text;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Microsoft.Extensions.Logging;
@@ -25,7 +24,7 @@ public sealed class Companion : ICompanion
     private readonly IProfileStore _profiles;
     private readonly IRetriever _retriever;
     private readonly IContextAssembler _assembler;
-    private readonly IChatModel _chat;
+    private readonly IReplyGenerator _replyGenerator;
     private readonly IMemoryPipeline _pipeline;
     private readonly IProjectUpdater _projectUpdater;
     private readonly CompanionOptions _options;
@@ -39,7 +38,7 @@ public sealed class Companion : ICompanion
         IProfileStore profiles,
         IRetriever retriever,
         IContextAssembler assembler,
-        IChatModel chat,
+        IReplyGenerator replyGenerator,
         IMemoryPipeline pipeline,
         IProjectUpdater projectUpdater,
         IOptions<CompanionOptions> options,
@@ -52,7 +51,7 @@ public sealed class Companion : ICompanion
         _profiles = profiles;
         _retriever = retriever;
         _assembler = assembler;
-        _chat = chat;
+        _replyGenerator = replyGenerator;
         _pipeline = pipeline;
         _projectUpdater = projectUpdater;
         _options = options.Value;
@@ -206,26 +205,16 @@ public sealed class Companion : ICompanion
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var packet = _assembler.Assemble(promptText, recent, outcome.Selected, projectContext, profile.Persona);
 
-        // 6. Generate the response — streamed to the sink when one is provided, otherwise in one shot.
-        string response;
-        if (tokenSink is not null)
-        {
-            var buffer = new StringBuilder();
-            await foreach (var chunk in _chat.StreamAsync(packet.Render(), promptText, ct))
-            {
-                buffer.Append(chunk);
-                tokenSink.Report(chunk);
-            }
-            response = buffer.Length == 0 ? "(the model returned an empty response)" : buffer.ToString();
-        }
-        else
-        {
-            response = await _chat.CompleteAsync(packet.Render(), promptText, jsonMode: false, ct);
-        }
+        // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
+        // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
+        // task), and streams to the sink across rounds when one is provided.
+        var generated = await _replyGenerator.GenerateAsync(packet.Render(), promptText, tokenSink, ct);
+        var response = generated.Text;
 
-        // 7. Store the response.
+        // 7. Store the response, with the generation metadata (why it stopped, rounds, tokens) so a
+        // reply is answerable after the fact instead of a mystery.
         var assistantMsg = await StoreMessageAsync(
-            userId, conversationId, MessageRole.Assistant, response, replyToId, _clock.GetUtcNow(), ct);
+            userId, conversationId, MessageRole.Assistant, response, replyToId, _clock.GetUtcNow(), ct, generated);
 
         // Privacy: a "don't remember this conversation" turn produces a reply but creates NO
         // durable derived memory — extraction and project/open-loop updates are skipped. Raw
@@ -248,8 +237,10 @@ public sealed class Companion : ICompanion
         // 11. Record the trace for debugging (`/why`).
         _logger.LogInformation(
             "Turn complete for {UserId}: {Selected} memories, project={Project}, " +
+            "reply finish={Finish}/rounds={Rounds}, " +
             "extraction {Accepted}A/{Merged}M/{Review}R/{Rejected}X, {Actions} project updates",
             userId, outcome.Selected.Count, projectContext.ResolvedProjectName ?? "(none)",
+            generated.FinishReason ?? "(none)", generated.Rounds,
             extraction.Accepted, extraction.Merged, extraction.NeedsReview, extraction.Rejected,
             updates.Actions.Count);
 
@@ -273,7 +264,7 @@ public sealed class Companion : ICompanion
 
     private async Task<Message> StoreMessageAsync(
         string userId, Guid conversationId, MessageRole role, string content, Guid? replyToId,
-        DateTimeOffset timestamp, CancellationToken ct)
+        DateTimeOffset timestamp, CancellationToken ct, ChatCompletion? generation = null)
     {
         var message = new Message
         {
@@ -285,6 +276,13 @@ public sealed class Companion : ICompanion
             ReplyToId = replyToId,
             TokenCount = ContextAssembler.EstimateTokens(content),
             Timestamp = timestamp,
+            // Generation metadata: only present for a model-produced reply.
+            FinishReason = generation?.FinishReason,
+            GenerationRounds = generation?.Rounds,
+            Truncated = generation is null ? null : generation.Truncated,
+            ModelUsed = generation?.Model,
+            PromptTokens = generation?.PromptTokens,
+            CompletionTokens = generation?.CompletionTokens,
         };
         await _conversations.AddMessageAsync(message, ct);
         return message;
