@@ -11,6 +11,9 @@ public sealed record ContextPacket
 {
     public required string UserMessage { get; init; }
 
+    /// <summary>Editable persona/style instructions, prepended to the system prompt.</summary>
+    public string? Persona { get; init; }
+
     /// <summary>Recent verbatim turns, oldest first.</summary>
     public IReadOnlyList<Message> RecentMessages { get; init; } = Array.Empty<Message>();
 

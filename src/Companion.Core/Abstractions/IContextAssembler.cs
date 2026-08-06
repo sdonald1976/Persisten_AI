@@ -9,5 +9,6 @@ public interface IContextAssembler
         string userMessage,
         IReadOnlyList<Message> recentMessages,
         IReadOnlyList<RetrievalResult> retrieved,
-        ProjectContext projectContext);
+        ProjectContext projectContext,
+        string? persona = null);
 }

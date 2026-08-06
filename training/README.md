@@ -71,7 +71,17 @@ In `appsettings.json`, set the role to the new tag:
 Rollback is just changing that line back — the old model is untouched. Keep versioned tags
 (`companion-extractor-v2`, …) so you can A/B and revert instantly.
 
-## Once you're capturing reply feedback
-The `chat-sft` path becomes worthwhile (and DPO/preference tuning from corrections becomes
-possible) once the app records which replies were good/bad. That's a small future addition; for
-now, extraction is the sweet spot.
+## Style fine-tuning from your feedback
+The app records reply ratings (say "that was great" / "that was unhelpful"), so you can train
+**style** from replies you approved:
+```bash
+python build_dataset.py --db companion.db --dataset feedback-sft --out data/style.jsonl
+python finetune.py --data data/style.jsonl --base unsloth/Llama-3.2-3B-Instruct --out outputs/companion-style
+```
+Only thumbs-upped replies become targets (never unfiltered model output). Full DPO/preference
+tuning needs both a rejected and a chosen reply for the same prompt — capture more ratings over
+time and that becomes possible. Extraction remains the highest-signal dataset; style is the fun
+one once you've rated a few hundred replies.
+
+Reminder: this tunes *how it talks*, not *what it knows*. Facts stay in the forgettable memory
+layer, never baked into weights.

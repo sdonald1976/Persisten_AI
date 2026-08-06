@@ -19,7 +19,8 @@ public sealed class ContextAssembler : IContextAssembler
         string userMessage,
         IReadOnlyList<Message> recentMessages,
         IReadOnlyList<RetrievalResult> retrieved,
-        ProjectContext projectContext)
+        ProjectContext projectContext,
+        string? persona = null)
     {
         var items = new List<ContextItem>();
         var notes = new List<string>();
@@ -57,6 +58,7 @@ public sealed class ContextAssembler : IContextAssembler
         return new ContextPacket
         {
             UserMessage = userMessage,
+            Persona = persona,
             RecentMessages = recentMessages,
             Memories = items,
             Project = projectContext.Summary,

@@ -27,7 +27,12 @@ public static class DependencyInjection
         services.AddScoped<IConversationStore, ConversationStore>();
         services.AddScoped<IMemoryStore, MemoryStore>();
         services.AddScoped<IProjectStore, ProjectStore>();
+        services.AddScoped<IProfileStore, ProfileStore>();
+        services.AddScoped<IFeedbackStore, FeedbackStore>();
         services.AddScoped<IVectorIndex, SqliteBlobVectorIndex>();
+
+        // Natural-language intent parsing (so slash commands aren't required).
+        services.AddSingleton<IIntentParser, RuleBasedIntentParser>();
 
         // Model providers, selected by configuration ("Models" section). Default is the
         // deterministic offline mocks; "OpenAiCompatible" (or "Ollama"/"LMStudio") uses a real

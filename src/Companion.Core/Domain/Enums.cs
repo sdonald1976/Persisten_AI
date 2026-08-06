@@ -43,6 +43,50 @@ public enum EpisodeStatus
     Abandoned,
 }
 
+/// <summary>What the user's utterance is asking the companion to do (so slash commands aren't needed).</summary>
+public enum IntentKind
+{
+    /// <summary>An ordinary conversational turn.</summary>
+    Chat,
+
+    /// <summary>"What do you remember about me / about X?"</summary>
+    Recall,
+
+    /// <summary>"Forget that / forget the X."</summary>
+    Forget,
+
+    /// <summary>"That's wrong / that's not right." (flag a memory as disputed)</summary>
+    Dispute,
+
+    /// <summary>"List my projects / what am I working on?"</summary>
+    ListProjects,
+
+    /// <summary>"What are my open loops / what's unfinished?"</summary>
+    ListOpenLoops,
+
+    /// <summary>"Consolidate your memories."</summary>
+    Consolidate,
+
+    /// <summary>"Set your persona to …" (replace the style/persona).</summary>
+    SetPersona,
+
+    /// <summary>"Be more concise / talk like …" (append a style directive).</summary>
+    AdjustStyle,
+
+    /// <summary>"That was great / perfect / helpful."</summary>
+    FeedbackPositive,
+
+    /// <summary>"That was unhelpful / a bad answer."</summary>
+    FeedbackNegative,
+}
+
+/// <summary>How the user rated a reply — the signal a style fine-tune (DPO) later learns from.</summary>
+public enum FeedbackRating
+{
+    Positive,
+    Negative,
+}
+
 /// <summary>Where a semantic memory came from — so system-generated knowledge isn't presented as a direct quote.</summary>
 public enum MemoryOrigin
 {
