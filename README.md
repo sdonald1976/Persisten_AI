@@ -19,8 +19,13 @@ ambiguous), retrieve ranked+explained memories and open loops into a bounded,
 provenance-labeled context packet, generate a reply, then extract candidate memories through a
 validate-before-store pipeline, update project/open-loop state, and revise over time
 (supersession, correction, forgetting) — all with an audit trail. Everything runs offline on
-deterministic mock/rule-based providers. **All 70 tests pass**, including the five reference
+deterministic mock/rule-based providers. **All 112 tests pass**, including the five reference
 scenarios. Design docs are under `docs/`.
+
+The companion logic is a **headless brain** (`IAgent`) that every face drives identically: the
+CLI is a thin client over it, and a local **HTTP + WebSocket API** (`Companion.Api`) exposes the
+same brain — streaming replies token-by-token — so a web page, desktop app, or future voice + 3D
+avatar can plug in without embedding .NET. See [`docs/API.md`](docs/API.md).
 
 ### Reference scenarios (the acceptance benchmark)
 
@@ -50,11 +55,14 @@ mockable model providers (local/hosted/mock) · xUnit.
 ## Project layout
 
 ```
-src/Companion.Core            domain records, interfaces, retrieval + extraction + project + curation logic
+src/Companion.Core            domain records, interfaces, retrieval + extraction + project + curation logic,
+                              the IAgent brain facade (intents + persona + turn, returns structured replies)
 src/Companion.Infrastructure  EF Core store, SQLite BLOB vector index, mock + rule-based/LLM extractors, DI
-src/Companion.Cli             chat REPL + /seed, /remember, /projects, /project, /loops,
-                              /forget, /dispute, /correct, /reassign, /mergeprojects, /consolidate, /why
-tests/Companion.Tests         70 tests: retrieval, packet, provenance, isolation, score math,
+src/Companion.Cli             thin console face over IAgent: chat + plain-language intents, plus /why and
+                              /seed, /remember, /projects, /loops, /forget, /correct, /consolidate … shortcuts
+src/Companion.Api             headless HTTP + WebSocket face over IAgent: /chat, SSE /chat/stream, /ws,
+                              and structured /memories, /projects, /loops, /persona, /feedback (+ reference web client)
+tests/Companion.Tests         112 tests: retrieval, packet, provenance, isolation, score math,
                               extraction (accept/merge/reject/review/supersede), confidence, normalizer,
                               LLM parsing, resolution + clarification, project summary, open-loop create/close,
                               supersession, correction/forget/dispute/merge, project merge/split,
@@ -186,6 +194,22 @@ deterministic (`MockChatModel`, `MockEmbeddingModel`, `RuleBasedMemoryExtractor`
 `MockSummarizer`), so everything runs offline. Real local/hosted providers — including
 `LlmMemoryExtractor` and an LLM summarizer — plug in behind the same interfaces.
 
+## Run it headless (HTTP + WebSocket)
+
+The CLI is just one face. The same brain runs as a local service for web/desktop/voice front-ends:
+
+```bash
+dotnet run --project src/Companion.Api     # http://localhost:5266
+#  open http://localhost:5266 for the reference chat client (streams over WebSocket)
+```
+
+It defaults to the offline mocks (no model server needed) and uses the same `Models`
+configuration as the CLI when you want a real model. Replies stream token-by-token over
+Server-Sent Events (`GET /chat/stream`) and the bidirectional `/ws` channel; plain-language
+intents, persona edits, and feedback all work over the wire, and there are structured
+`/memories`, `/projects`, `/loops`, and `/persona` endpoints for rich UIs. Full endpoint and
+frame reference: [`docs/API.md`](docs/API.md).
+
 ## Fine-tuning (optional, experimental)
 
 You can turn the companion's own validated data into a small LoRA fine-tune (best target: the
@@ -197,6 +221,9 @@ directly (skipping anything you've `/forget`-ten), so there's no separate export
 
 ## Where next
 
-The six-phase plan in `docs/IMPLEMENTATION_PLAN.md` is complete. Natural follow-ups: capture
-per-reply feedback (to unlock style/DPO fine-tuning), harden the privacy/export controls, and
-swap the in-process vector index for a dedicated ANN store.
+The six-phase plan in `docs/IMPLEMENTATION_PLAN.md` is complete, and the brain now runs behind a
+headless streaming API. The natural next step (see [`docs/FUTURE_UX_ROADMAP.md`](docs/FUTURE_UX_ROADMAP.md))
+is the **voice loop** — push-to-talk → Whisper → turn → Piper TTS — followed by a 3D-avatar
+front-end that consumes audio/viseme/emotion frames over the same WebSocket. Other follow-ups:
+harden privacy controls before any ambient capture, and swap the in-process vector index for a
+dedicated ANN store.

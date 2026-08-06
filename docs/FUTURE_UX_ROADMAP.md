@@ -17,17 +17,32 @@ shortcuts. An LLM tool-calling parser can replace the rule-based one behind the 
 
 ## Split the brain from the face
 
-The companion logic (memory, retrieval, turn pipeline, curation, intents) should be a
-**headless, streaming service**; the UI is a thin client. `Core` is already pure and the turn
-already streams, so wrapping `ICompanion` in a local HTTP + WebSocket API is a small step — and
-it's what lets a web/Unity avatar plug in without embedding .NET.
+The companion logic (memory, retrieval, turn pipeline, curation, intents) is a **headless,
+streaming service**; every UI is a thin client.
 
 ```
 FACES:      CLI  │  Web (WebRTC mic/cam + three.js avatar)  │  Unity/desktop
                        │  local HTTP + WebSocket (stream text · audio · visemes · emotion)
-BRAIN:      Companion API → ICompanion pipeline + IntentRouter + Persona
+BRAIN:      Companion API → IAgent (intents + persona) → ICompanion pipeline
 PROVIDERS:  chat · embeddings · vision · STT (whisper) · TTS   (all behind interfaces)
 ```
+
+**Built (this repo):** the split is real. `IAgent` / `Agent` in `Core` is the one brain surface
+— parse an utterance, then run a turn or carry out an intent, returning structured
+`AgentReply` data (no printing). Both faces drive it:
+
+- **`Companion.Cli`** is now a thin face over `IAgent` (chat streams to the console; actions
+  print; "forget" prompts y/n via the confirmation handshake).
+- **`Companion.Api`** is a headless local HTTP + **WebSocket** service wrapping the same
+  `IAgent`. Replies **stream** token-by-token over Server-Sent Events (`GET /chat/stream`) and
+  over the bidirectional `/ws` channel (`token` → `reply` frames, plus a `confirm` frame for
+  destructive actions). Structured read endpoints (`/memories`, `/projects`, `/loops`,
+  `/persona`, `/feedback`) serve rich UIs; the conversational path covers the same ground for
+  voice. A tiny `wwwroot/index.html` chat client ships as a reference face. See
+  [`API.md`](API.md).
+
+Next on this axis: emit **audio (TTS) + visemes + emotion** frames alongside the text tokens
+so an avatar can lip-sync and emote — the WebSocket frame types are already the place to add them.
 
 ## Multimodal turn + voice loop
 
@@ -60,7 +75,7 @@ project's local-first, forgettable ethos and must precede any ambient capture.
 ## Suggested order
 
 1. ✅ Natural-language intents + editable persona + feedback capture.
-2. Headless streaming API (brain/face split).
+2. ✅ Headless streaming API (brain/face split) — `Companion.Api` (HTTP + SSE + WebSocket).
 3. Voice loop (push-to-talk → whisper → turn → Piper TTS).
 4. 3D avatar front-end (visemes + emotion).
 5. Opt-in camera (vision frames), privacy-gated.
