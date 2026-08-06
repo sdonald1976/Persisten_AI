@@ -11,21 +11,23 @@ namespace Companion.Infrastructure.Models;
 /// Note: if you change the embedding model, re-seed / re-embed — vectors of different lengths
 /// won't compare, so old memories would stop matching.
 /// </summary>
-public sealed class OpenAiCompatibleEmbeddingModel : IEmbeddingModel, IDisposable
+public sealed class OpenAiCompatibleEmbeddingModel : IEmbeddingModel
 {
-    private readonly HttpClient _http;
+    private readonly Func<HttpClient> _client;
     private readonly EndpointOptions _options;
     private readonly ILogger<OpenAiCompatibleEmbeddingModel> _logger;
 
-    public OpenAiCompatibleEmbeddingModel(EndpointOptions options, ILogger<OpenAiCompatibleEmbeddingModel> logger)
-        : this(options, HttpClientFactory.Create(options), logger) { }
+    public OpenAiCompatibleEmbeddingModel(
+        EndpointOptions options, IHttpClientFactory httpClientFactory, string clientName,
+        ILogger<OpenAiCompatibleEmbeddingModel> logger)
+        : this(options, () => httpClientFactory.CreateClient(clientName), logger) { }
 
-    /// <summary>Test seam: supply a pre-built <see cref="HttpClient"/> (e.g. over a mock handler).</summary>
-    internal OpenAiCompatibleEmbeddingModel(EndpointOptions options, HttpClient http, ILogger<OpenAiCompatibleEmbeddingModel> logger)
+    /// <summary>Test seam: supply the client factory directly (e.g. a client over a mock handler).</summary>
+    internal OpenAiCompatibleEmbeddingModel(EndpointOptions options, Func<HttpClient> client, ILogger<OpenAiCompatibleEmbeddingModel> logger)
     {
         _options = options;
         _logger = logger;
-        _http = http;
+        _client = client;
     }
 
     public int Dimensions => _options.Dimensions; // informational; real length comes from the model
@@ -37,8 +39,9 @@ public sealed class OpenAiCompatibleEmbeddingModel : IEmbeddingModel, IDisposabl
     {
         var request = new { model = _options.Model, input = text };
 
+        var http = _client();
         using var response = await ProviderHttp.SendAsync(
-            c => _http.PostAsJsonAsync("embeddings", request, c), _options, "embeddings", _logger, ct);
+            c => http.PostAsJsonAsync("embeddings", request, c), _options, "embeddings", _logger, ct);
         var body = await ProviderHttp.ReadCappedJsonAsync<EmbeddingResponse>(response, _options.MaxResponseBytes, ct);
 
         var vector = body?.Data?.FirstOrDefault()?.Embedding;
@@ -56,8 +59,6 @@ public sealed class OpenAiCompatibleEmbeddingModel : IEmbeddingModel, IDisposabl
 
         return vector;
     }
-
-    public void Dispose() => _http.Dispose();
 
     private sealed record EmbeddingResponse([property: JsonPropertyName("data")] List<EmbeddingData>? Data);
     private sealed record EmbeddingData([property: JsonPropertyName("embedding")] float[]? Embedding);

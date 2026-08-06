@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Net;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -16,91 +15,62 @@ public sealed class ModelProviderException : Exception
 }
 
 /// <summary>
-/// Shared hardening for the OpenAI-compatible providers: bounded exponential-backoff retries for
-/// transient failures (honoring Retry-After and the caller's CancellationToken), a hard response
-/// size cap, provider-specific error mapping (auth / missing-model / rate-limit / server), and
-/// redacted per-call diagnostics (provider, model, latency, retries, outcome, correlation id —
-/// never prompts, content, or credentials). Model output is always treated as untrusted.
+/// Shared hardening for the OpenAI-compatible providers: a hard response-size cap, provider-specific
+/// error mapping (auth / missing-model / rate-limit / server), clean cancellation-vs-timeout
+/// distinction, and redacted per-call diagnostics (role, model, latency, outcome, correlation id —
+/// never prompts, content, or credentials). Transient-failure retries live in the IHttpClientFactory
+/// pipeline (see <see cref="ProviderHttpClients"/>), so this layer sees only the final response.
+/// Model output is always treated as untrusted.
 /// </summary>
 internal static class ProviderHttp
 {
     /// <summary>
-    /// Sends a request with retries and maps failures. <paramref name="sendAttempt"/> must build a
-    /// FRESH request each call (a request message can't be resent). Returns a success response the
-    /// caller still owns/disposes. Cancellation via <paramref name="ct"/> propagates as
-    /// <see cref="OperationCanceledException"/>; a per-request timeout does not (it's transient).
+    /// Invokes <paramref name="send"/> (whose handler pipeline has already applied retries) and maps
+    /// the outcome. Returns a success response the caller owns/disposes; a non-2xx becomes a mapped
+    /// <see cref="ModelProviderException"/>. Caller cancellation propagates as
+    /// <see cref="OperationCanceledException"/>; a request timeout maps to a clear timeout error.
     /// </summary>
     public static async Task<HttpResponseMessage> SendAsync(
-        Func<CancellationToken, Task<HttpResponseMessage>> sendAttempt,
+        Func<CancellationToken, Task<HttpResponseMessage>> send,
         EndpointOptions options, string role, ILogger logger, CancellationToken ct)
     {
         var correlationId = Guid.NewGuid().ToString("N")[..8];
-        var maxAttempts = Math.Max(1, options.MaxRetries + 1);
-        var backoff = TimeSpan.FromMilliseconds(500);
         var stopwatch = Stopwatch.StartNew();
 
-        for (var attempt = 1; ; attempt++)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            try
+            var response = await send(ct);
+
+            if (response.IsSuccessStatusCode)
             {
-                var response = await sendAttempt(ct);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    logger.LogDebug(
-                        "model call ok: role={Role} model={Model} status={Status} attempt={Attempt} latency={Latency}ms cid={Cid}",
-                        role, options.Model, (int)response.StatusCode, attempt, stopwatch.ElapsedMilliseconds, correlationId);
-                    return response;
-                }
-
-                // Non-2xx. Retry transient statuses; map the rest to a clear error.
-                if (IsTransient(response.StatusCode) && attempt < maxAttempts)
-                {
-                    var wait = RetryAfter(response) ?? backoff;
-                    logger.LogWarning(
-                        "model call transient: role={Role} model={Model} status={Status} attempt={Attempt}/{Max} retryIn={Wait}ms cid={Cid}",
-                        role, options.Model, (int)response.StatusCode, attempt, maxAttempts, wait.TotalMilliseconds, correlationId);
-                    response.Dispose();
-                    await Task.Delay(wait, ct);
-                    backoff = DoubleCapped(backoff);
-                    continue;
-                }
-
-                var mapped = await MapErrorAsync(response, options, ct);
-                logger.LogWarning(
-                    "model call failed: role={Role} model={Model} status={Status} attempts={Attempts} latency={Latency}ms cid={Cid}",
-                    role, options.Model, (int)response.StatusCode, attempt, stopwatch.ElapsedMilliseconds, correlationId);
-                response.Dispose();
-                throw new ModelProviderException(mapped);
+                logger.LogDebug(
+                    "model call ok: role={Role} model={Model} status={Status} latency={Latency}ms cid={Cid}",
+                    role, options.Model, (int)response.StatusCode, stopwatch.ElapsedMilliseconds, correlationId);
+                return response;
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw; // genuine caller cancellation — never swallow or remap
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
-            {
-                // Connection failure or per-request timeout (TaskCanceledException with ct NOT set).
-                if (attempt < maxAttempts)
-                {
-                    logger.LogWarning(
-                        "model call error: role={Role} model={Model} attempt={Attempt}/{Max} retryIn={Wait}ms cid={Cid} err={Err}",
-                        role, options.Model, attempt, maxAttempts, backoff.TotalMilliseconds, correlationId, ex.GetType().Name);
-                    await Task.Delay(backoff, ct);
-                    backoff = DoubleCapped(backoff);
-                    continue;
-                }
 
-                var timedOut = ex is TaskCanceledException or OperationCanceledException;
-                logger.LogWarning(
-                    "model call gave up: role={Role} model={Model} attempts={Attempts} latency={Latency}ms cid={Cid} err={Err}",
-                    role, options.Model, attempt, stopwatch.ElapsedMilliseconds, correlationId, ex.GetType().Name);
-                throw new ModelProviderException(
-                    timedOut
-                        ? $"The {role} model at {options.BaseUrl} (model '{options.Model}') timed out after {options.TimeoutSeconds}s."
-                        : $"Couldn't reach the {role} model at {options.BaseUrl} (model '{options.Model}'). Is the server running and the model pulled/loaded?",
-                    ex);
-            }
+            var mapped = await MapErrorAsync(response, options, ct);
+            logger.LogWarning(
+                "model call failed: role={Role} model={Model} status={Status} latency={Latency}ms cid={Cid}",
+                role, options.Model, (int)response.StatusCode, stopwatch.ElapsedMilliseconds, correlationId);
+            response.Dispose();
+            throw new ModelProviderException(mapped);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // genuine caller cancellation — never swallow or remap
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            var timedOut = ex is TaskCanceledException or OperationCanceledException;
+            logger.LogWarning(
+                "model call error: role={Role} model={Model} latency={Latency}ms cid={Cid} err={Err}",
+                role, options.Model, stopwatch.ElapsedMilliseconds, correlationId, ex.GetType().Name);
+            throw new ModelProviderException(
+                timedOut
+                    ? $"The {role} model at {options.BaseUrl} (model '{options.Model}') timed out after {options.TimeoutSeconds}s."
+                    : $"Couldn't reach the {role} model at {options.BaseUrl} (model '{options.Model}'). Is the server running and the model pulled/loaded?",
+                ex);
         }
     }
 
@@ -128,33 +98,6 @@ internal static class ProviderHttp
     }
 
     public static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
-
-    private static bool IsTransient(HttpStatusCode status) =>
-        status == HttpStatusCode.TooManyRequests           // 429
-        || status == HttpStatusCode.InternalServerError    // 500
-        || status == HttpStatusCode.BadGateway             // 502
-        || status == HttpStatusCode.ServiceUnavailable     // 503
-        || status == HttpStatusCode.GatewayTimeout         // 504
-        || status == HttpStatusCode.RequestTimeout;        // 408
-
-    private static TimeSpan? RetryAfter(HttpResponseMessage response)
-    {
-        var ra = response.Headers.RetryAfter;
-        if (ra?.Delta is { } delta) return delta;
-        if (ra?.Date is { } date)
-        {
-            var wait = date - DateTimeOffset.UtcNow;
-            if (wait > TimeSpan.Zero) return wait;
-        }
-        return null;
-    }
-
-    private static TimeSpan DoubleCapped(TimeSpan current)
-    {
-        var doubled = TimeSpan.FromMilliseconds(current.TotalMilliseconds * 2);
-        var cap = TimeSpan.FromSeconds(10);
-        return doubled > cap ? cap : doubled;
-    }
 
     /// <summary>Maps a non-transient failure status to a specific, actionable message (body snippet included, capped).</summary>
     private static async Task<string> MapErrorAsync(HttpResponseMessage response, EndpointOptions options, CancellationToken ct)

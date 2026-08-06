@@ -104,4 +104,31 @@ public class LlmMemoryExtractorTests
 
         Assert.Empty(await extractor.ExtractAsync("u", new[] { msg }));
     }
+
+    [Fact]
+    public async Task UnverifiableExcerpt_IsRejected_NoFabricatedEvidence()
+    {
+        // The excerpt does not occur in any user message → the candidate must be dropped, and no
+        // evidence is manufactured by falling back to the latest message (H5).
+        var msg = UserMsg("I switched from the Raspberry Pi to a Jetson Nano.");
+        var json = """
+        [
+          {"kind":"semantic","content":"The user secretly loves pineapple pizza.",
+           "excerpt":"pineapple pizza is the best"}
+        ]
+        """;
+        var extractor = new LlmMemoryExtractor(new CannedChatModel(json), NullLogger<LlmMemoryExtractor>.Instance);
+
+        Assert.Empty(await extractor.ExtractAsync("u", new[] { msg }));
+    }
+
+    [Fact]
+    public async Task MissingExcerpt_IsRejected()
+    {
+        var msg = UserMsg("I use a Jetson Nano.");
+        var json = """[{"kind":"semantic","content":"The user uses a Jetson Nano."}]"""; // no excerpt at all
+        var extractor = new LlmMemoryExtractor(new CannedChatModel(json), NullLogger<LlmMemoryExtractor>.Instance);
+
+        Assert.Empty(await extractor.ExtractAsync("u", new[] { msg }));
+    }
 }

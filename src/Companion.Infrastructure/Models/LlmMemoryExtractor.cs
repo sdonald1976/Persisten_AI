@@ -63,9 +63,16 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
             if (string.IsNullOrWhiteSpace(dto.Content) || dto.Content.Length > MaxFieldChars)
                 continue;
 
+            // Provenance must be verifiable: the cited excerpt has to actually appear in one of the
+            // user's messages. If it can't be verified we REJECT the candidate (log why) rather
+            // than manufacturing evidence — memory only exists when it is genuinely supported.
             var evidence = ResolveEvidence(dto.Excerpt, userMessages);
             if (evidence.Count == 0)
-                continue; // no traceable source → drop; the pipeline would reject it anyway
+            {
+                _logger.LogWarning(
+                    "Rejected an extracted candidate: its excerpt could not be verified against any user message.");
+                continue;
+            }
 
             candidates.Add(new MemoryCandidate
             {
@@ -93,19 +100,20 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
     private static string? Cap(string? value)
         => value is null ? null : value.Length <= MaxFieldChars ? value : value[..MaxFieldChars];
 
+    /// <summary>
+    /// Verifies the model-supplied excerpt against the real user messages. Returns evidence only
+    /// when the excerpt actually occurs in one of them; otherwise returns empty (no fabrication).
+    /// </summary>
     private static List<CandidateEvidence> ResolveEvidence(string? excerpt, List<Message> userMessages)
     {
-        if (!string.IsNullOrWhiteSpace(excerpt))
-        {
-            var match = userMessages.FirstOrDefault(m =>
-                m.Content.Contains(excerpt, StringComparison.OrdinalIgnoreCase));
-            if (match is not null)
-                return new List<CandidateEvidence> { new(match.Id, excerpt.Trim()) };
-        }
+        if (string.IsNullOrWhiteSpace(excerpt))
+            return new List<CandidateEvidence>();
 
-        // Fall back to citing the most recent user message so provenance is never lost.
-        var last = userMessages[^1];
-        return new List<CandidateEvidence> { new(last.Id, last.Content) };
+        var match = userMessages.FirstOrDefault(m =>
+            m.Content.Contains(excerpt, StringComparison.OrdinalIgnoreCase));
+        return match is null
+            ? new List<CandidateEvidence>()
+            : new List<CandidateEvidence> { new(match.Id, excerpt.Trim()) };
     }
 
     /// <summary>

@@ -10,6 +10,10 @@ obj/
 *.db-shm
 *.db-wal
 *.sqlite
+*.db.bak-*
+
+# Local API token (generated on first startup)
+.companion-api-token
 
 # IDE
 .vs/

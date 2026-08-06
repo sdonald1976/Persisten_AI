@@ -26,16 +26,29 @@ public class ProviderHardeningTests
         Dimensions = dims,
     };
 
+    // Build a client that runs the SAME Polly retry pipeline as production, over the stub handler,
+    // so retry/backoff behavior is exercised end-to-end (not bypassed).
+    private static HttpClient BuildClient(StubHttpMessageHandler stub, EndpointOptions opts)
+    {
+        var policy = ProviderHttpClients.RetryPolicy(opts, "test", NullLogger.Instance);
+        var handler = new Microsoft.Extensions.Http.PolicyHttpMessageHandler(policy) { InnerHandler = stub };
+        return new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://localhost:1234/v1/"),
+            Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds),
+        };
+    }
+
     private static OpenAiCompatibleChatModel Chat(StubHttpMessageHandler handler, EndpointOptions opts)
     {
-        var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:1234/v1/"), Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds) };
-        return new OpenAiCompatibleChatModel(opts, http, NullLogger<OpenAiCompatibleChatModel>.Instance);
+        var http = BuildClient(handler, opts);
+        return new OpenAiCompatibleChatModel(opts, () => http, NullLogger<OpenAiCompatibleChatModel>.Instance);
     }
 
     private static OpenAiCompatibleEmbeddingModel Embed(StubHttpMessageHandler handler, EndpointOptions opts)
     {
-        var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:1234/v1/"), Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds) };
-        return new OpenAiCompatibleEmbeddingModel(opts, http, NullLogger<OpenAiCompatibleEmbeddingModel>.Instance);
+        var http = BuildClient(handler, opts);
+        return new OpenAiCompatibleEmbeddingModel(opts, () => http, NullLogger<OpenAiCompatibleEmbeddingModel>.Instance);
     }
 
     [Fact]

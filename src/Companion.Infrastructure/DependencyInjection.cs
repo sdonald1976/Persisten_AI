@@ -47,16 +47,24 @@ public static class DependencyInjection
         ValidateModelOptions(modelOptions);
         services.AddSingleton(modelOptions); // so the CLI can see which optional models are configured
 
+        // Model HTTP access goes through Microsoft's IHttpClientFactory: one named client per role,
+        // per-role timeout/base-url, managed handler lifetime, and a Polly transient-retry policy.
+        services.AddModelHttpClients(modelOptions);
+
         // Optional multimodal models — registered only when configured.
         if (modelOptions.UsesRealModel && modelOptions.Vision is { } visionEndpoint)
         {
-            services.AddSingleton<IVisionModel>(sp =>
-                new OpenAiCompatibleVisionModel(visionEndpoint, sp.GetRequiredService<ILogger<OpenAiCompatibleVisionModel>>()));
+            services.AddSingleton<IVisionModel>(sp => new OpenAiCompatibleVisionModel(
+                visionEndpoint, sp.GetRequiredService<IHttpClientFactory>(),
+                ProviderHttpClients.Name(ProviderHttpClients.Vision),
+                sp.GetRequiredService<ILogger<OpenAiCompatibleVisionModel>>()));
         }
         if (modelOptions.UsesRealModel && modelOptions.Transcription is { } transcriptionEndpoint)
         {
-            services.AddSingleton<ITranscriber>(sp =>
-                new OpenAiCompatibleTranscriber(transcriptionEndpoint, sp.GetRequiredService<ILogger<OpenAiCompatibleTranscriber>>()));
+            services.AddSingleton<ITranscriber>(sp => new OpenAiCompatibleTranscriber(
+                transcriptionEndpoint, sp.GetRequiredService<IHttpClientFactory>(),
+                ProviderHttpClients.Name(ProviderHttpClients.Transcription),
+                sp.GetRequiredService<ILogger<OpenAiCompatibleTranscriber>>()));
         }
 
         if (modelOptions.UsesRealModel)
@@ -64,18 +72,22 @@ public static class DependencyInjection
             // A separate chat model per job (keyed), so you can run a big conversational model,
             // a small structured-output-friendly extraction model, and a cheap/fast summarizer.
             // Extraction/summarizer fall back to the conversational endpoint when not configured.
-            OpenAiCompatibleChatModel BuildChat(IServiceProvider sp, EndpointOptions ep) =>
-                new(ep, sp.GetRequiredService<ILogger<OpenAiCompatibleChatModel>>());
+            OpenAiCompatibleChatModel BuildChat(IServiceProvider sp, EndpointOptions ep, string role) =>
+                new(ep, sp.GetRequiredService<IHttpClientFactory>(), ProviderHttpClients.Name(role),
+                    sp.GetRequiredService<ILogger<OpenAiCompatibleChatModel>>());
 
-            services.AddKeyedSingleton<IChatModel>(ChatRoles.Conversation, (sp, _) => BuildChat(sp, modelOptions.Chat));
-            services.AddKeyedSingleton<IChatModel>(ChatRoles.Extraction, (sp, _) => BuildChat(sp, modelOptions.ExtractionOrChat));
-            services.AddKeyedSingleton<IChatModel>(ChatRoles.Summarizer, (sp, _) => BuildChat(sp, modelOptions.SummarizerOrChat));
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.Conversation, (sp, _) => BuildChat(sp, modelOptions.Chat, ProviderHttpClients.Conversation));
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.Extraction, (sp, _) => BuildChat(sp, modelOptions.ExtractionOrChat, ProviderHttpClients.Extraction));
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.Summarizer, (sp, _) => BuildChat(sp, modelOptions.SummarizerOrChat, ProviderHttpClients.Summarizer));
 
             // The default IChatModel (the assistant's reply) is the conversational one.
             services.AddSingleton<IChatModel>(sp => sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation));
 
             services.AddSingleton<IEmbeddingModel>(sp =>
-                new OpenAiCompatibleEmbeddingModel(modelOptions.Embeddings, sp.GetRequiredService<ILogger<OpenAiCompatibleEmbeddingModel>>()));
+                new OpenAiCompatibleEmbeddingModel(
+                    modelOptions.Embeddings, sp.GetRequiredService<IHttpClientFactory>(),
+                    ProviderHttpClients.Name(ProviderHttpClients.Embeddings),
+                    sp.GetRequiredService<ILogger<OpenAiCompatibleEmbeddingModel>>()));
 
             services.AddSingleton<ISummarizer>(sp =>
                 new LlmSummarizer(sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Summarizer)));
@@ -124,8 +136,18 @@ public static class DependencyInjection
     /// that will actually be called needs a non-empty model name. Prevents opaque 400/404s at the
     /// first turn and a silent "works on mock, breaks on real" gap.
     /// </summary>
+    /// <summary>The provider values the app understands. Anything else is a configuration error.</summary>
+    private static readonly HashSet<string> SupportedProviders =
+        new(StringComparer.OrdinalIgnoreCase) { "Mock", "OpenAiCompatible", "Ollama", "LMStudio" };
+
     private static void ValidateModelOptions(ModelOptions options)
     {
+        // Never silently treat an unknown provider as "real". Fail fast with the allowed set.
+        if (string.IsNullOrWhiteSpace(options.Provider) || !SupportedProviders.Contains(options.Provider))
+            throw new InvalidOperationException(
+                $"Unknown Models.Provider '{options.Provider}'. Supported values: " +
+                $"{string.Join(", ", SupportedProviders.OrderBy(p => p))}.");
+
         if (!options.UsesRealModel)
             return;
 
@@ -165,11 +187,46 @@ public static class DependencyInjection
         {
             throw new InvalidOperationException(
                 "The local database predates schema migrations and can't be upgraded in place. " +
-                "Delete the database file (e.g. companion.db) and run again — it will be recreated, " +
-                "then reload demo data with the 'seed' command.");
+                "Export it first (the 'export' command), then delete the database file and re-run — " +
+                "it will be recreated, after which you can 'import' the snapshot.");
         }
 
-        await db.Database.MigrateAsync(ct);
+        // Safe upgrade path: back up the existing database before applying any pending migration,
+        // and restore it if the migration fails, so a schema change can never lose memories.
+        var pending = (await db.Database.GetPendingMigrationsAsync(ct)).ToList();
+        var dbPath = db.Database.GetDbConnection().DataSource;
+        string? backup = null;
+        if (pending.Count > 0 && !string.IsNullOrWhiteSpace(dbPath) && File.Exists(dbPath))
+        {
+            backup = DatabaseMaintenance.Backup(dbPath, DateTimeOffset.UtcNow);
+            if (backup is not null)
+            {
+                var log = scope.ServiceProvider.GetService<ILoggerFactory>()?.CreateLogger("Companion.Migrations");
+                log?.LogInformation("Backed up the database to {Backup} before applying {Count} migration(s).", backup, pending.Count);
+            }
+        }
+
+        try
+        {
+            await db.Database.MigrateAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            // Restore the pre-migration backup so the user keeps their data, then surface a clear error.
+            if (backup is not null && File.Exists(backup))
+            {
+                try
+                {
+                    await db.Database.GetDbConnection().CloseAsync();
+                    File.Copy(backup, dbPath!, overwrite: true);
+                }
+                catch { /* best effort — the backup file still exists for manual recovery */ }
+                throw new InvalidOperationException(
+                    $"Migration failed and the database was restored from the pre-migration backup at '{backup}'. " +
+                    "No data was lost. See the inner exception for details.", ex);
+            }
+            throw;
+        }
     }
 
     private static async Task<bool> IsLegacyPreMigrationDatabaseAsync(CompanionDbContext db, CancellationToken ct)
