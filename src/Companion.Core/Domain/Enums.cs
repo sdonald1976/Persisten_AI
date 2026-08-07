@@ -83,8 +83,11 @@ public enum IntentKind
     /// <summary>"Consolidate your memories."</summary>
     Consolidate,
 
-    /// <summary>"Set your persona to …" (replace the style/persona).</summary>
+    /// <summary>"Set your persona to …" (replace the free-text style/persona).</summary>
     SetPersona,
+
+    /// <summary>"Switch to the witty personality" / "what personalities are there?" (choose a preset).</summary>
+    SetPersonality,
 
     /// <summary>"Be more concise / talk like …" (append a style directive).</summary>
     AdjustStyle,

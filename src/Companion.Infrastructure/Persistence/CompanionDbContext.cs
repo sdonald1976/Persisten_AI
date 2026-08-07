@@ -42,6 +42,7 @@ public sealed class CompanionDbContext : DbContext
         {
             e.HasKey(x => x.UserId);
             e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.PersonalityPreset).HasMaxLength(40);
         });
 
         b.Entity<FeedbackRecord>(e =>

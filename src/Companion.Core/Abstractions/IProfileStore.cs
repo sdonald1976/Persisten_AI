@@ -7,4 +7,7 @@ public interface IProfileStore
 {
     Task<UserProfile> GetOrCreateAsync(string userId, CancellationToken ct = default);
     Task SetPersonaAsync(string userId, string? persona, CancellationToken ct = default);
+
+    /// <summary>Set the chosen personality preset key (null clears it → configured default).</summary>
+    Task SetPersonalityPresetAsync(string userId, string? presetName, CancellationToken ct = default);
 }

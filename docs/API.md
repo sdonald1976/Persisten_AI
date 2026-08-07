@@ -74,8 +74,10 @@ All endpoints require the API token (see Security). Bodies/queries never carry a
 | `GET`  | `/projects` | — | `[{ name, status, purpose }]` |
 | `GET`  | `/projects/{name}` | — | reconstructed project summary |
 | `GET`  | `/loops` | — | `[{ id, description }]` |
-| `GET`  | `/persona` | — | `{ persona }` |
+| `GET`  | `/persona` | — | `{ persona }` — free-text style tweaks layered on the personality |
 | `PUT`  | `/persona` | `{ persona }` | `{ persona }` |
+| `GET`  | `/personality` | — | `{ active, presets[] }` — the active personality preset and the catalog to choose from |
+| `PUT`  | `/personality` | `{ preset }` | `{ active }` (400 on an unknown preset name) |
 | `POST` | `/feedback` | `{ conversationId, rating: "positive"\|"negative", note? }` | `AgentReply` |
 
 `AgentReply` shape:

@@ -309,6 +309,28 @@ app.MapPut("/persona", async (PersonaRequest req, IUserContext user, IProfileSto
     return Results.Ok(new { persona = req.Persona });
 });
 
+// The configurable personality: the active preset + the catalog to pick from, and a setter.
+app.MapGet("/personality", async (IUserContext user, IProfileStore store, IPersonalityService personality, CancellationToken ct) =>
+{
+    var profile = await store.GetOrCreateAsync(user.UserId, ct);
+    var active = personality.Active(profile);
+    return Results.Ok(new
+    {
+        active = new { active.Name, active.Label, active.Description },
+        presets = personality.Presets.Select(p => new { p.Name, p.Label, p.Description }),
+    });
+});
+
+app.MapPut("/personality", async (PersonalityRequest req, IUserContext user, IProfileStore store, IPersonalityService personality, CancellationToken ct) =>
+{
+    var preset = personality.Find(req.Preset);
+    if (preset is null)
+        return Results.BadRequest(new { error = "unknown_personality", message = $"No personality named '{req.Preset}'." });
+
+    await store.SetPersonalityPresetAsync(user.UserId, preset.Name, ct);
+    return Results.Ok(new { active = new { preset.Name, preset.Label, preset.Description } });
+});
+
 // Thumbs up/down for a rich UI. Routed through the brain so it uses the exact same last-exchange
 // reconstruction as saying "that was great" out loud.
 app.MapPost("/feedback", async (FeedbackRequest req, IUserContext user, IConversationStore conversations, IAgent agent, CancellationToken ct) =>

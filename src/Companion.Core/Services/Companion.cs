@@ -25,6 +25,7 @@ public sealed class Companion : ICompanion
     private readonly IRetriever _retriever;
     private readonly IContextAssembler _assembler;
     private readonly IReplyGenerator _replyGenerator;
+    private readonly IPersonalityService _personality;
     private readonly IMemoryPipeline _pipeline;
     private readonly IProjectUpdater _projectUpdater;
     private readonly CompanionOptions _options;
@@ -39,6 +40,7 @@ public sealed class Companion : ICompanion
         IRetriever retriever,
         IContextAssembler assembler,
         IReplyGenerator replyGenerator,
+        IPersonalityService personality,
         IMemoryPipeline pipeline,
         IProjectUpdater projectUpdater,
         IOptions<CompanionOptions> options,
@@ -52,6 +54,7 @@ public sealed class Companion : ICompanion
         _retriever = retriever;
         _assembler = assembler;
         _replyGenerator = replyGenerator;
+        _personality = personality;
         _pipeline = pipeline;
         _projectUpdater = projectUpdater;
         _options = options.Value;
@@ -203,7 +206,8 @@ public sealed class Companion : ICompanion
 
         // 5. Assemble a bounded, labeled context packet (with the user's persona/style).
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
-        var packet = _assembler.Assemble(promptText, recent, outcome.Selected, projectContext, profile.Persona);
+        var persona = _personality.Compose(profile);
+        var packet = _assembler.Assemble(promptText, recent, outcome.Selected, projectContext, persona);
 
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME

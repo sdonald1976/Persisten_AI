@@ -23,6 +23,7 @@ public sealed class Agent : IAgent
     private readonly IProjectStore _projects;
     private readonly IMemoryConsolidator _consolidator;
     private readonly IGreeter _greeter;
+    private readonly IPersonalityService _personality;
     private readonly TimeProvider _clock;
 
     public Agent(
@@ -36,6 +37,7 @@ public sealed class Agent : IAgent
         IProjectStore projects,
         IMemoryConsolidator consolidator,
         IGreeter greeter,
+        IPersonalityService personality,
         TimeProvider clock)
     {
         _intents = intents;
@@ -48,6 +50,7 @@ public sealed class Agent : IAgent
         _projects = projects;
         _consolidator = consolidator;
         _greeter = greeter;
+        _personality = personality;
         _clock = clock;
     }
 
@@ -69,6 +72,7 @@ public sealed class Agent : IAgent
             IntentKind.ListOpenLoops => await ListOpenLoopsAsync(userId, ct),
             IntentKind.Consolidate => await ConsolidateAsync(userId, ct),
             IntentKind.SetPersona => await SetPersonaAsync(userId, intent.Argument, ct),
+            IntentKind.SetPersonality => await SetPersonalityAsync(userId, intent.Argument, ct),
             IntentKind.AdjustStyle => await AdjustStyleAsync(userId, intent.Argument, ct),
             IntentKind.FeedbackPositive => await FeedbackAsync(userId, conversationId, FeedbackRating.Positive, intent.Argument, ct),
             IntentKind.FeedbackNegative => await FeedbackAsync(userId, conversationId, FeedbackRating.Negative, intent.Argument, ct),
@@ -230,6 +234,28 @@ public sealed class Agent : IAgent
         await _profiles.SetPersonaAsync(userId, persona, ct);
         return AgentReply.Act(IntentKind.SetPersona, "Persona updated.");
     }
+
+    private async Task<AgentReply> SetPersonalityAsync(string userId, string? name, CancellationToken ct)
+    {
+        // No specific choice → show the menu.
+        if (string.IsNullOrWhiteSpace(name))
+            return AgentReply.Act(IntentKind.SetPersonality, PersonalityMenu());
+
+        var preset = _personality.Find(name);
+        if (preset is null)
+            return AgentReply.Act(IntentKind.SetPersonality,
+                $"I don't have a \"{name}\" personality. {PersonalityMenu()}");
+
+        await _profiles.SetPersonalityPresetAsync(userId, preset.Name, ct);
+        return AgentReply.Act(IntentKind.SetPersonality,
+            $"Done — I'll be {preset.Label.ToLowerInvariant()} from now on ({preset.Description}). " +
+            "You can still fine-tune it any time (\"be more concise\").");
+    }
+
+    private string PersonalityMenu()
+        => "I can be " +
+           string.Join(", ", _personality.Presets.Select(p => $"{p.Name} ({p.Description})")) +
+           ". Which would you like? (Say, e.g., \"switch to the witty personality\".)";
 
     private async Task<AgentReply> AdjustStyleAsync(string userId, string? directive, CancellationToken ct)
     {

@@ -35,4 +35,12 @@ public sealed class ProfileStore : IProfileStore
         _db.Users.Update(profile);
         await _db.SaveChangesAsync(ct);
     }
+
+    public async Task SetPersonalityPresetAsync(string userId, string? presetName, CancellationToken ct = default)
+    {
+        var profile = await GetOrCreateAsync(userId, ct);
+        profile.PersonalityPreset = presetName;
+        _db.Users.Update(profile);
+        await _db.SaveChangesAsync(ct);
+    }
 }

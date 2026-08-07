@@ -16,6 +16,8 @@ public sealed record StartConversationRequest(string? Title, string? Source);
 
 public sealed record PersonaRequest(string? Persona);
 
+public sealed record PersonalityRequest(string? Preset);
+
 public sealed record FeedbackRequest(string ConversationId, string Rating, string? Note);
 
 // ---- responses ----
