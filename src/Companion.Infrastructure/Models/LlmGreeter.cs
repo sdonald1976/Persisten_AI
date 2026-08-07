@@ -1,0 +1,71 @@
+using Companion.Core.Abstractions;
+using Companion.Core.Domain;
+using Microsoft.Extensions.Logging;
+
+namespace Companion.Infrastructure.Models;
+
+/// <summary>
+/// Writes the session opener with the language model instead of a fixed template, so the greeting
+/// is natural and varied rather than the same sentence every time. It stays grounded and safe by
+/// building on the deterministic <see cref="Companion.Core.Services.Greeter"/>: that supplies the
+/// real remembered threads (open loops, recent projects) and the offline fallback message. The
+/// model is only asked to phrase the welcome around those real threads — it never invents them — and
+/// any failure or empty reply falls straight back to the deterministic opener.
+/// </summary>
+public sealed class LlmGreeter : IGreeter
+{
+    private const int MaxGreetingChars = 1200;
+
+    private const string SystemPrompt =
+        "You are a persistent AI companion. At the start of a session you speak first — a brief, " +
+        "warm, natural greeting (one to three sentences) so the user never faces a blank prompt. " +
+        "Vary your wording between sessions. Only reference threads you are actually given; never " +
+        "invent things you remember. Do not output a bulleted list, headings, or your notes — just " +
+        "speak to the user directly.";
+
+    private readonly IGreeter _fallback;
+    private readonly IChatModel _chat;
+    private readonly ILogger<LlmGreeter> _logger;
+
+    public LlmGreeter(IGreeter fallback, IChatModel chat, ILogger<LlmGreeter> logger)
+    {
+        _fallback = fallback;
+        _chat = chat;
+        _logger = logger;
+    }
+
+    public async Task<Greeting> GreetAsync(string userId, CancellationToken ct = default)
+    {
+        // The deterministic greeter is both the grounding (real threads → openers) and the safety net.
+        var grounded = await _fallback.GreetAsync(userId, ct);
+
+        try
+        {
+            var reply = await _chat.CompleteAsync(SystemPrompt, BuildPrompt(grounded.Openers), jsonMode: false, ct: ct);
+            var message = reply.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(message))
+                return grounded;
+
+            if (message.Length > MaxGreetingChars)
+                message = message[..MaxGreetingChars].TrimEnd();
+
+            // Keep the real openers for the UI's quick-pick chips; only the phrasing is model-written.
+            return grounded with { Message = message };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "LLM greeting failed; using the deterministic opener.");
+            return grounded;
+        }
+    }
+
+    private static string BuildPrompt(IReadOnlyList<string> openers)
+        => openers.Count == 0
+            ? "You don't remember anything about this user yet — this may be your first conversation. " +
+              "Write a warm, brief opening greeting that invites them to talk about anything or to ask " +
+              "what you can do. Don't claim to remember anything."
+            : "Threads you actually remember with this user (reference one or two of them naturally, " +
+              "and make clear they can also just talk about anything else):\n" +
+              string.Join("\n", openers.Select(o => "- " + o)) +
+              "\n\nWrite your opening greeting now.";
+}

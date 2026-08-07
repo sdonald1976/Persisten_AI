@@ -201,8 +201,10 @@ If the model server isn't running, a turn prints a clear `⚠` message instead o
 
 **You don't have to start — it does.** At the top of each session the companion greets you and
 offers a few concrete openers drawn from what it remembers (your open loops, recent projects), so
-there's never a blank prompt to fill. Pick one, type your own, or just say "hi" — a bare greeting
-gets the same memory-grounded welcome, not a canned reply.
+there's never a blank prompt to fill. With a real model the welcome is written by the model itself —
+natural and different each time, phrased around those real threads (never invented) — falling back
+to a deterministic opener offline. Pick one, type your own, or just say "hi" — a bare greeting gets
+the same memory-grounded welcome, not a canned reply.
 
 **You mostly just talk to it — no slash commands needed.** Plain language is understood as
 intent: "what do you remember about me?", "forget that", "that's wrong", "be more concise" /

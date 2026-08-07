@@ -141,8 +141,17 @@ public static class DependencyInjection
         services.AddScoped<IContextAssembler, ContextAssembler>();
         services.AddScoped<ICompanion, Core.Services.Companion>();
 
-        // Session openers so the user never faces a blank prompt (the companion initiates).
-        services.AddScoped<IGreeter, Greeter>();
+        // Session openers so the user never faces a blank prompt (the companion initiates). The
+        // deterministic Greeter supplies the real remembered threads and the offline fallback; when
+        // a real model is configured, LlmGreeter phrases the welcome naturally around those threads.
+        services.AddScoped<Greeter>();
+        if (modelOptions.UsesRealModel)
+            services.AddScoped<IGreeter>(sp => new LlmGreeter(
+                sp.GetRequiredService<Greeter>(),
+                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation),
+                sp.GetRequiredService<ILogger<LlmGreeter>>()));
+        else
+            services.AddScoped<IGreeter>(sp => sp.GetRequiredService<Greeter>());
 
         // The brain facade every face (CLI, HTTP, voice, avatar) drives the companion through.
         services.AddScoped<IAgent, Agent>();
