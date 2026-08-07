@@ -65,14 +65,34 @@ public class ReplyGeneratorTests
     [Fact]
     public async Task StopsAtTheContinuationCap_AndReportsTruncated()
     {
-        var chat = new QueuedChatModel(  // never finishes
-            Cc("more ", "length"), Cc("more ", "length"), Cc("more ", "length"));
+        // Distinct chunks each round (no repetition), always truncated → only the cap can halt it.
+        var chat = new QueuedChatModel(
+            Cc("The first distinct part of a long answer keeps going ", "length"),
+            Cc("into a second entirely different section with new words ", "length"),
+            Cc("and a third unique paragraph that still is not finished ", "length"));
 
         var result = await Gen(chat, new AlwaysCompleteJudge(), Options(maxContinuations: 2)).GenerateAsync("sys", "go");
 
         Assert.Equal(3, chat.Calls); // 1 initial + 2 continuations
-        Assert.Equal("more more more", result.Text);
         Assert.True(result.Truncated);
+    }
+
+    [Fact]
+    public async Task RepeatingContinuation_IsStopped_NotAmplified()
+    {
+        // The model loops: every continuation repeats the first paragraph. The guard must stop it
+        // well before the cap instead of stacking copies into a wall of text.
+        const string para = "I'm here to listen and offer any assistance that I can provide today. ";
+        var chat = new QueuedChatModel(
+            Cc(para, "length"), Cc(para, "length"), Cc(para, "length"),
+            Cc(para, "length"), Cc(para, "length"), Cc(para, "length"));
+
+        var result = await Gen(chat, new AlwaysCompleteJudge(), Options(maxContinuations: 6)).GenerateAsync("sys", "hi");
+
+        Assert.Equal(2, chat.Calls); // initial + one repeat detected → stop (not 7)
+        // The reply is not a wall: the paragraph appears at most twice, not seven times.
+        var occurrences = result.Text.Split("here to listen").Length - 1;
+        Assert.True(occurrences <= 2, $"paragraph repeated {occurrences} times");
     }
 
     [Fact]

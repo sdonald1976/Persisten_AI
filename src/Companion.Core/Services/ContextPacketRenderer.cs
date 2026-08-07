@@ -34,6 +34,9 @@ public static class ContextPacketRenderer
             "Draw on them naturally when they fit what the user is saying — but don't force unrelated ones " +
             "into the reply, don't merge separate items into a claim the user never made, and don't state a " +
             "preference or fact the user hasn't actually told you. When in doubt, just talk with the user.");
+        sb.AppendLine(
+            "These notes are for you only. Never repeat them back, never print their headings, and never list " +
+            "out what you remember unless the user asks — reply as the companion, in your own words, once.");
         sb.AppendLine();
 
         sb.AppendLine(

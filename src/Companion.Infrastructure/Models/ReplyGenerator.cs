@@ -45,6 +45,7 @@ public sealed class ReplyGenerator : IReplyGenerator
         for (; ; round++)
         {
             var prefix = round == 0 ? null : full.ToString();
+            var before = full.ToString();
 
             var result = sink is not null
                 ? await _chat.StreamAsync(systemPrompt, userMessage, sink, prefix, ct)
@@ -55,6 +56,15 @@ public sealed class ReplyGenerator : IReplyGenerator
             model ??= result.Model;
             promptTokens += result.PromptTokens ?? 0;
             completionTokens += result.CompletionTokens ?? 0;
+
+            // Hard stop: if a continuation just repeats what's already there, the model is looping —
+            // never keep going and amplify it into a wall of duplicated text.
+            if (round > 0 && TextRepetition.IsLargelyContained(result.Text, before))
+            {
+                _logger.LogWarning("Reply from {Model} began repeating on continuation (round {Round}); stopping.",
+                    _options.Model, round + 1);
+                break;
+            }
 
             if (!await ShouldContinueAsync(finishReason, full.ToString(), userMessage, round, ct))
                 break;

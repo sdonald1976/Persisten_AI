@@ -98,12 +98,15 @@ public sealed class EndpointOptions
 
     /// <summary>
     /// After a reply that stopped on its own (not cut off by the token limit), ask a small model
-    /// whether it actually finished the task — the only reliable way to catch a model that
-    /// self-truncates (writes a chunk of a story/plan and stops). Only consulted for replies at
-    /// least <see cref="CompletionCheckMinChars"/> long, so short chat turns pay nothing.
-    /// Requires <see cref="AutoContinue"/>. Applies to the conversational endpoint only.
+    /// whether it actually finished the task — the only signal that catches a model that
+    /// self-truncates (writes a chunk of a story/plan and stops). Off by default: it's only as good
+    /// as the small judge model, and an unreliable judge turns an already-finished reply into
+    /// runaway continuation. Turn it on once your judge model is trusted (watch the logs). The
+    /// safe, transport-level continuation (<c>finish_reason: "length"</c>) does not depend on this.
+    /// Only consulted for replies at least <see cref="CompletionCheckMinChars"/> long; requires
+    /// <see cref="AutoContinue"/>; applies to the conversational endpoint only.
     /// </summary>
-    public bool CompletionCheck { get; set; } = true;
+    public bool CompletionCheck { get; set; }
 
     /// <summary>
     /// Minimum reply length (characters) before the semantic completion check runs. Short answers
