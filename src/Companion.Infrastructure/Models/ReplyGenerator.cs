@@ -98,7 +98,8 @@ public sealed class ReplyGenerator : IReplyGenerator
             return false;
         }
 
-        // 1. Transport truth: the server cut the reply off mid-answer.
+        // 1. Transport truth: the server genuinely cut the reply off mid-token. Always finish it —
+        //    this is never the runaway case (that was self-stop + an over-eager judge).
         if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogDebug("Reply from {Model} was cut off (finish_reason=length); continuing (round {Round}).",
@@ -106,14 +107,28 @@ public sealed class ReplyGenerator : IReplyGenerator
             return true;
         }
 
-        // 2. Natural stop: only spend a judge call when there's enough output that a self-truncated
-        //    task is plausible — short chat replies are self-evidently complete.
+        // The reply stopped on its own. Only *deliverable* requests are ever chased to completion —
+        // ordinary conversation is done whenever the model decided it was, so it's never continued.
+        if (!CompletionSignals.IsDeliverableRequest(userMessage))
+            return false;
+
+        // 2. Deterministic structural check: a deliverable that visibly stops mid-sentence, with an
+        //    open code fence, a dangling colon, or a "want me to continue?" — continue, no model call.
+        if (CompletionSignals.LooksUnfinished(replySoFar))
+        {
+            _logger.LogDebug("Deliverable reply from {Model} looks structurally unfinished; continuing (round {Round}).",
+                _options.Model, round + 1);
+            return true;
+        }
+
+        // 3. Last resort: the deliverable looks complete but might be a grammatical self-truncation.
+        //    Only here, and only when explicitly enabled, do we spend the (fallible) semantic judge.
         if (!_options.CompletionCheck || replySoFar.Length < _options.CompletionCheckMinChars)
             return false;
 
         var complete = await _judge.IsCompleteAsync(userMessage, replySoFar, ct);
         if (!complete)
-            _logger.LogDebug("Completion judge says the reply to {Model} is unfinished; continuing (round {Round}).",
+            _logger.LogDebug("Completion judge says the deliverable reply to {Model} is unfinished; continuing (round {Round}).",
                 _options.Model, round + 1);
         return !complete;
     }

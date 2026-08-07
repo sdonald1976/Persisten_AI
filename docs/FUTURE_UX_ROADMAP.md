@@ -69,20 +69,25 @@ phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity
 
 ## Long tasks: finish in-turn now, background jobs later
 
-- **Now (built):** an `IReplyGenerator` owns "when to keep going". The reliable, default-on signal
-  is the transport truth — `finish_reason: "length"` means the server cut the reply off mid-answer,
-  so continue; each continuation feeds the text so far back so the model resumes the **same** task
-  instead of starting over, and it streams to the CLI/web client. A **repetition guard** stops the
-  moment a continuation just repeats text already written, so a looping model can never be amplified
-  into a wall of duplicate text (bounded anyway by `MaxContinuations`).
-- **Opt-in — semantic completion check (`CompletionCheck`, off by default):** small
-  local/abliterated models often *self-truncate* (write a chunk and stop with a normal `"stop"`),
-  which `finish_reason` can't catch, so a cheap model can be asked "is this finished, or cut off?"
-  and continue on CONTINUE. It's only as good as that judge model — an unreliable one turns a
-  finished reply into runaway continuation — so it's off until yours is trusted (watch the logs);
-  it fails closed on any doubt. Every reply is stored with its generation metadata (`finish_reason`,
-  rounds, truncated, model, token usage) so "why did it stop" is answerable, and `LogPayloads` logs
-  the exact prompt+reply for debugging.
+- **Now (built):** an `IReplyGenerator` owns "when to keep going" using **deterministic, topic-free
+  signals** — no list of topics like "stories", because the signal isn't the subject:
+  1. `finish_reason: "length"` — the server truly cut the reply off mid-token → always continue.
+  2. **Deliverable request?** (`CompletionSignals.IsDeliverableRequest`) — did the user ask for a
+     *produced artifact* ("write…", "draft…", "list…", "explain in detail", "continue")? A property
+     of the request, not the topic. Ordinary conversation is never auto-continued (this is what
+     killed the runaway on a plain "how are you").
+  3. **Structural incompleteness** (`CompletionSignals.LooksUnfinished`) — a deliverable reply that
+     stops mid-sentence, leaves a code fence open, dangles a colon, or ends "…want me to continue?".
+  A deliverable request that produced an unfinished-looking reply is continued with **no model
+  call**. Each continuation feeds the text so far back so the model resumes the **same** task, it
+  streams across rounds, and a **repetition guard** stops the instant a continuation repeats what's
+  already written (bounded anyway by `MaxContinuations`).
+- **Opt-in last resort — semantic completion check (`CompletionCheck`, off by default):** only for a
+  deliverable reply that looks structurally complete but might be a grammatical self-truncation, a
+  cheap model can be asked "finished, or cut off?". It's only as good as that judge model, so it's
+  off until yours is trusted (watch the logs) and it fails closed. Every reply is stored with its
+  generation metadata (`finish_reason`, rounds, truncated, model, token usage) so "why did it stop"
+  is answerable, and `LogPayloads` logs the exact prompt+reply for debugging.
 - **Later (if in-turn ever isn't enough):** a small **background job runner** — "work on X and
   tell me when it's done": queue a task, run the same auto-continuing generation off-turn,
   persist progress + result, and surface completion as a WebSocket frame / next-session opener
