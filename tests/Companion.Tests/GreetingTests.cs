@@ -1,9 +1,11 @@
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Companion.Core.Services;
+using Companion.Infrastructure.Models;
 using Companion.Infrastructure.Seeding;
 using Companion.Tests.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Companion.Tests;
@@ -80,5 +82,47 @@ public class GreetingTests
         Assert.Equal(AgentReplyKind.Action, reply.Kind);
         Assert.Equal(IntentKind.Greeting, reply.Intent);
         Assert.Contains("where we left things", reply.Text);
+    }
+
+    // ---- LLM-written greeting (real-model configuration) ----
+
+    private sealed class StubGreeter : IGreeter
+    {
+        private readonly Greeting _greeting;
+        public StubGreeter(Greeting greeting) => _greeting = greeting;
+        public Task<Greeting> GreetAsync(string userId, CancellationToken ct = default) => Task.FromResult(_greeting);
+    }
+
+    private static readonly Greeting Grounded = new()
+    {
+        Message = "FALLBACK MESSAGE",
+        Openers = new[] { "Pick up where we left off — the buoy sensor board?", "How's the Jetson going?" },
+    };
+
+    [Fact]
+    public async Task LlmGreeter_UsesTheModelsWording_ButKeepsTheRealOpeners()
+    {
+        var greeter = new LlmGreeter(
+            new StubGreeter(Grounded),
+            new CannedChatModel("Hey, good to see you back! Want to pick up the buoy board, or just chat?"),
+            NullLogger<LlmGreeter>.Instance);
+
+        var greeting = await greeter.GreetAsync(User);
+
+        Assert.StartsWith("Hey, good to see you back!", greeting.Message); // model-written, not the template
+        Assert.Equal(Grounded.Openers, greeting.Openers);                  // real threads preserved for the UI chips
+    }
+
+    [Fact]
+    public async Task LlmGreeter_FallsBackToDeterministic_WhenTheModelReturnsNothing()
+    {
+        var greeter = new LlmGreeter(
+            new StubGreeter(Grounded),
+            new CannedChatModel("   "), // empty/whitespace reply
+            NullLogger<LlmGreeter>.Instance);
+
+        var greeting = await greeter.GreetAsync(User);
+
+        Assert.Equal("FALLBACK MESSAGE", greeting.Message);
     }
 }
