@@ -18,6 +18,8 @@ public static class DependencyInjection
         this IServiceCollection services, IConfiguration configuration, string sqliteConnectionString)
     {
         services.Configure<CompanionOptions>(configuration.GetSection(CompanionOptions.SectionName));
+        services.Configure<PersonalityOptions>(configuration.GetSection(PersonalityOptions.SectionName));
+        services.AddSingleton<IPersonalityService, PersonalityService>();
 
         services.AddSingleton(TimeProvider.System);
 

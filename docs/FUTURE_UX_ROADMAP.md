@@ -61,9 +61,12 @@ phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity
 
 ## Style: editable now, trainable later
 
-- **Now (built):** an editable **persona** prepended to the system prompt, adjustable by
-  talking ("be more concise", "talk like a pirate"). Reply **feedback** ("that was great/bad")
-  is captured as training signal.
+- **Now (built):** a configurable **personality**. Named presets — `warm`, `witty`, `direct`,
+  `playful`, `sage` (`PersonalityCatalog`) — give the companion an actual voice instead of the flat
+  default of a dry/abliterated model; the active one is set in config (`Personality:Default`),
+  switched by talking ("switch to the witty personality") or over the API (`GET`/`PUT /personality`).
+  On top of the preset, an editable free-text **persona** layers tweaks ("be more concise", "talk
+  like a pirate"). Reply **feedback** ("that was great/bad") is captured as training signal.
 - **Later:** feedback → **DPO** shapes a style LoRA (see `training/`). Facts always stay in the
   forgettable memory layer, never baked into weights.
 

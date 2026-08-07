@@ -9,7 +9,13 @@ public class UserProfile
     public string UserId { get; set; } = default!;
     public string? DisplayName { get; set; }
 
-    /// <summary>Editable persona/style instructions prepended to the companion's system prompt.</summary>
+    /// <summary>
+    /// Chosen personality preset key ("warm", "witty", …). Null = use the configured default.
+    /// The preset is the base voice; <see cref="Persona"/> layers free-text tweaks on top of it.
+    /// </summary>
+    public string? PersonalityPreset { get; set; }
+
+    /// <summary>Editable free-text style tweaks, layered on top of the active personality preset.</summary>
     public string? Persona { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }

@@ -37,7 +37,8 @@ public sealed class RuleBasedIntentParser : IIntentParser
         // Order matters: check specific, side-effecting phrasings before general chat.
         // Privacy runs before Forget so "forget this conversation" is a privacy toggle, not a
         // memory deletion.
-        return TryPersona(text)
+        return TryPersonality(text)
+            ?? TryPersona(text)
             ?? TryStyle(text)
             ?? TryFeedback(text)
             ?? TryPrivacy(text)
@@ -67,6 +68,31 @@ public sealed class RuleBasedIntentParser : IIntentParser
 
     private static Intent? TryPrivacy(string text)
         => PrivacyRx.IsMatch(text) ? new Intent { Kind = IntentKind.PrivacyDoNotRemember, Argument = Clean(text) } : null;
+
+    // "set/switch/use ... personality to X", "use the X personality", or a request to see the options.
+    private static readonly Regex PersonalitySetRx = new(
+        @"^(?:set|change|switch(?:\s+to)?|use|give\s+yourself|make\s+yourself)\s+(?:your\s+|the\s+)?personality\s*(?:to|as|:|=)?\s*(.+)$", Opts);
+    private static readonly Regex PersonalityUseRx = new(
+        @"^(?:use|switch\s+to|be|become)\s+(?:the\s+)?([a-z][\w &-]*?)\s+personality\b", Opts);
+    private static readonly Regex PersonalityAskRx = new(
+        @"(?:what|which|list|show|available).*\bpersonalit(?:y|ies)\b|\bpersonalit(?:y|ies)\b.*\b(?:options|available|choices|are there)\b", Opts);
+
+    private static Intent? TryPersonality(string text)
+    {
+        var set = PersonalitySetRx.Match(text);
+        if (set.Success)
+            return new Intent { Kind = IntentKind.SetPersonality, Argument = Clean(set.Groups[1].Value) };
+
+        var use = PersonalityUseRx.Match(text);
+        if (use.Success)
+            return new Intent { Kind = IntentKind.SetPersonality, Argument = Clean(use.Groups[1].Value) };
+
+        // A request to see the options (no specific choice) — Argument stays null.
+        if (PersonalityAskRx.IsMatch(text))
+            return new Intent { Kind = IntentKind.SetPersonality, Argument = null };
+
+        return null;
+    }
 
     private static readonly Regex PersonaRx =
         new(@"^(?:set\s+)?(?:your\s+)?persona\s*(?:to|as|:|is)?\s*(.+)$", Opts);
