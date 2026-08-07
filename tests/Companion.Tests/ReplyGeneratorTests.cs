@@ -125,14 +125,16 @@ public class ReplyGeneratorTests
     [Fact]
     public async Task NaturalStop_LongReply_JudgeSaysContinue_ThenComplete()
     {
+        // Both rounds END CLEANLY (terminal punctuation), so the structural check says "looks
+        // complete" and the decision falls through to the judge — which is what we're testing.
         var chat = new QueuedChatModel(
-            Cc("The story begins and runs for a while but is not done ", "stop"),
-            Cc("and now it is truly finished.", "stop"));
+            Cc("The story begins and runs for a while but is not done.", "stop"),
+            Cc(" And now it is truly finished.", "stop"));
         var judge = new ScriptedJudge(false, true); // not done, then done
 
         var result = await Gen(chat, judge, Options(minChars: 1)).GenerateAsync("sys", "write a story");
 
-        Assert.Equal("The story begins and runs for a while but is not done and now it is truly finished.", result.Text);
+        Assert.Equal("The story begins and runs for a while but is not done. And now it is truly finished.", result.Text);
         Assert.Equal(2, chat.Calls);
         Assert.Equal(2, judge.Calls);
     }
@@ -156,11 +158,46 @@ public class ReplyGeneratorTests
         var chat = new QueuedChatModel(Cc("A fairly long reply that stopped on its own here.", "stop"));
         var judge = new ScriptedJudge(false);
 
-        var result = await Gen(chat, judge, Options(completionCheck: false, minChars: 1)).GenerateAsync("sys", "go");
+        // Deliverable request + clean-looking reply, but the judge is disabled → no judge, stop.
+        var result = await Gen(chat, judge, Options(completionCheck: false, minChars: 1)).GenerateAsync("sys", "write a report");
 
         Assert.Equal(1, chat.Calls);
         Assert.Equal(0, judge.Calls);
         Assert.Equal("A fairly long reply that stopped on its own here.", result.Text);
+    }
+
+    // ---- deterministic gates: deliverable request + structural incompleteness ----
+
+    [Fact]
+    public async Task NaturalStop_NonDeliverableChat_IsNeverContinued_EvenIfJudgeWouldSayContinue()
+    {
+        // The runaway case: a greeting whose reply stopped naturally. Not a deliverable request, so
+        // the judge is never even consulted and it can't be continued.
+        var chat = new QueuedChatModel(
+            Cc("It's going well, thanks for asking — how are you doing today?", "stop"));
+        var judge = new ScriptedJudge(false); // would loop forever if consulted
+
+        var result = await Gen(chat, judge, Options(minChars: 1)).GenerateAsync("sys", "how are things treating you lately?");
+
+        Assert.Equal(1, chat.Calls);
+        Assert.Equal(0, judge.Calls);
+    }
+
+    [Fact]
+    public async Task NaturalStop_DeliverableThatStopsMidSentence_ContinuesWithoutTheJudge()
+    {
+        // Ends mid-sentence (no terminal punctuation) → the structural signal continues it, so the
+        // judge is never needed. Second round ends cleanly and stops.
+        var chat = new QueuedChatModel(
+            Cc("Chapter one began on a grey morning and the crew", "stop"),
+            Cc(" set out across the harbor at last.", "stop"));
+        var judge = new ScriptedJudge(); // must not be consulted
+
+        var result = await Gen(chat, judge, Options(completionCheck: false, minChars: 1)).GenerateAsync("sys", "write me a short story");
+
+        Assert.Equal(2, chat.Calls);
+        Assert.Equal(0, judge.Calls);
+        Assert.Equal("Chapter one began on a grey morning and the crew set out across the harbor at last.", result.Text);
     }
 
     // ---- streaming path ----
