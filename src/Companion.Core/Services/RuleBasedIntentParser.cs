@@ -37,7 +37,8 @@ public sealed class RuleBasedIntentParser : IIntentParser
         // Order matters: check specific, side-effecting phrasings before general chat.
         // Privacy runs before Forget so "forget this conversation" is a privacy toggle, not a
         // memory deletion.
-        return TryPersonality(text)
+        return TryIdentity(text)
+            ?? TryPersonality(text)
             ?? TryPersona(text)
             ?? TryStyle(text)
             ?? TryFeedback(text)
@@ -68,6 +69,16 @@ public sealed class RuleBasedIntentParser : IIntentParser
 
     private static Intent? TryPrivacy(string text)
         => PrivacyRx.IsMatch(text) ? new Intent { Kind = IntentKind.PrivacyDoNotRemember, Argument = Clean(text) } : null;
+
+    // The companion's identity: a name ("your name is Ava"), a gender ("you're a woman"), or
+    // pronouns ("use she/her"). Routed as one intent; the Agent extracts whichever parts are present.
+    private static readonly Regex IdentityRx = new(
+        @"(?:your name is|call yourself|i'?ll call you|i'?ll name you|name yourself|you'?re called)\s+\S+" +
+        @"|you(?:'?re| are)\s+(?:a\s+)?(?:woman|man|girl|guy|boy|female|male|non-?binary)\b" +
+        @"|(?:your pronouns are|use)\s+[a-z]+/[a-z]+", Opts);
+
+    private static Intent? TryIdentity(string text)
+        => IdentityRx.IsMatch(text) ? new Intent { Kind = IntentKind.SetIdentity, Argument = Clean(text) } : null;
 
     // "set/switch/use ... personality to X", "use the X personality", or a request to see the options.
     private static readonly Regex PersonalitySetRx = new(

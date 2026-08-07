@@ -43,4 +43,16 @@ public sealed class ProfileStore : IProfileStore
         _db.Users.Update(profile);
         await _db.SaveChangesAsync(ct);
     }
+
+    public async Task SetIdentityAsync(
+        string userId, string? name, string? gender, string? pronouns, CancellationToken ct = default)
+    {
+        var profile = await GetOrCreateAsync(userId, ct);
+        // Only overwrite the fields that were actually provided.
+        if (name is not null) profile.CompanionName = name;
+        if (gender is not null) profile.CompanionGender = gender;
+        if (pronouns is not null) profile.CompanionPronouns = pronouns;
+        _db.Users.Update(profile);
+        await _db.SaveChangesAsync(ct);
+    }
 }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 
@@ -73,6 +74,7 @@ public sealed class Agent : IAgent
             IntentKind.Consolidate => await ConsolidateAsync(userId, ct),
             IntentKind.SetPersona => await SetPersonaAsync(userId, intent.Argument, ct),
             IntentKind.SetPersonality => await SetPersonalityAsync(userId, intent.Argument, ct),
+            IntentKind.SetIdentity => await SetIdentityAsync(userId, intent.Argument, ct),
             IntentKind.AdjustStyle => await AdjustStyleAsync(userId, intent.Argument, ct),
             IntentKind.FeedbackPositive => await FeedbackAsync(userId, conversationId, FeedbackRating.Positive, intent.Argument, ct),
             IntentKind.FeedbackNegative => await FeedbackAsync(userId, conversationId, FeedbackRating.Negative, intent.Argument, ct),
@@ -256,6 +258,46 @@ public sealed class Agent : IAgent
         => "I can be " +
            string.Join(", ", _personality.Presets.Select(p => $"{p.Name} ({p.Description})")) +
            ". Which would you like? (Say, e.g., \"switch to the witty personality\".)";
+
+    // "your name is Ava", "you're a woman", "use she/her" — apply whatever parts were given.
+    private static readonly RegexOptions IdOpts = RegexOptions.IgnoreCase | RegexOptions.Compiled;
+    private static readonly Regex NameRx = new(
+        @"(?:your name is|call yourself|i'?ll call you|i'?ll name you|name yourself|you'?re called)\s+([A-Za-z][A-Za-z'’-]*)", IdOpts);
+    private static readonly Regex FemaleRx = new(@"\b(woman|female|girl|she/her)\b", IdOpts);
+    private static readonly Regex MaleRx = new(@"\b(man|male|guy|boy|he/him)\b", IdOpts);
+    private static readonly Regex NonBinaryRx = new(@"\b(non-?binary|enby|they/them)\b", IdOpts);
+    private static readonly Regex PronounsRx = new(@"\b([a-z]+/[a-z]+)\b", IdOpts);
+
+    private async Task<AgentReply> SetIdentityAsync(string userId, string? directive, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(directive))
+            return AgentReply.Act(IntentKind.SetIdentity, "Tell me a name, gender, or pronouns and I'll take it.");
+
+        string? name = null, gender = null, pronouns = null;
+
+        var nameMatch = NameRx.Match(directive);
+        if (nameMatch.Success)
+            name = nameMatch.Groups[1].Value;
+
+        // Gender words imply pronouns unless pronouns are stated explicitly.
+        if (NonBinaryRx.IsMatch(directive)) { gender = "nonbinary"; pronouns = "they/them"; }
+        else if (FemaleRx.IsMatch(directive)) { gender = "female"; pronouns = "she/her"; }
+        else if (MaleRx.IsMatch(directive)) { gender = "male"; pronouns = "he/him"; }
+
+        var explicitPronouns = PronounsRx.Match(directive);
+        if (explicitPronouns.Success)
+            pronouns = explicitPronouns.Groups[1].Value.ToLowerInvariant();
+
+        if (name is null && gender is null && pronouns is null)
+            return AgentReply.Act(IntentKind.SetIdentity,
+                "I didn't catch a name or gender there — try \"your name is Ava\" or \"you're a woman\".");
+
+        await _profiles.SetIdentityAsync(userId, name, gender, pronouns, ct);
+
+        var profile = await _profiles.GetOrCreateAsync(userId, ct);
+        var id = _personality.Identity(profile);
+        return AgentReply.Act(IntentKind.SetIdentity, $"Got it — I'm {id.Name} ({id.Pronouns}) from now on.");
+    }
 
     private async Task<AgentReply> AdjustStyleAsync(string userId, string? directive, CancellationToken ct)
     {

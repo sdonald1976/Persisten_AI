@@ -18,6 +18,8 @@ public sealed record PersonaRequest(string? Persona);
 
 public sealed record PersonalityRequest(string? Preset);
 
+public sealed record IdentityRequest(string? Name, string? Gender, string? Pronouns);
+
 public sealed record FeedbackRequest(string ConversationId, string Rating, string? Note);
 
 // ---- responses ----

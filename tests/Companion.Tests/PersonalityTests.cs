@@ -19,8 +19,9 @@ public class PersonalityTests
     private static readonly DateTimeOffset Now = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
     private const string User = CompanionSeeder.DemoUserId;
 
-    private static PersonalityService Service(string defaultPreset = "warm") =>
-        new(Options.Create(new PersonalityOptions { Default = defaultPreset }));
+    private static PersonalityService Service(string defaultPreset = "warm", IdentityOptions? identity = null) =>
+        new(Options.Create(new PersonalityOptions { Default = defaultPreset }),
+            Options.Create(identity ?? new IdentityOptions()));
 
     // ---- resolution + composition ----
 
@@ -149,5 +150,88 @@ public class PersonalityTests
         Assert.Equal(IntentKind.SetPersonality, reply.Intent);
         Assert.Contains("warm", reply.Text);   // the menu of real presets
         Assert.Contains("witty", reply.Text);
+    }
+
+    // ---- identity (name / gender / pronouns) ----
+
+    [Fact]
+    public void Identity_DefaultsFromConfig()
+    {
+        var id = Service(identity: new IdentityOptions { Name = "Ava", Gender = "female", Pronouns = "she/her" })
+            .Identity(new UserProfile { UserId = User });
+        Assert.Equal("Ava", id.Name);
+        Assert.Equal("she/her", id.Pronouns);
+    }
+
+    [Fact]
+    public void Identity_ProfileOverridesConfig()
+    {
+        var id = Service().Identity(new UserProfile { UserId = User, CompanionName = "Nova", CompanionPronouns = "they/them" });
+        Assert.Equal("Nova", id.Name);
+        Assert.Equal("they/them", id.Pronouns);
+    }
+
+    [Fact]
+    public void Compose_LeadsWithIdentity()
+    {
+        var text = Service(identity: new IdentityOptions { Name = "Ava", Gender = "female", Pronouns = "she/her" })
+            .Compose(new UserProfile { UserId = User });
+        Assert.Contains("Your name is Ava", text);
+        Assert.Contains("a woman", text);
+        Assert.Contains("she/her", text);
+    }
+
+    [Theory]
+    [InlineData("your name is Ava")]
+    [InlineData("you're a woman")]
+    [InlineData("call yourself Nova")]
+    [InlineData("use she/her")]
+    public void Parser_RecognizesIdentityDirectives(string text)
+        => Assert.Equal(IntentKind.SetIdentity, new RuleBasedIntentParser().Parse(text).Kind);
+
+    [Fact]
+    public async Task SettingGender_PersistsAndSetsPronouns_AndReachesThePrompt()
+    {
+        await using var host = new TestHost(Now);
+        Guid conv;
+        using (var scope = host.CreateScope())
+            conv = (await scope.ServiceProvider.GetRequiredService<IConversationStore>()
+                .StartConversationAsync(User, "t", "mock", "test")).Id;
+
+        using (var scope = host.CreateScope())
+        {
+            var reply = await scope.ServiceProvider.GetRequiredService<IAgent>()
+                .HandleAsync(User, conv, "your name is Nova and you're a woman");
+            Assert.Equal(IntentKind.SetIdentity, reply.Intent);
+        }
+
+        using (var verify = host.CreateScope())
+        {
+            var profile = await verify.ServiceProvider.GetRequiredService<IProfileStore>().GetOrCreateAsync(User);
+            Assert.Equal("Nova", profile.CompanionName);
+            Assert.Equal("female", profile.CompanionGender);
+            Assert.Equal("she/her", profile.CompanionPronouns);
+
+            var trace = await verify.ServiceProvider.GetRequiredService<ICompanion>()
+                .RespondAsync(User, conv, "what should we work on today?");
+            Assert.Contains("Nova", trace.Packet.Render());
+            Assert.Contains("she/her", trace.Packet.Render());
+        }
+    }
+
+    [Fact]
+    public async Task DefaultIdentity_IsFemale_AndReachesThePrompt()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var conv = (await scope.ServiceProvider.GetRequiredService<IConversationStore>()
+            .StartConversationAsync(User, "t", "mock", "test")).Id;
+
+        var trace = await scope.ServiceProvider.GetRequiredService<ICompanion>()
+            .RespondAsync(User, conv, "what should we work on today?");
+
+        // Default identity (Ava, she/her) is present out of the box.
+        Assert.Contains("Ava", trace.Packet.Render());
+        Assert.Contains("she/her", trace.Packet.Render());
     }
 }
