@@ -69,17 +69,20 @@ phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity
 
 ## Long tasks: finish in-turn now, background jobs later
 
-- **Now (built):** an `IReplyGenerator` owns "when to keep going" over two signals, because one
-  isn't enough. (1) The transport truth — `finish_reason: "length"` means the server cut the reply
-  off mid-answer, so continue. (2) A **semantic completion check** — small local/abliterated models
-  often *self-truncate* (write a chunk of a story and stop, reporting a normal `"stop"`), which
-  `finish_reason` can't catch, so for a long-enough reply a cheap model is asked "is this actually
-  finished, or cut off?" and generation continues on CONTINUE. Each continuation feeds the text so
-  far back so the model resumes the **same** task instead of starting over, bounded by
-  `MaxContinuations`, and the whole thing streams to the CLI/web client. The judge fails closed
-  (any doubt → complete) so it can never trap the user in runaway generation. Every reply is stored
-  with its generation metadata (`finish_reason`, rounds, truncated, model, token usage) so "why did
-  it stop" is answerable, and `LogPayloads` logs the exact prompt+reply for debugging.
+- **Now (built):** an `IReplyGenerator` owns "when to keep going". The reliable, default-on signal
+  is the transport truth — `finish_reason: "length"` means the server cut the reply off mid-answer,
+  so continue; each continuation feeds the text so far back so the model resumes the **same** task
+  instead of starting over, and it streams to the CLI/web client. A **repetition guard** stops the
+  moment a continuation just repeats text already written, so a looping model can never be amplified
+  into a wall of duplicate text (bounded anyway by `MaxContinuations`).
+- **Opt-in — semantic completion check (`CompletionCheck`, off by default):** small
+  local/abliterated models often *self-truncate* (write a chunk and stop with a normal `"stop"`),
+  which `finish_reason` can't catch, so a cheap model can be asked "is this finished, or cut off?"
+  and continue on CONTINUE. It's only as good as that judge model — an unreliable one turns a
+  finished reply into runaway continuation — so it's off until yours is trusted (watch the logs);
+  it fails closed on any doubt. Every reply is stored with its generation metadata (`finish_reason`,
+  rounds, truncated, model, token usage) so "why did it stop" is answerable, and `LogPayloads` logs
+  the exact prompt+reply for debugging.
 - **Later (if in-turn ever isn't enough):** a small **background job runner** — "work on X and
   tell me when it's done": queue a task, run the same auto-continuing generation off-turn,
   persist progress + result, and surface completion as a WebSocket frame / next-session opener
