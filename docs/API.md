@@ -78,6 +78,8 @@ All endpoints require the API token (see Security). Bodies/queries never carry a
 | `PUT`  | `/persona` | `{ persona }` | `{ persona }` |
 | `GET`  | `/personality` | — | `{ active, presets[] }` — the active personality preset and the catalog to choose from |
 | `PUT`  | `/personality` | `{ preset }` | `{ active }` (400 on an unknown preset name) |
+| `GET`  | `/identity` | — | `{ name, gender, pronouns }` — who the companion is |
+| `PUT`  | `/identity` | `{ name?, gender?, pronouns? }` | `{ name, gender, pronouns }` (only provided fields change) |
 | `POST` | `/feedback` | `{ conversationId, rating: "positive"\|"negative", note? }` | `AgentReply` |
 
 `AgentReply` shape:

@@ -89,6 +89,9 @@ public enum IntentKind
     /// <summary>"Switch to the witty personality" / "what personalities are there?" (choose a preset).</summary>
     SetPersonality,
 
+    /// <summary>"Your name is Ava" / "you're a woman" / "use she/her" (set the companion's identity).</summary>
+    SetIdentity,
+
     /// <summary>"Be more concise / talk like …" (append a style directive).</summary>
     AdjustStyle,
 

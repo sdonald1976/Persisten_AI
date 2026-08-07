@@ -331,6 +331,22 @@ app.MapPut("/personality", async (PersonalityRequest req, IUserContext user, IPr
     return Results.Ok(new { active = new { preset.Name, preset.Label, preset.Description } });
 });
 
+// The companion's identity (name / gender / pronouns), separate from its personality.
+app.MapGet("/identity", async (IUserContext user, IProfileStore store, IPersonalityService personality, CancellationToken ct) =>
+{
+    var profile = await store.GetOrCreateAsync(user.UserId, ct);
+    var id = personality.Identity(profile);
+    return Results.Ok(new { id.Name, id.Gender, id.Pronouns });
+});
+
+app.MapPut("/identity", async (IdentityRequest req, IUserContext user, IProfileStore store, IPersonalityService personality, CancellationToken ct) =>
+{
+    await store.SetIdentityAsync(user.UserId, req.Name, req.Gender, req.Pronouns, ct);
+    var profile = await store.GetOrCreateAsync(user.UserId, ct);
+    var id = personality.Identity(profile);
+    return Results.Ok(new { id.Name, id.Gender, id.Pronouns });
+});
+
 // Thumbs up/down for a rich UI. Routed through the brain so it uses the exact same last-exchange
 // reconstruction as saying "that was great" out loud.
 app.MapPost("/feedback", async (FeedbackRequest req, IUserContext user, IConversationStore conversations, IAgent agent, CancellationToken ct) =>

@@ -19,6 +19,7 @@ public static class DependencyInjection
     {
         services.Configure<CompanionOptions>(configuration.GetSection(CompanionOptions.SectionName));
         services.Configure<PersonalityOptions>(configuration.GetSection(PersonalityOptions.SectionName));
+        services.Configure<IdentityOptions>(configuration.GetSection(IdentityOptions.SectionName));
         services.AddSingleton<IPersonalityService, PersonalityService>();
 
         services.AddSingleton(TimeProvider.System);

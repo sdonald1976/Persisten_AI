@@ -18,6 +18,12 @@ public interface IPersonalityService
     /// <summary>The preset currently active for this profile (their choice, else the configured default).</summary>
     PersonalityPreset Active(UserProfile profile);
 
-    /// <summary>The full persona text for the system prompt: the active preset plus any free-text tweaks.</summary>
+    /// <summary>The companion's identity for this profile (their overrides, else the configured defaults).</summary>
+    CompanionIdentity Identity(UserProfile profile);
+
+    /// <summary>
+    /// The full persona text for the system prompt: the companion's identity, then the active
+    /// personality preset, then any free-text tweaks.
+    /// </summary>
     string Compose(UserProfile profile);
 }

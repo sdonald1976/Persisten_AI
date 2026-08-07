@@ -56,6 +56,18 @@ public static class PersonalityCatalog
             "afraid of a little enthusiasm — without being exhausting or over-the-top.",
     };
 
+    public static readonly PersonalityPreset Flirty = new()
+    {
+        Name = "flirty",
+        Label = "Affectionate & flirty",
+        Description = "warm, playful, charming — affectionate, kept tasteful",
+        Instructions =
+            "You are affectionate, warm, and playfully flirtatious. Be charming and a little teasing, quick " +
+            "with a compliment, and genuinely attentive — the user should feel liked and enjoyed. Use warmth " +
+            "and the occasional term of endearment naturally, not constantly. Keep it tasteful and suggestive " +
+            "at most, never explicit; read the room and ease off when the user turns serious or wants a plain answer.",
+    };
+
     public static readonly PersonalityPreset Sage = new()
     {
         Name = "sage",
@@ -68,7 +80,7 @@ public static class PersonalityCatalog
     };
 
     /// <summary>All presets, in menu order.</summary>
-    public static readonly IReadOnlyList<PersonalityPreset> All = new[] { Warm, Witty, Direct, Playful, Sage };
+    public static readonly IReadOnlyList<PersonalityPreset> All = new[] { Warm, Witty, Direct, Playful, Flirty, Sage };
 
     /// <summary>The preset used when nothing else resolves.</summary>
     public static PersonalityPreset Fallback => Warm;

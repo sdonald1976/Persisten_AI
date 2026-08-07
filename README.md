@@ -207,9 +207,10 @@ to a deterministic opener offline. Pick one, type your own, or just say "hi" —
 the same memory-grounded welcome, not a canned reply.
 
 **You mostly just talk to it — no slash commands needed.** Plain language is understood as
-intent: "what do you remember about me?", "forget that", "that's wrong", "switch to the witty
-personality" (configurable **personality** presets — `warm`, `witty`, `direct`, `playful`, `sage`),
-"be more concise" / "talk like a pirate" (free-text **persona** tweaks layered on top), "that was
+intent: "what do you remember about me?", "forget that", "that's wrong", "your name is Ava" /
+"you're a woman" (configurable **identity** — name/gender/pronouns), "switch to the witty
+personality" (configurable **personality** presets — `warm`, `witty`, `direct`, `playful`, `flirty`,
+`sage`), "be more concise" / "talk like a pirate" (free-text **persona** tweaks layered on top), "that was
 great" / "that was unhelpful" (reply **feedback**, saved as style-tuning signal), "what am I working
 on?", "what's unfinished?", "consolidate your memories". Destructive actions ask for confirmation.
 Anything unrecognized is just a normal turn. See [`docs/FUTURE_UX_ROADMAP.md`](docs/FUTURE_UX_ROADMAP.md) for where this
