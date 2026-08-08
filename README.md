@@ -178,9 +178,11 @@ When a real model is configured, extraction and summarization use it too
 - **Voice / Whisper** (`/transcribe <audio file>`) — transcribes an audio file and sends it as a
   turn. **Ollama and LM Studio cannot run Whisper** — they have no audio support, so there's
   nothing to `ollama pull`. You need a *separate* server that exposes an OpenAI-compatible
-  `/v1/audio/transcriptions` endpoint. Easiest is **Speaches** (formerly `faster-whisper-server`):
+  `/v1/audio/transcriptions` endpoint. Easiest is **Speaches** (formerly `faster-whisper-server`),
+  which ships as a service in [`docker-compose.yml`](docker-compose.yml) — see
+  [`docs/AUDIO.md`](docs/AUDIO.md):
   ```bash
-  docker run --rm -p 8000:8000 ghcr.io/speaches-ai/speaches:latest-cpu   # or :latest-cuda with --gpus=all
+  docker compose up -d speaches   # persists downloaded models; :latest-cuda for GPU
   ```
   ```jsonc
   "Transcription": {
