@@ -46,6 +46,8 @@ avatar can plug in without embedding .NET. See [`docs/API.md`](docs/API.md).
 | [`docs/PERSISTENT_COMPANION_ARCHITECTURE.md`](docs/PERSISTENT_COMPANION_ARCHITECTURE.md) | Components, data flow, storage, retrieval, memory lifecycle, model boundaries, Mermaid diagram. |
 | [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | Phased tasks, dependencies, acceptance criteria, test requirements. |
 | [`docs/FIRST_VERTICAL_SLICE.md`](docs/FIRST_VERTICAL_SLICE.md) | Exact files proposed for the first vertical slice. |
+| [`docs/AUDIO.md`](docs/AUDIO.md) | Local audio server (Whisper STT now, TTS later) via `docker compose`. |
+| [`docs/HANDOFF.md`](docs/HANDOFF.md) | Continuation brief — paste into a fresh session to pick the project back up. |
 
 ## Stack
 
