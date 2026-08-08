@@ -78,10 +78,10 @@ public class ReplyGeneratorTests
     }
 
     [Fact]
-    public async Task RepeatingContinuation_IsStopped_NotAmplified()
+    public async Task RepeatingContinuation_IsDropped_TheReplyContainsNoDuplicate()
     {
         // The model loops: every continuation repeats the first paragraph. The guard must stop it
-        // well before the cap instead of stacking copies into a wall of text.
+        // AND drop the repeated round — the stored reply contains the paragraph exactly once.
         const string para = "I'm here to listen and offer any assistance that I can provide today. ";
         var chat = new QueuedChatModel(
             Cc(para, "length"), Cc(para, "length"), Cc(para, "length"),
@@ -90,9 +90,43 @@ public class ReplyGeneratorTests
         var result = await Gen(chat, new AlwaysCompleteJudge(), Options(maxContinuations: 6)).GenerateAsync("sys", "hi");
 
         Assert.Equal(2, chat.Calls); // initial + one repeat detected → stop (not 7)
-        // The reply is not a wall: the paragraph appears at most twice, not seven times.
+        Assert.Equal(para.Trim(), result.Text);
         var occurrences = result.Text.Split("here to listen").Length - 1;
-        Assert.True(occurrences <= 2, $"paragraph repeated {occurrences} times");
+        Assert.Equal(1, occurrences);
+    }
+
+    [Fact]
+    public async Task Streaming_RepeatingContinuation_NeverReachesTheSink()
+    {
+        // Continuation rounds are buffered and vetted before forwarding, so a looping model's
+        // duplicate never appears on the user's screen — not even transiently.
+        const string para = "I'm here to listen and offer any assistance that I can provide today. ";
+        var chat = new QueuedChatModel(Cc(para, "length"), Cc(para, "length"));
+        var chunks = new List<string>();
+
+        var result = await Gen(chat, new AlwaysCompleteJudge(), Options())
+            .GenerateAsync("sys", "hi", new DelegateProgress(chunks.Add));
+
+        Assert.Equal(para, string.Concat(chunks));
+        Assert.Equal(para.Trim(), result.Text);
+    }
+
+    [Fact]
+    public async Task ContinuationThatReSaysTheTail_IsDeduplicatedAtTheSeam()
+    {
+        // The common partial repeat: asked to continue, the model re-emits the last few words
+        // before adding new text. The echo is trimmed so the reply never reads twice — in the
+        // stored text and in what the sink forwards.
+        var chat = new QueuedChatModel(
+            Cc("Night fell over the harbor and the crew", "length"),
+            Cc("harbor and the crew lowered the sails at last.", "stop"));
+        var chunks = new List<string>();
+
+        var result = await Gen(chat, new AlwaysCompleteJudge(), Options())
+            .GenerateAsync("sys", "write a story", new DelegateProgress(chunks.Add));
+
+        Assert.Equal("Night fell over the harbor and the crew lowered the sails at last.", result.Text);
+        Assert.Equal(result.Text, string.Concat(chunks));
     }
 
     [Fact]

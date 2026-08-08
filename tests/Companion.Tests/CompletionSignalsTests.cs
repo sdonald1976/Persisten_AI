@@ -45,6 +45,10 @@ public class CompletionSignalsTests
     [InlineData("The final line ended with a question mark, right?")]
     [InlineData("Sure! Here's the code:\n```python\nprint(1)\n```")] // closed fence
     [InlineData("\"And that,\" she said, \"is the end.\"")]           // closing quote
+    [InlineData("And the moral is: **never skip backups**")]         // markdown bold close
+    [InlineData("| step | done |\n| ---- | ---- |\n| tests | yes |")] // table row
+    [InlineData("Can't wait to hear how it goes 😉")]                 // emoji sign-off
+    [InlineData("Consider it done ❤")]                                // non-surrogate symbol
     public void CompleteReplies_AreNotFlagged(string reply)
         => Assert.False(CompletionSignals.LooksUnfinished(reply));
 

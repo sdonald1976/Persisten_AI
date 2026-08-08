@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace Companion.Infrastructure.Models;
@@ -40,7 +41,8 @@ internal static partial class CompletionSignals
     private static partial Regex ContinuationSolicitation();
 
     // Characters that end a finished thought. Anything else at the end reads as mid-sentence.
-    private const string TerminalPunctuation = ".!?…\"')]}”’`";
+    // Includes markdown closers: "**bold**", "_emphasis_", a table row's trailing '|', "~~done~~".
+    private const string TerminalPunctuation = ".!?…\"')]}”’`*_|~";
 
     public static bool IsDeliverableRequest(string? message)
     {
@@ -78,8 +80,16 @@ internal static partial class CompletionSignals
         if (last == ':')
             return true;
 
+        if (TerminalPunctuation.Contains(last))
+            return false;
+
+        // An emoji ends a thought too: a reply that signs off with 😉 is finished, not cut off.
+        // Most emoji are surrogate pairs; the rest (❤, ☺, …) land in the symbol categories.
+        if (char.IsSurrogate(last) || char.GetUnicodeCategory(last) is UnicodeCategory.OtherSymbol)
+            return false;
+
         // Ends mid-sentence — no terminal punctuation.
-        return !TerminalPunctuation.Contains(last);
+        return true;
     }
 
     private static int CountOccurrences(string haystack, string needle)
