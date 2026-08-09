@@ -52,6 +52,12 @@ public sealed class LlmGreeter : IGreeter
             // Keep the real openers for the UI's quick-pick chips; only the phrasing is model-written.
             return grounded with { Message = message };
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The session ended (client disconnect, Ctrl-C) while the model was writing — there is
+            // no one left to greet. Not a model failure; let the caller unwind normally.
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "LLM greeting failed; using the deterministic opener.");

@@ -58,6 +58,12 @@ app.Use(async (ctx, next) =>
     {
         await next();
     }
+    catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
+    {
+        // The client disconnected (tab closed, refresh, navigation) while work was in flight.
+        // Normal in a browser-facing API — never an InternalError, never a stack trace.
+        logger.LogDebug("Request {Path} canceled: client disconnected.", ctx.Request.Path);
+    }
     catch (Exception ex)
     {
         var (status, code, message) = ApiError.Classify(ex);
@@ -371,6 +377,27 @@ app.Run();
 internal static class WebSocketConversation
 {
     public static async Task RunAsync(
+        WebSocket socket, IServiceScopeFactory scopes, ILogger logger, string userId, Guid defaultConversationId,
+        Greeting greeting, CancellationToken ct)
+    {
+        try
+        {
+            await RunCoreAsync(socket, scopes, logger, userId, defaultConversationId, greeting, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // The client disconnected mid-work (tab closed, refresh). A normal way for a
+            // browser-held socket to end — not an error.
+            logger.LogDebug("WebSocket session ended: client disconnected.");
+        }
+        catch (WebSocketException ex)
+        {
+            // Abrupt close without a close handshake — same story, just less polite.
+            logger.LogDebug("WebSocket session ended abruptly: {Reason}", ex.Message);
+        }
+    }
+
+    private static async Task RunCoreAsync(
         WebSocket socket, IServiceScopeFactory scopes, ILogger logger, string userId, Guid defaultConversationId,
         Greeting greeting, CancellationToken ct)
     {
