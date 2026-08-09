@@ -125,4 +125,52 @@ public class GreetingTests
 
         Assert.Equal("FALLBACK MESSAGE", greeting.Message);
     }
+
+    [Fact]
+    public async Task LlmGreeter_FallsBackToDeterministic_WhenTheProviderFails()
+    {
+        var greeter = new LlmGreeter(
+            new StubGreeter(Grounded),
+            new ThrowingChatModel(() => new ModelProviderException("the model server is down")),
+            NullLogger<LlmGreeter>.Instance);
+
+        var greeting = await greeter.GreetAsync(User);
+
+        Assert.Equal("FALLBACK MESSAGE", greeting.Message);
+    }
+
+    [Fact]
+    public async Task LlmGreeter_GenuineCancellation_Propagates_InsteadOfMasqueradingAsAFailure()
+    {
+        // A client disconnect (or Ctrl-C) mid-greeting is not a model failure: there is no one
+        // left to greet, so the cancellation must unwind normally rather than be swallowed and
+        // logged as "LLM greeting failed".
+        using var cts = new CancellationTokenSource();
+        var greeter = new LlmGreeter(
+            new StubGreeter(Grounded),
+            new ThrowingChatModel(() =>
+            {
+                cts.Cancel();
+                return new OperationCanceledException(cts.Token);
+            }),
+            NullLogger<LlmGreeter>.Instance);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => greeter.GreetAsync(User, cts.Token));
+    }
+
+    private sealed class ThrowingChatModel : IChatModel
+    {
+        private readonly Func<Exception> _make;
+        public ThrowingChatModel(Func<Exception> make) => _make = make;
+
+        public Task<ChatCompletion> CompleteAsync(
+            string systemPrompt, string userMessage, bool jsonMode = false,
+            string? assistantPrefix = null, CancellationToken ct = default)
+            => Task.FromException<ChatCompletion>(_make());
+
+        public Task<ChatCompletion> StreamAsync(
+            string systemPrompt, string userMessage, IProgress<string> sink,
+            string? assistantPrefix = null, CancellationToken ct = default)
+            => Task.FromException<ChatCompletion>(_make());
+    }
 }
