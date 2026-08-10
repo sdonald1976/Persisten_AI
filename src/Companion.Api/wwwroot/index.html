@@ -49,14 +49,16 @@
     #send { padding: 0 20px; border: none; border-radius: 10px; background: var(--accent);
       color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
     #send:disabled { opacity: .5; cursor: default; }
-    /* Push-to-talk mic + speak toggle */
-    #mic, #speak { border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    /* Push-to-talk mic, hands-free toggle, speak toggle */
+    #mic, #hands, #speak { border: 1px solid var(--line); background: var(--bg); color: var(--ink);
       border-radius: 10px; font-size: 18px; cursor: pointer; padding: 0 14px; line-height: 1;
       touch-action: none; user-select: none; -webkit-user-select: none; }
-    #mic:disabled { opacity: .4; cursor: default; }
+    #mic:disabled, #hands:disabled { opacity: .4; cursor: default; }
     #mic.recording { background: #ef4444; border-color: #ef4444; color: #fff;
       animation: pulse 1s ease-in-out infinite; }
+    #hands.on { background: #16a34a; border-color: #16a34a; color: #fff; }
     #speak { font-size: 15px; margin-left: auto; }
+    #hands { font-size: 15px; }
     #speak.on { background: var(--accent); border-color: var(--accent); color: #fff; }
     @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.5); }
       50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
@@ -81,6 +83,7 @@
   </div>
 
   <footer>
+    <button id="hands" title="Hands-free listening (just talk; talk over me to interrupt)">🎙️</button>
     <button id="mic" title="Hold to talk">🎤</button>
     <textarea id="input" rows="1" placeholder="Talk to your companion…  (Enter to send)"></textarea>
     <button id="send" disabled>Send</button>
@@ -91,6 +94,7 @@
     const input = document.getElementById('input');
     const send = document.getElementById('send');
     const mic = document.getElementById('mic');
+    const handsBtn = document.getElementById('hands');
     const speakBtn = document.getElementById('speak');
     const status = document.getElementById('status');
     const statusText = document.getElementById('status-text');
@@ -282,7 +286,7 @@
       return h;
     }
 
-    let mediaStream = null, recorder = null, chunks = [], recording = false, micDisabled = false;
+    let mediaStream = null, recorder = null, chunks = [], recording = false, micDisabled = false, recStart = 0;
 
     function pickMime() {
       const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg', 'audio/mp4'];
@@ -290,11 +294,21 @@
       return '';
     }
 
+    // Echo cancellation matters for hands-free: it keeps the companion's own playback from feeding
+    // back into the mic and self-triggering. Harmless for push-to-talk.
+    async function ensureStream() {
+      if (mediaStream) return mediaStream;
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      return mediaStream;
+    }
+
     async function startRecording() {
       if (recording || micDisabled) return;
       stopSpeech(); // barge-in: talking over the companion stops its playback and pending speech
       try {
-        mediaStream = mediaStream || await navigator.mediaDevices.getUserMedia({ audio: true });
+        await ensureStream();
         const mime = pickMime();
         recorder = new MediaRecorder(mediaStream, mime ? { mimeType: mime } : undefined);
         chunks = [];
@@ -302,6 +316,7 @@
         recorder.onstop = onRecordingStop;
         recorder.start();
         recording = true;
+        recStart = performance.now();
         mic.classList.add('recording');
         statusText.textContent = 'listening…';
       } catch (err) {
@@ -320,8 +335,9 @@
 
     async function onRecordingStop() {
       const blob = new Blob(chunks, { type: (recorder && recorder.mimeType) || 'audio/webm' });
+      const durMs = performance.now() - recStart;
       chunks = [];
-      if (blob.size < 1200) return; // ignore an accidental tap
+      if (blob.size < 1200 || durMs < 250) return; // ignore an accidental tap or a VAD blip
       statusText.textContent = 'transcribing…';
       try {
         const fd = new FormData();
@@ -348,7 +364,81 @@
     mic.addEventListener('pointercancel', () => { if (recording) stopRecording(); });
     if (!navigator.mediaDevices || !window.MediaRecorder) {
       mic.disabled = true; mic.title = 'Microphone not supported in this browser';
+      handsBtn.disabled = true; handsBtn.title = 'Microphone not supported in this browser';
     }
+
+    // ---- hands-free: voice-activity detection (talk to speak, talk over the reply to interrupt) ----
+    // A lightweight energy VAD over the mic (Web Audio AnalyserNode): speech onset starts a capture
+    // (and cuts off the companion mid-sentence — barge-in), and a stretch of silence ends it,
+    // handing the clip to the same transcribe→send path push-to-talk uses.
+
+    let handsFree = false, audioCtx = null, analyser = null, vadData = null, vadTimer = null;
+    let vadSpeaking = false, vadSilenceSince = 0;
+    const VAD_ON = 0.055;               // RMS onset threshold in quiet listening
+    const VAD_ON_WHILE_TALKING = 0.10;  // higher bar to interrupt, so the companion's own audio (post-AEC) doesn't self-trigger
+    const VAD_OFF = 0.030;              // below this is silence
+    const VAD_HANGOVER_MS = 700;        // trailing silence that ends an utterance
+    const VAD_POLL_MS = 50;
+
+    function rmsLevel() {
+      analyser.getByteTimeDomainData(vadData);
+      let sum = 0;
+      for (let i = 0; i < vadData.length; i++) { const v = (vadData[i] - 128) / 128; sum += v * v; }
+      return Math.sqrt(sum / vadData.length);
+    }
+
+    function vadTick() {
+      if (!analyser) return;
+      const now = performance.now();
+      const level = rmsLevel();
+      const onThreshold = currentAudio ? VAD_ON_WHILE_TALKING : VAD_ON; // harder to trigger while it's speaking
+      if (!vadSpeaking) {
+        if (level > onThreshold) {
+          vadSpeaking = true; vadSilenceSince = 0;
+          startRecording(); // captures from onset; also cuts off any playback (barge-in)
+        }
+      } else if (level < VAD_OFF) {
+        if (!vadSilenceSince) vadSilenceSince = now;
+        else if (now - vadSilenceSince >= VAD_HANGOVER_MS) {
+          vadSpeaking = false; vadSilenceSince = 0;
+          stopRecording(); // → transcribe → send
+        }
+      } else {
+        vadSilenceSince = 0; // mid-level: still talking (hysteresis dead-zone)
+      }
+    }
+
+    async function enableHandsFree() {
+      try {
+        await ensureStream();
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 1024;
+        vadData = new Uint8Array(analyser.fftSize);
+        audioCtx.createMediaStreamSource(mediaStream).connect(analyser); // analyser is a sink; not wired to output, so no echo
+        vadSpeaking = false; vadSilenceSince = 0;
+        vadTimer = setInterval(vadTick, VAD_POLL_MS);
+        handsFree = true;
+        handsBtn.classList.add('on');
+        handsBtn.title = 'Hands-free listening: on — click to turn off';
+        add('sys', '🎙️ Hands-free listening is on — just start talking, and talk over me to interrupt.');
+      } catch (err) {
+        add('sys', '⚠ Couldn’t start hands-free listening: ' + (err && err.message ? err.message : err));
+        handsFree = false;
+      }
+    }
+
+    function disableHandsFree() {
+      handsFree = false;
+      if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+      analyser = null; vadData = null;
+      if (vadSpeaking) { vadSpeaking = false; if (recording) stopRecording(); }
+      handsBtn.classList.remove('on');
+      handsBtn.title = 'Hands-free listening (just talk; talk over me to interrupt)';
+    }
+
+    handsBtn.onclick = () => { handsFree ? disableHandsFree() : enableHandsFree(); };
 
     // ---- streaming text-to-speech playback ----
     // Synthesize the reply sentence-by-sentence as it streams in and play the clips in order, so the
