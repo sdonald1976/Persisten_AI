@@ -11,3 +11,14 @@ public interface IGreeter
 {
     Task<Greeting> GreetAsync(string userId, CancellationToken ct = default);
 }
+
+/// <summary>
+/// Rephrases an already-grounded <see cref="Greeting"/> in the companion's own voice (a model
+/// call, so potentially slow). Registered only when a real model is configured, letting a face
+/// show the instant deterministic greeting first and upgrade the wording when this completes —
+/// the user never stares at a blank screen while a local model cold-loads.
+/// </summary>
+public interface IGreetingRephraser
+{
+    Task<Greeting> RephraseAsync(Greeting grounded, CancellationToken ct = default);
+}

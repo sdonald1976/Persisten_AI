@@ -140,6 +140,59 @@ public class GreetingTests
     }
 
     [Fact]
+    public async Task Rephraser_RewordsTheMessage_ButNeverTouchesTheOpeners()
+    {
+        // The two-phase contract behind the instant `ready` + `greeting` upgrade frame: only the
+        // wording changes; the memory-grounded openers the UI already showed stay exactly as-is.
+        IGreetingRephraser rephraser = new LlmGreeter(
+            new StubGreeter(Grounded),
+            new CannedChatModel("Well hey, you're back! How did the buoy board behave?"),
+            NullLogger<LlmGreeter>.Instance);
+
+        var upgraded = await rephraser.RephraseAsync(Grounded);
+
+        Assert.StartsWith("Well hey, you're back!", upgraded.Message);
+        Assert.Equal(Grounded.Openers, upgraded.Openers);
+    }
+
+    [Fact]
+    public async Task Rephraser_StripsLeakedChatTemplateTokens()
+    {
+        // Seen live with a local model: the greeting arrived ending in a literal "<|im_end|>".
+        IGreetingRephraser rephraser = new LlmGreeter(
+            new StubGreeter(Grounded),
+            new CannedChatModel("Good to see you again!<|im_end|>"),
+            NullLogger<LlmGreeter>.Instance);
+
+        var upgraded = await rephraser.RephraseAsync(Grounded);
+
+        Assert.Equal("Good to see you again!", upgraded.Message);
+    }
+
+    [Fact]
+    public async Task Rephraser_OnProviderFailure_ReturnsTheGroundedGreetingUnchanged()
+    {
+        // An upgrade is cosmetic: if the model is down, the caller gets the grounded greeting
+        // back (same message), which the API layer uses to skip the upgrade frame entirely.
+        IGreetingRephraser rephraser = new LlmGreeter(
+            new StubGreeter(Grounded),
+            new ThrowingChatModel(() => new ModelProviderException("the model server is down")),
+            NullLogger<LlmGreeter>.Instance);
+
+        var upgraded = await rephraser.RephraseAsync(Grounded);
+
+        Assert.Equal("FALLBACK MESSAGE", upgraded.Message);
+    }
+
+    [Fact]
+    public async Task OfflineMocks_RegisterNoRephraser_SoTheInstantGreetingIsFinal()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        Assert.Null(scope.ServiceProvider.GetService<IGreetingRephraser>());
+    }
+
+    [Fact]
     public async Task LlmGreeter_GenuineCancellation_Propagates_InsteadOfMasqueradingAsAFailure()
     {
         // A client disconnect (or Ctrl-C) mid-greeting is not a model failure: there is no one

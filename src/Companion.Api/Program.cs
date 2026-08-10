@@ -251,9 +251,12 @@ app.Map("/ws", async (HttpContext ctx, IUserContext user, IServiceScopeFactory s
     var conv = await conversations.StartConversationAsync(user.UserId, "WebSocket session", null, "ws", ct);
 
     // Open with memory-grounded starters so the client can show them and the user needn't initiate.
+    // Deliberately the deterministic Greeter, not IGreeter: the ready frame must be instant, and a
+    // real model (possibly cold-loading) would block it. The session rephrases it in the background
+    // and sends a `greeting` upgrade frame when the model-written wording is ready.
     Greeting greeting;
     using (var greetScope = scopes.CreateScope())
-        greeting = await greetScope.ServiceProvider.GetRequiredService<IGreeter>().GreetAsync(user.UserId, ct);
+        greeting = await greetScope.ServiceProvider.GetRequiredService<Companion.Core.Services.Greeter>().GreetAsync(user.UserId, ct);
 
     await WebSocketConversation.RunAsync(socket, scopes, logger, user.UserId, conv.Id, greeting, ct);
 });
@@ -373,16 +376,40 @@ app.MapPost("/feedback", async (FeedbackRequest req, IUserContext user, IConvers
 
 app.Run();
 
-/// <summary>Handles the receive/serve loop for one WebSocket connection.</summary>
-internal static class WebSocketConversation
+/// <summary>
+/// Handles the receive/serve loop for one WebSocket connection. The `ready` frame carries the
+/// instant deterministic greeting; when a real model is configured, a background task rephrases
+/// it and sends a `greeting` frame so the client can upgrade the wording in place — a slow or
+/// cold-loading model never leaves the user staring at a blank screen. All frames go through a
+/// send lock: WebSockets allow only one send at a time, and the upgrade races the chat stream.
+/// </summary>
+internal sealed class WebSocketConversation
 {
+    private readonly WebSocket _socket;
+    private readonly IServiceScopeFactory _scopes;
+    private readonly ILogger _logger;
+    private readonly string _userId;
+    private readonly Guid _defaultConversationId;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
+
+    private WebSocketConversation(
+        WebSocket socket, IServiceScopeFactory scopes, ILogger logger, string userId, Guid defaultConversationId)
+    {
+        _socket = socket;
+        _scopes = scopes;
+        _logger = logger;
+        _userId = userId;
+        _defaultConversationId = defaultConversationId;
+    }
+
     public static async Task RunAsync(
         WebSocket socket, IServiceScopeFactory scopes, ILogger logger, string userId, Guid defaultConversationId,
         Greeting greeting, CancellationToken ct)
     {
+        var session = new WebSocketConversation(socket, scopes, logger, userId, defaultConversationId);
         try
         {
-            await RunCoreAsync(socket, scopes, logger, userId, defaultConversationId, greeting, ct);
+            await session.RunCoreAsync(greeting, ct);
         }
         catch (OperationCanceledException)
         {
@@ -397,83 +424,121 @@ internal static class WebSocketConversation
         }
     }
 
-    private static async Task RunCoreAsync(
-        WebSocket socket, IServiceScopeFactory scopes, ILogger logger, string userId, Guid defaultConversationId,
-        Greeting greeting, CancellationToken ct)
+    private async Task RunCoreAsync(Greeting greeting, CancellationToken ct)
     {
-        await SendAsync(socket, new
+        await SendAsync(new
         {
             type = "ready",
-            conversationId = defaultConversationId.ToString(),
+            conversationId = _defaultConversationId.ToString(),
             message = greeting.Message,
             openers = greeting.Openers,
         }, ct);
 
-        var buffer = new byte[8 * 1024];
-        while (socket.State == WebSocketState.Open && !ct.IsCancellationRequested)
+        // Rephrase the greeting with the model off the critical path; canceled when the session ends.
+        using var upgradeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var upgrade = UpgradeGreetingAsync(greeting, upgradeCts.Token);
+
+        try
         {
-            var (text, closed) = await ReceiveTextAsync(socket, buffer, ct);
-            if (closed)
-                break;
-            if (string.IsNullOrWhiteSpace(text))
-                continue;
-
-            ClientFrame? frame;
-            try { frame = System.Text.Json.JsonSerializer.Deserialize<ClientFrame>(text, ApiJson.Options); }
-            catch { await SendAsync(socket, new { type = "error", message = "invalid JSON" }, ct); continue; }
-            if (frame is null)
-                continue;
-
-            var convId = Guid.TryParse(frame.ConversationId, out var c) ? c : defaultConversationId;
-
-            using var scope = scopes.CreateScope();
-            var agent = scope.ServiceProvider.GetRequiredService<IAgent>();
-
-            try
+            var buffer = new byte[8 * 1024];
+            while (_socket.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
-                switch ((frame.Type ?? "").ToLowerInvariant())
+                var (text, closed) = await ReceiveTextAsync(buffer, ct);
+                if (closed)
+                    break;
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                ClientFrame? frame;
+                try { frame = System.Text.Json.JsonSerializer.Deserialize<ClientFrame>(text, ApiJson.Options); }
+                catch { await SendAsync(new { type = "error", message = "invalid JSON" }, ct); continue; }
+                if (frame is null)
+                    continue;
+
+                var convId = Guid.TryParse(frame.ConversationId, out var c) ? c : _defaultConversationId;
+
+                using var scope = _scopes.CreateScope();
+                var agent = scope.ServiceProvider.GetRequiredService<IAgent>();
+
+                try
                 {
-                    case "chat":
-                        await HandleChatAsync(socket, agent, userId, convId, frame.Text ?? "", ct);
-                        break;
-                    case "confirm":
-                        var outcome = await agent.ConfirmAsync(userId, convId, frame.Token ?? "", frame.Confirmed ?? false, ct);
-                        await SendAsync(socket, ReplyFrame(outcome), ct);
-                        break;
-                    default:
-                        await SendAsync(socket, new { type = "error", message = $"unknown frame type '{frame.Type}'" }, ct);
-                        break;
+                    switch ((frame.Type ?? "").ToLowerInvariant())
+                    {
+                        case "chat":
+                            await HandleChatAsync(agent, convId, frame.Text ?? "", ct);
+                            break;
+                        case "confirm":
+                            var outcome = await agent.ConfirmAsync(_userId, convId, frame.Token ?? "", frame.Confirmed ?? false, ct);
+                            await SendAsync(ReplyFrame(outcome), ct);
+                            break;
+                        default:
+                            await SendAsync(new { type = "error", message = $"unknown frame type '{frame.Type}'" }, ct);
+                            break;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // Sanitized error frame; the detail is logged server-side by correlation id.
+                    var (_, code, safe) = ApiError.Classify(ex);
+                    var correlationId = Guid.NewGuid().ToString("N")[..8];
+                    _logger.LogError(ex, "WebSocket error {Code} correlationId={CorrelationId}", code, correlationId);
+                    await SendAsync(new { type = "error", error = code, message = safe, correlationId }, ct);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // Sanitized error frame; the detail is logged server-side by correlation id.
-                var (_, code, safe) = ApiError.Classify(ex);
-                var correlationId = Guid.NewGuid().ToString("N")[..8];
-                logger.LogError(ex, "WebSocket error {Code} correlationId={CorrelationId}", code, correlationId);
-                await SendAsync(socket, new { type = "error", error = code, message = safe, correlationId }, ct);
-            }
+        }
+        finally
+        {
+            // A still-running rephrase has no one left to greet; stop it and let it unwind
+            // (it handles its own exceptions, so this await never throws).
+            upgradeCts.Cancel();
+            await upgrade;
         }
 
-        if (socket.State == WebSocketState.Open)
-            await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        if (_socket.State == WebSocketState.Open)
+            await _socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
     }
 
-    private static async Task HandleChatAsync(
-        WebSocket socket, IAgent agent, string userId, Guid convId, string message, CancellationToken ct)
+    private async Task UpgradeGreetingAsync(Greeting grounded, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopes.CreateScope();
+            var rephraser = scope.ServiceProvider.GetService<IGreetingRephraser>();
+            if (rephraser is null)
+                return; // offline mocks: the deterministic greeting IS the greeting
+
+            var upgraded = await rephraser.RephraseAsync(grounded, ct);
+            if (string.Equals(upgraded.Message, grounded.Message, StringComparison.Ordinal))
+                return; // the model added nothing (or fell back) — the shown greeting stands
+
+            await SendAsync(new { type = "greeting", message = upgraded.Message }, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Session ended first — nothing to upgrade.
+        }
+        catch (Exception ex)
+        {
+            // The shown deterministic greeting is already a complete opener; an upgrade can
+            // only ever be cosmetic, so any failure here is quietly dropped.
+            _logger.LogDebug(ex, "Greeting upgrade skipped: {Reason}", ex.Message);
+        }
+    }
+
+    private async Task HandleChatAsync(IAgent agent, Guid convId, string message, CancellationToken ct)
     {
         var sink = new TokenChannelSink();
         async Task<AgentReply> Run()
         {
-            try { return await agent.HandleAsync(userId, convId, message, sink, ct); }
+            try { return await agent.HandleAsync(_userId, convId, message, sink, ct); }
             finally { sink.Complete(); }
         }
 
         var work = Run();
         await foreach (var chunk in sink.Reader.ReadAllAsync(ct))
-            await SendAsync(socket, new { type = "token", text = chunk }, ct);
+            await SendAsync(new { type = "token", text = chunk }, ct);
         var reply = await work;
-        await SendAsync(socket, ReplyFrame(reply), ct);
+        await SendAsync(ReplyFrame(reply), ct);
     }
 
     private static object ReplyFrame(AgentReply reply) => new
@@ -485,22 +550,31 @@ internal static class WebSocketConversation
         confirmationToken = reply.ConfirmationToken,
     };
 
-    private static async Task SendAsync(WebSocket socket, object payload, CancellationToken ct)
+    private async Task SendAsync(object payload, CancellationToken ct)
     {
-        if (socket.State != WebSocketState.Open)
+        if (_socket.State != WebSocketState.Open)
             return;
         var bytes = Encoding.UTF8.GetBytes(ApiJson.Serialize(payload));
-        await socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
+        await _sendLock.WaitAsync(ct);
+        try
+        {
+            if (_socket.State != WebSocketState.Open)
+                return;
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
     }
 
-    private static async Task<(string? Text, bool Closed)> ReceiveTextAsync(
-        WebSocket socket, byte[] buffer, CancellationToken ct)
+    private async Task<(string? Text, bool Closed)> ReceiveTextAsync(byte[] buffer, CancellationToken ct)
     {
         using var ms = new MemoryStream();
         WebSocketReceiveResult result;
         do
         {
-            result = await socket.ReceiveAsync(buffer, ct);
+            result = await _socket.ReceiveAsync(buffer, ct);
             if (result.MessageType == WebSocketMessageType.Close)
                 return (null, true);
             ms.Write(buffer, 0, result.Count);
