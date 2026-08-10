@@ -70,6 +70,33 @@ public sealed class CompanionOptions
 
     /// <summary>Similarity at/above which same-slot memories are considered the same topic for consolidation.</summary>
     public double ConsolidationMinSimilarity { get; set; } = 0.4;
+
+    /// <summary>Master switch for the between-session reflection pass (the inner monologue).</summary>
+    public bool EnableReflection { get; set; } = true;
+
+    /// <summary>How long the user must have been quiet before a reflection pass may run.</summary>
+    public int ReflectionIdleMinutes { get; set; } = 30;
+
+    /// <summary>How often the background worker checks whether it's time to reflect.</summary>
+    public int ReflectionCheckMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// Minimum new user messages since the last watermark before a pass runs — a one-line visit
+    /// isn't worth a thought, and the guard keeps quiet days from costing model calls.
+    /// </summary>
+    public int ReflectionMinNewMessages { get; set; } = 3;
+
+    /// <summary>Cap on messages one pass reads (a long backlog keeps the freshest).</summary>
+    public int ReflectionMaxMessages { get; set; } = 60;
+
+    /// <summary>Max curiosities kept from one pass — wonder about a couple of things, not everything.</summary>
+    public int ReflectionMaxCuriosities { get; set; } = 2;
+
+    /// <summary>
+    /// Minimum time between voicing two curiosities. One question, then let the conversation
+    /// breathe — this is what keeps proactive curiosity from feeling like an interview.
+    /// </summary>
+    public double CuriosityCooldownHours { get; set; } = 1.0;
 }
 
 /// <summary>Weights applied to each retrieval signal before summation.</summary>

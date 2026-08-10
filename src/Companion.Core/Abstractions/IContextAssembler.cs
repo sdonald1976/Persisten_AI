@@ -11,5 +11,7 @@ public interface IContextAssembler
         IReadOnlyList<RetrievalResult> retrieved,
         ProjectContext projectContext,
         string? persona = null,
-        RelationshipSnapshot? relationship = null);
+        RelationshipSnapshot? relationship = null,
+        string? musing = null,
+        string? curiosity = null);
 }

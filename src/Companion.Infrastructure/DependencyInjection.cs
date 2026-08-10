@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddScoped<IFeedbackStore, FeedbackStore>();
         services.AddScoped<IPendingClarificationStore, PendingClarificationStore>();
         services.AddScoped<IEmotionStore, EmotionStore>();
+        services.AddScoped<IReflectionStore, ReflectionStore>();
         // The vector index is a singleton in-memory cache (cold-loaded per user from the tables,
         // then kept in step via the write-through hook the memory store calls). Both faces of it —
         // search and maintenance — resolve to the same instance so writes reach the cache.
@@ -148,6 +149,12 @@ public static class DependencyInjection
         // Relational/emotional memory: derive how things have been feeling from the signal log so
         // the companion can attune its tone across sessions.
         services.AddScoped<IRelationshipTracker, RelationshipTracker>();
+
+        // The between-session reflection pass (inner monologue): musings + curiosities, written
+        // while the user is away and surfaced through the greeter and the context packet. Thinks
+        // with the conversational model — reflection is the companion's own voice, not a
+        // structured-extraction chore.
+        services.AddScoped<IReflector, Reflector>();
 
         // Core services.
         services.AddScoped<IRetriever, Retriever>();

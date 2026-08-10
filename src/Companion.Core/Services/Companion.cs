@@ -31,6 +31,7 @@ public sealed class Companion : ICompanion
     private readonly IProjectStore _projects;
     private readonly IEmotionStore _emotions;
     private readonly IRelationshipTracker _relationship;
+    private readonly IReflectionStore _reflections;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -49,6 +50,7 @@ public sealed class Companion : ICompanion
         IProjectStore projects,
         IEmotionStore emotions,
         IRelationshipTracker relationship,
+        IReflectionStore reflections,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -66,6 +68,7 @@ public sealed class Companion : ICompanion
         _projects = projects;
         _emotions = emotions;
         _relationship = relationship;
+        _reflections = reflections;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -226,10 +229,19 @@ public sealed class Companion : ICompanion
             await CaptureMoodAsync(userId, extractionSource, projectContext, now, ct);
         var relationship = await _relationship.BuildAsync(userId, ct);
 
+        // 4c. The inner monologue reaches the turn here: a fresh private musing colors the reply's
+        // attention, and at most one held curiosity is offered for the model to raise IF it fits.
+        // Offering consumes it (marked voiced below), so a question is asked once, never nagged.
+        var musing = await FreshMusingAsync(userId, now, ct);
+        var curiosity = await _reflections.GetNextToVoiceAsync(
+            userId, now, TimeSpan.FromHours(_options.CuriosityCooldownHours), ct);
+
         // 5. Assemble a bounded, labeled context packet (with the user's persona/style + tone read).
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var persona = _personality.Compose(profile);
-        var packet = _assembler.Assemble(promptText, recent, outcome.Selected, projectContext, persona, relationship);
+        var packet = _assembler.Assemble(
+            promptText, recent, outcome.Selected, projectContext, persona, relationship,
+            musing, curiosity?.Question);
 
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
@@ -259,6 +271,11 @@ public sealed class Companion : ICompanion
         if (remember)
             await CaptureCommitmentAsync(userId, response, assistantMsg.Id, now, ct);
 
+        // 10c. The offered curiosity is spent whether or not the model chose to raise it — asked
+        // once (or passed over once) is the whole budget, so proactive wondering never nags.
+        if (curiosity is not null)
+            await _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct);
+
         // 11. Record the trace for debugging (`/why`).
         _logger.LogInformation(
             "Turn complete for {UserId}: {Selected} memories, project={Project}, " +
@@ -286,6 +303,25 @@ public sealed class Companion : ICompanion
     }
 
     // ---- helpers ----
+
+    /// <summary>A musing is only current for so long — after this it stops shaping replies.</summary>
+    private static readonly TimeSpan MusingSurfaceWindow = TimeSpan.FromDays(7);
+
+    /// <summary>How many diary entries back to look for the newest actual musing (recent passes may
+    /// be watermark-only quiet days).</summary>
+    private const int MusingLookback = 5;
+
+    /// <summary>
+    /// The newest between-session musing that is still fresh enough to color this turn, or null.
+    /// Reading the diary is side-effect free — a musing can accompany many turns; it is a mood the
+    /// companion carries, unlike a curiosity, which is consumed the one time it is offered.
+    /// </summary>
+    private async Task<string?> FreshMusingAsync(string userId, DateTimeOffset now, CancellationToken ct)
+    {
+        var recent = await _reflections.GetRecentAsync(userId, MusingLookback, ct);
+        var newest = recent.FirstOrDefault(r => r.HasMusing);
+        return newest is not null && now - newest.CreatedAt <= MusingSurfaceWindow ? newest.Musing : null;
+    }
 
     private async Task<Message> StoreMessageAsync(
         string userId, Guid conversationId, MessageRole role, string content, Guid? replyToId,

@@ -57,6 +57,30 @@ public static class ContextPacketRenderer
             sb.AppendLine();
         }
 
+        if (!string.IsNullOrWhiteSpace(packet.Musing))
+        {
+            // The companion's own between-session thought. Prose, not a bullet, for the same
+            // reason as the relationship note: it must never read as a "remembered item". It is a
+            // musing to hold loosely — not a fact, and never something to recite.
+            sb.AppendLine("## A thought you had while they were away (your own musing — private)");
+            sb.AppendLine(packet.Musing!.Trim());
+            sb.AppendLine(
+                "This is your own reflection, not something the user said. Hold it loosely, never " +
+                "recite it, and never present it as fact — but if it's relevant, it's genuine to say " +
+                "you'd been thinking about them.");
+            sb.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(packet.CuriosityQuestion))
+        {
+            sb.AppendLine("## Something you've been genuinely curious about");
+            sb.AppendLine(packet.CuriosityQuestion!.Trim());
+            sb.AppendLine(
+                "Ask it only if it fits this conversation naturally — at most once, gently, as your " +
+                "own curiosity. If it doesn't fit, let it go without mentioning it.");
+            sb.AppendLine();
+        }
+
         if (packet.RecentMessages.Count > 0)
         {
             sb.AppendLine("## Recent conversation");

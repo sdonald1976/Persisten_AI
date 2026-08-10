@@ -21,7 +21,9 @@ public sealed class ContextAssembler : IContextAssembler
         IReadOnlyList<RetrievalResult> retrieved,
         ProjectContext projectContext,
         string? persona = null,
-        RelationshipSnapshot? relationship = null)
+        RelationshipSnapshot? relationship = null,
+        string? musing = null,
+        string? curiosity = null)
     {
         var items = new List<ContextItem>();
         var notes = new List<string>();
@@ -66,6 +68,8 @@ public sealed class ContextAssembler : IContextAssembler
             OpenLoops = projectContext.OpenLoops,
             ClarificationQuestion = projectContext.Resolution.ClarificationQuestion,
             RelationshipNote = relationship?.Describe(),
+            Musing = musing,
+            CuriosityQuestion = curiosity,
             UncertaintyNotes = notes,
             EstimatedTokens = usedTokens + recentCost + EstimateTokens(userMessage),
         };

@@ -28,6 +28,8 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<FeedbackRecord> Feedback => Set<FeedbackRecord>();
     public DbSet<PendingClarification> PendingClarifications => Set<PendingClarification>();
     public DbSet<EmotionalSignal> EmotionalSignals => Set<EmotionalSignal>();
+    public DbSet<Reflection> Reflections => Set<Reflection>();
+    public DbSet<Curiosity> Curiosities => Set<Curiosity>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -74,6 +76,30 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Topic).HasMaxLength(120);
             // The tracker reads a user's most recent signals in time order.
             e.HasIndex(x => new { x.UserId, x.Timestamp });
+        });
+
+        b.Entity<Reflection>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Musing).HasMaxLength(2000);
+            // The diary is read newest-first per user (latest watermark, recent musings).
+            e.HasIndex(x => new { x.UserId, x.CreatedAt });
+            ConfigureEmbedding(e.Property(x => x.Embedding));
+            e.Ignore(x => x.HasMusing);
+        });
+
+        b.Entity<Curiosity>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Question).HasMaxLength(300);
+            e.Property(x => x.About).HasMaxLength(120);
+            e.Property(x => x.Reason).HasMaxLength(300);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            // Voicing queries (UserId, Status); provenance points back at the reflection.
+            e.HasIndex(x => new { x.UserId, x.Status });
+            e.HasIndex(x => x.ReflectionId);
         });
 
         b.Entity<PendingClarification>(e =>
