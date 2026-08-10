@@ -49,6 +49,17 @@
     #send { padding: 0 20px; border: none; border-radius: 10px; background: var(--accent);
       color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
     #send:disabled { opacity: .5; cursor: default; }
+    /* Push-to-talk mic + speak toggle */
+    #mic, #speak { border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+      border-radius: 10px; font-size: 18px; cursor: pointer; padding: 0 14px; line-height: 1;
+      touch-action: none; user-select: none; -webkit-user-select: none; }
+    #mic:disabled { opacity: .4; cursor: default; }
+    #mic.recording { background: #ef4444; border-color: #ef4444; color: #fff;
+      animation: pulse 1s ease-in-out infinite; }
+    #speak { font-size: 15px; margin-left: auto; }
+    #speak.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.5); }
+      50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
     .msg.typing { display: inline-flex; gap: 5px; align-items: center; }
     .msg.typing span { width: 7px; height: 7px; border-radius: 50%; background: currentColor;
       opacity: .3; animation: blink 1.2s infinite both; }
@@ -60,6 +71,7 @@
 <body>
   <header>
     <h1>🧠 Persistent Companion</h1>
+    <button id="speak" title="Speak replies aloud (text-to-speech)">🔈 Speak</button>
     <span id="status"><span class="dot"></span><span id="status-text">connecting…</span></span>
   </header>
 
@@ -69,6 +81,7 @@
   </div>
 
   <footer>
+    <button id="mic" title="Hold to talk">🎤</button>
     <textarea id="input" rows="1" placeholder="Talk to your companion…  (Enter to send)"></textarea>
     <button id="send" disabled>Send</button>
   </footer>
@@ -77,6 +90,8 @@
     const log = document.getElementById('log');
     const input = document.getElementById('input');
     const send = document.getElementById('send');
+    const mic = document.getElementById('mic');
+    const speakBtn = document.getElementById('speak');
     const status = document.getElementById('status');
     const statusText = document.getElementById('status-text');
 
@@ -179,20 +194,24 @@
             currentBot.textContent += m.text;
             log.scrollTop = log.scrollHeight;
             break;
-          case 'reply':
+          case 'reply': {
             hideThinking();
+            let finalText = m.text;
             if (m.kind === 'Confirmation') {
               if (currentBot) currentBot = null;
               add('bot', m.text);
               offerConfirm(m.confirmationToken);
             } else if (m.kind === 'Chat') {
-              if (!currentBot) add('bot', m.text); // non-streaming fallback
+              if (currentBot) finalText = currentBot.textContent; // the streamed text
+              else add('bot', m.text);                            // non-streaming fallback
               currentBot = null;
             } else { // Action
               add('bot', m.text);
               currentBot = null;
             }
+            maybeSpeak(finalText);
             break;
+          }
           case 'error':
             hideThinking();
             add('sys', '⚠ ' + m.message);
@@ -233,20 +252,149 @@
       log.scrollTop = log.scrollHeight;
     }
 
-    function submit() {
-      const text = input.value.trim();
-      if (!text || socket.readyState !== WebSocket.OPEN) return;
+    function sendText(text, viaVoice) {
+      text = (text || '').trim();
+      if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
       add('you', text);
       currentBot = null;
+      if (viaVoice) speakNext = true; // voice in → voice out for this turn
       socket.send(JSON.stringify({ type: 'chat', text, conversationId }));
       showThinking();
       input.value = '';
     }
 
+    function submit() { sendText(input.value, false); }
+
     send.onclick = submit;
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
     });
+
+    // ---- voice loop: push-to-talk (mic → /transcribe → turn → /speak → speaker) ----
+
+    // Local API token also authorizes the HTTP fetches (WebSocket used a query param instead).
+    function authHeaders(extra) {
+      const h = extra || {};
+      const t = localStorage.getItem('companionApiToken') || '';
+      if (t) h['Authorization'] = 'Bearer ' + t;
+      return h;
+    }
+
+    let mediaStream = null, recorder = null, chunks = [], recording = false, micDisabled = false;
+
+    function pickMime() {
+      const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg', 'audio/mp4'];
+      for (const t of types) if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+      return '';
+    }
+
+    async function startRecording() {
+      if (recording || micDisabled) return;
+      stopAudio(); // barge-in: talking over the companion stops its playback
+      try {
+        mediaStream = mediaStream || await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mime = pickMime();
+        recorder = new MediaRecorder(mediaStream, mime ? { mimeType: mime } : undefined);
+        chunks = [];
+        recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        recorder.onstop = onRecordingStop;
+        recorder.start();
+        recording = true;
+        mic.classList.add('recording');
+        statusText.textContent = 'listening…';
+      } catch (err) {
+        add('sys', '⚠ Microphone unavailable: ' + (err && err.message ? err.message : err));
+        micDisabled = true; mic.disabled = true;
+      }
+    }
+
+    function stopRecording() {
+      if (!recording) return;
+      recording = false;
+      mic.classList.remove('recording');
+      if (authenticated) statusText.textContent = 'connected';
+      try { recorder.stop(); } catch {}
+    }
+
+    async function onRecordingStop() {
+      const blob = new Blob(chunks, { type: (recorder && recorder.mimeType) || 'audio/webm' });
+      chunks = [];
+      if (blob.size < 1200) return; // ignore an accidental tap
+      statusText.textContent = 'transcribing…';
+      try {
+        const fd = new FormData();
+        fd.append('file', blob, 'speech.webm');
+        const res = await fetch('/transcribe', { method: 'POST', headers: authHeaders(), body: fd });
+        if (authenticated) statusText.textContent = 'connected';
+        if (res.status === 503) {
+          add('sys', '⚠ Speech-to-text isn’t configured on the server (set Models.Transcription — see docs/AUDIO.md).');
+          micDisabled = true; mic.disabled = true; return;
+        }
+        if (!res.ok) { add('sys', '⚠ Transcription failed (' + res.status + ').'); return; }
+        const data = await res.json();
+        const text = (data.text || '').trim();
+        if (text) sendText(text, true);
+        else add('sys', '(didn’t catch that — try again)');
+      } catch (err) {
+        add('sys', '⚠ Transcription error: ' + (err && err.message ? err.message : err));
+      }
+    }
+
+    // Press-and-hold anywhere on the mic; release anywhere stops (classic push-to-talk).
+    mic.addEventListener('pointerdown', (e) => { e.preventDefault(); startRecording(); });
+    window.addEventListener('pointerup', () => { if (recording) stopRecording(); });
+    mic.addEventListener('pointercancel', () => { if (recording) stopRecording(); });
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      mic.disabled = true; mic.title = 'Microphone not supported in this browser';
+    }
+
+    // ---- text-to-speech playback ----
+
+    let currentAudio = null, speakDisabled = false, speakAll = false, speakNext = false;
+
+    function stopAudio() {
+      if (!currentAudio) return;
+      try { currentAudio.pause(); } catch {}
+      try { URL.revokeObjectURL(currentAudio.src); } catch {}
+      currentAudio = null;
+    }
+
+    async function speak(text) {
+      if (speakDisabled || !text) return;
+      try {
+        const res = await fetch('/speak', {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ text }),
+        });
+        if (res.status === 503) {
+          speakDisabled = true; speakAll = false; speakBtn.classList.remove('on');
+          add('sys', '⚠ Text-to-speech isn’t configured on the server (set Models.Speech — see docs/AUDIO.md).');
+          return;
+        }
+        if (!res.ok) return;
+        const blob = await res.blob();
+        stopAudio();
+        currentAudio = new Audio(URL.createObjectURL(blob));
+        currentAudio.onended = () => stopAudio();
+        currentAudio.play().catch(() => {}); // autoplay can be blocked until the user interacts
+      } catch { /* speech is a nicety; never break the turn over it */ }
+    }
+
+    // Speak this reply if the whole "speak" toggle is on, or if the turn came in by voice.
+    function maybeSpeak(text) {
+      const should = speakAll || speakNext;
+      speakNext = false;
+      if (should) speak(text);
+    }
+
+    speakBtn.onclick = () => {
+      if (speakDisabled) return;
+      speakAll = !speakAll;
+      speakBtn.classList.toggle('on', speakAll);
+      speakBtn.textContent = speakAll ? '🔊 Speak' : '🔈 Speak';
+      if (!speakAll) stopAudio();
+    };
 
     connect();
   </script>
