@@ -104,14 +104,18 @@ phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity
     turns a general mood into a specific, caring follow-up: the greeter opens with "Last time you
     seemed nervous about the interview — how's that going?" and the in-turn tone note becomes "the
     user has seemed anxious about the interview lately — it's fine to gently ask how that's going."
+  - **The loop closes** — a concern is followed up on *once*, then let go: surfacing it in a greeting
+    marks it closed (so it never nags across sessions, even if the user answered with a bare "it went
+    great"), and a newer feeling about the same topic supersedes the old one (latest-feeling-wins).
+    Closed concerns stay in the mood *history* (the trend can still show a low lifting back up) but
+    drop out of the "right now" read, so they're never re-raised.
   - **Used, not stated** — the snapshot becomes one line of *tone guidance* in the context packet
     ("the user has seemed stressed lately — be a little gentler; don't bring this up unless they do"),
     rendered as prose the model attunes to rather than reads back. The greeter opens with care after a
     low stretch ("you seemed a bit low last time — I'm here if you want to talk about it") or shares in
     good spirits.
-- **Later:** longer-horizon mood history beyond the recent window, resolving a follow-up once the
-  user answers it (so the same worry isn't re-raised), and emotion cues from voice tone once the audio
-  loop lands.
+- **Later:** longer-horizon mood history beyond the recent window, and emotion cues from voice tone
+  once the audio loop lands.
 
 ## Long tasks: finish in-turn now, background jobs later
 

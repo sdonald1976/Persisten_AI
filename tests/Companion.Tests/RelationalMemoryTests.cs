@@ -130,6 +130,51 @@ public class RelationalMemoryTests
     }
 
     [Fact]
+    public async Task Greeter_AsksAboutAWorryOnlyOnce_ThenLetsItGo()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        var greeter = sp.GetRequiredService<IGreeter>();
+        var conv = await NewConversationAsync(sp);
+
+        await sp.GetRequiredService<ICompanion>()
+            .RespondAsync(User, conv, "I'm really nervous about the interview");
+
+        // First greeting raises it…
+        var first = await greeter.GreetAsync(User);
+        Assert.Contains(first.Openers, o => o.Contains("the interview", StringComparison.OrdinalIgnoreCase));
+
+        // …the next one doesn't nag about the same thing.
+        var second = await greeter.GreetAsync(User);
+        Assert.DoesNotContain(second.Openers, o => o.Contains("the interview", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ANewerFeelingAboutATopic_SupersedesTheOldWorry()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        var companion = sp.GetRequiredService<ICompanion>();
+        var conv = await NewConversationAsync(sp);
+
+        await companion.RespondAsync(User, conv, "I'm worried about the deadline");
+        await companion.RespondAsync(User, conv, "feeling much better about the deadline");
+
+        var signals = await sp.GetRequiredService<IEmotionStore>().GetRecentSignalsAsync(User, 10);
+        Assert.Equal(2, signals.Count);
+        // The old worry is closed out; the fresh, brighter reading stands.
+        Assert.Single(signals, s => s.FollowedUp && s.Sentiment == Sentiment.Negative);
+        Assert.Single(signals, s => !s.FollowedUp && s.Valence > 0);
+
+        // So the greeter never re-raises the deadline as a worry.
+        var greeting = await sp.GetRequiredService<IGreeter>().GreetAsync(User);
+        Assert.DoesNotContain(greeting.Openers, o =>
+            o.Contains("worried about the deadline", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task Greeter_OpensWithCare_AfterALowStretch()
     {
         await using var host = new TestHost(Now);

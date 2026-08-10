@@ -331,6 +331,11 @@ public sealed class Companion : ICompanion
         var resolvedProject = projectContext.Summary?.Project;
         var topic = MoodTopic.Extract(userMessage.Content) ?? resolvedProject?.Name;
 
+        // Latest feeling about a topic wins: a fresh reading about the same thing closes out the
+        // prior one, so an old worry the user has now spoken to again isn't surfaced separately.
+        if (topic is not null)
+            await _emotions.MarkTopicFollowedUpAsync(userId, topic, ct);
+
         await _emotions.AddSignalAsync(new EmotionalSignal
         {
             Id = Guid.NewGuid(),
