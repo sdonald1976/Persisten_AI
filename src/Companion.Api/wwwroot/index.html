@@ -74,7 +74,7 @@
     const status = document.getElementById('status');
     const statusText = document.getElementById('status-text');
 
-    let socket, conversationId = null, currentBot = null;
+    let socket, conversationId = null, currentBot = null, greetingBubble = null;
 
     function add(cls, text) {
       const el = document.createElement('div');
@@ -140,8 +140,17 @@
             conversationId = m.conversationId;
             // The companion opens the conversation so you don't have to. Show its message and
             // offer the memory-grounded starters as clickable chips (or just type your own).
-            if (m.message) add('bot', m.message);
+            // The bubble is kept so a later 'greeting' frame can upgrade the wording in place.
+            greetingBubble = m.message ? add('bot', m.message) : null;
             if (Array.isArray(m.openers) && m.openers.length) offerOpeners(m.openers);
+            break;
+          case 'greeting':
+            // The model finished phrasing the opener in its own voice — swap it in. The instant
+            // deterministic greeting was already shown, so this is purely a wording upgrade.
+            if (m.message) {
+              if (greetingBubble) greetingBubble.textContent = m.message;
+              else greetingBubble = add('bot', m.message);
+            }
             break;
           case 'token':
             if (!currentBot) currentBot = add('bot', '');

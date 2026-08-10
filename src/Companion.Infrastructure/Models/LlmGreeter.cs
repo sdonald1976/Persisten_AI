@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Microsoft.Extensions.Logging;
@@ -12,9 +13,11 @@ namespace Companion.Infrastructure.Models;
 /// model is only asked to phrase the welcome around those real threads — it never invents them — and
 /// any failure or empty reply falls straight back to the deterministic opener.
 /// </summary>
-public sealed class LlmGreeter : IGreeter
+public sealed class LlmGreeter : IGreeter, IGreetingRephraser
 {
     private const int MaxGreetingChars = 1200;
+
+    private static readonly Regex SpecialTokens = new(@"<\|[^|>]{1,32}\|>", RegexOptions.CultureInvariant);
 
     private const string SystemPrompt =
         "You are a persistent AI companion. At the start of a session you speak first — a brief, " +
@@ -38,11 +41,17 @@ public sealed class LlmGreeter : IGreeter
     {
         // The deterministic greeter is both the grounding (real threads → openers) and the safety net.
         var grounded = await _fallback.GreetAsync(userId, ct);
+        return await RephraseAsync(grounded, ct);
+    }
 
+    public async Task<Greeting> RephraseAsync(Greeting grounded, CancellationToken ct = default)
+    {
         try
         {
             var reply = await _chat.CompleteAsync(SystemPrompt, BuildPrompt(grounded.Openers), jsonMode: false, ct: ct);
-            var message = reply.Text?.Trim();
+            // Small local models sometimes leak chat-template markers (e.g. a literal <|im_end|>)
+            // into their text; they are never legitimate greeting content.
+            var message = SpecialTokens.Replace(reply.Text ?? string.Empty, string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(message))
                 return grounded;
 
@@ -51,6 +60,12 @@ public sealed class LlmGreeter : IGreeter
 
             // Keep the real openers for the UI's quick-pick chips; only the phrasing is model-written.
             return grounded with { Message = message };
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The session ended (client disconnect, Ctrl-C) while the model was writing — there is
+            // no one left to greet. Not a model failure; let the caller unwind normally.
+            throw;
         }
         catch (Exception ex)
         {
