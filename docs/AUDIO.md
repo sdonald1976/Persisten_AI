@@ -101,7 +101,10 @@ The reference client (`wwwroot/index.html`, served at `/`) has the round trip wi
   posts to `/transcribe`, and sends the transcript as a normal turn. The companion's reply to a
   spoken turn is **spoken back** automatically (voice in → voice out).
 - **🔈 Speak** — toggle in the header to read *every* reply aloud (including typed ones).
-- Starting to talk stops any in-progress playback (basic barge-in).
+- **Streaming playback** — the reply is synthesized sentence-by-sentence *as it streams in* and the
+  clips play in order, so the companion starts talking within a sentence instead of after the whole
+  reply is written. Synthesis runs ahead of playback to keep the gaps between clips small.
+- Starting to talk stops in-progress playback and cancels any pending clips (basic barge-in).
 
 Both degrade gracefully: if the server has no `Transcription` the mic disables itself with a note;
 if it has no `Speech`, the speak toggle does. Mic capture needs a secure context — `localhost` counts,
@@ -109,6 +112,6 @@ but a plain-`http` LAN address won't grant microphone access (use `localhost` or
 
 ## What's next for the voice loop
 
-Still to come: **streaming playback** (synthesize the reply in chunks as it's generated, for lower
-latency, likely over new WebSocket audio frames) and true **barge-in** during playback. See
+Still to come: **hands-free barge-in** — interrupt playback just by starting to talk (voice-activity
+detection), instead of having to hold the mic. After that, a 3D avatar with lip-sync. See
 [`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md).

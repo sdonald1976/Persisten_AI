@@ -192,6 +192,7 @@
             hideThinking();
             if (!currentBot) currentBot = add('bot', '');
             currentBot.textContent += m.text;
+            feedSpeech(m.text); // synthesize each sentence as it streams in
             log.scrollTop = log.scrollHeight;
             break;
           case 'reply': {
@@ -209,13 +210,14 @@
               add('bot', m.text);
               currentBot = null;
             }
-            maybeSpeak(finalText);
+            finalizeSpeech(finalText);
             break;
           }
           case 'error':
             hideThinking();
             add('sys', '⚠ ' + m.message);
             currentBot = null;
+            stopSpeech();
             break;
         }
       };
@@ -257,7 +259,7 @@
       if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
       add('you', text);
       currentBot = null;
-      if (viaVoice) speakNext = true; // voice in → voice out for this turn
+      newSpeechTurn(speakAll || viaVoice); // voice in → voice out, or speak-all toggle on
       socket.send(JSON.stringify({ type: 'chat', text, conversationId }));
       showThinking();
       input.value = '';
@@ -290,7 +292,7 @@
 
     async function startRecording() {
       if (recording || micDisabled) return;
-      stopAudio(); // barge-in: talking over the companion stops its playback
+      stopSpeech(); // barge-in: talking over the companion stops its playback and pending speech
       try {
         mediaStream = mediaStream || await navigator.mediaDevices.getUserMedia({ audio: true });
         const mime = pickMime();
@@ -348,19 +350,81 @@
       mic.disabled = true; mic.title = 'Microphone not supported in this browser';
     }
 
-    // ---- text-to-speech playback ----
+    // ---- streaming text-to-speech playback ----
+    // Synthesize the reply sentence-by-sentence as it streams in and play the clips in order, so the
+    // companion starts talking within a sentence instead of after the whole reply is written. Each
+    // turn gets its own pipeline; a new turn or barge-in cancels the previous one.
 
-    let currentAudio = null, speakDisabled = false, speakAll = false, speakNext = false;
+    let currentAudio = null, speakDisabled = false, speakAll = false, speech = null;
+
+    function newSpeechTurn(enabled) {
+      stopSpeech();
+      speech = (enabled && !speakDisabled)
+        ? { buf: '', queue: [], playing: false, fed: false, cancelled: false }
+        : null;
+    }
+
+    function stopSpeech() {
+      if (speech) speech.cancelled = true;
+      speech = null;
+      stopAudio();
+    }
 
     function stopAudio() {
       if (!currentAudio) return;
-      try { currentAudio.pause(); } catch {}
-      try { URL.revokeObjectURL(currentAudio.src); } catch {}
-      currentAudio = null;
+      const a = currentAudio; currentAudio = null;
+      try { a.pause(); } catch {}
+      try { URL.revokeObjectURL(a.src); } catch {}
+      if (a._resolve) { const r = a._resolve; a._resolve = null; r(); } // let a paused clip's play loop advance
     }
 
-    async function speak(text) {
-      if (speakDisabled || !text) return;
+    // Pull the next speakable chunk from the growing buffer: a whole sentence (terminal punctuation
+    // followed by a space), or — when a clause runs long with no punctuation — a split at a space so
+    // playback latency stays bounded. Returns null when nothing is ready yet.
+    function nextChunk(s) {
+      const m = /[.!?…]+["')\]]*\s/.exec(s.buf);
+      if (m) {
+        const end = m.index + m[0].length;
+        const chunk = s.buf.slice(0, end).trim();
+        s.buf = s.buf.slice(end);
+        return chunk || null;
+      }
+      if (s.buf.length > 220) {
+        let cut = s.buf.lastIndexOf(' ', 220);
+        if (cut < 40) cut = 220;
+        const chunk = s.buf.slice(0, cut).trim();
+        s.buf = s.buf.slice(cut);
+        return chunk || null;
+      }
+      return null;
+    }
+
+    function feedSpeech(text) {
+      if (!speech) return;
+      speech.fed = true;
+      speech.buf += text;
+      let chunk;
+      while ((chunk = nextChunk(speech)) !== null) enqueueChunk(speech, chunk);
+    }
+
+    // End of the reply: speak the trailing partial sentence. For a non-streamed reply (Action /
+    // Confirmation arrives whole, no tokens), synthesize the full text here instead.
+    function finalizeSpeech(finalText) {
+      if (!speech) return;
+      if (!speech.fed && finalText) feedSpeech(finalText);
+      const tail = speech.buf.trim();
+      speech.buf = '';
+      if (tail) enqueueChunk(speech, tail);
+    }
+
+    function enqueueChunk(s, text) {
+      if (!text) return;
+      s.queue.push({ p: synthAudio(text) }); // synthesis starts now; playback stays in order
+      playLoop(s);
+    }
+
+    async function synthAudio(text) {
+      if (speakDisabled) return null;
       try {
         const res = await fetch('/speak', {
           method: 'POST',
@@ -368,24 +432,46 @@
           body: JSON.stringify({ text }),
         });
         if (res.status === 503) {
-          speakDisabled = true; speakAll = false; speakBtn.classList.remove('on');
+          speakDisabled = true; speakAll = false;
+          speakBtn.classList.remove('on'); speakBtn.textContent = '🔈 Speak';
           add('sys', '⚠ Text-to-speech isn’t configured on the server (set Models.Speech — see docs/AUDIO.md).');
-          return;
+          stopSpeech();
+          return null;
         }
-        if (!res.ok) return;
-        const blob = await res.blob();
-        stopAudio();
-        currentAudio = new Audio(URL.createObjectURL(blob));
-        currentAudio.onended = () => stopAudio();
-        currentAudio.play().catch(() => {}); // autoplay can be blocked until the user interacts
-      } catch { /* speech is a nicety; never break the turn over it */ }
+        if (!res.ok) return null;
+        return URL.createObjectURL(await res.blob());
+      } catch { return null; } // speech is a nicety; never break the turn over it
     }
 
-    // Speak this reply if the whole "speak" toggle is on, or if the turn came in by voice.
-    function maybeSpeak(text) {
-      const should = speakAll || speakNext;
-      speakNext = false;
-      if (should) speak(text);
+    // One player per pipeline (guarded by s.playing): await each queued clip's synthesis in order,
+    // play it to completion, then move on — so clips never overlap even if a later one synthesizes first.
+    async function playLoop(s) {
+      if (s.playing || s.cancelled) return;
+      s.playing = true;
+      while (s.queue.length && !s.cancelled) {
+        let url;
+        try { url = await s.queue[0].p; } catch { url = null; }
+        if (s.cancelled) { if (url) { try { URL.revokeObjectURL(url); } catch {} } break; }
+        if (url) await playUrl(url);
+        if (s.cancelled) break;
+        s.queue.shift();
+      }
+      s.playing = false;
+    }
+
+    function playUrl(url) {
+      return new Promise((resolve) => {
+        const audio = new Audio(url);
+        audio._resolve = resolve;
+        currentAudio = audio;
+        const done = () => {
+          try { URL.revokeObjectURL(url); } catch {}
+          if (currentAudio === audio) currentAudio = null;
+          if (audio._resolve) { audio._resolve = null; resolve(); }
+        };
+        audio.onended = done; audio.onerror = done;
+        audio.play().catch(done); // autoplay can be blocked until the user interacts
+      });
     }
 
     speakBtn.onclick = () => {
@@ -393,7 +479,7 @@
       speakAll = !speakAll;
       speakBtn.classList.toggle('on', speakAll);
       speakBtn.textContent = speakAll ? '🔊 Speak' : '🔈 Speak';
-      if (!speakAll) stopAudio();
+      if (!speakAll) stopSpeech();
     };
 
     connect();
