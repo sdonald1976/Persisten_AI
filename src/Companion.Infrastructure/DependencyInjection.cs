@@ -149,12 +149,20 @@ public static class DependencyInjection
         // a real model is configured, LlmGreeter phrases the welcome naturally around those threads.
         services.AddScoped<Greeter>();
         if (modelOptions.UsesRealModel)
-            services.AddScoped<IGreeter>(sp => new LlmGreeter(
+        {
+            services.AddScoped<LlmGreeter>(sp => new LlmGreeter(
                 sp.GetRequiredService<Greeter>(),
                 sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation),
                 sp.GetRequiredService<ILogger<LlmGreeter>>()));
+            services.AddScoped<IGreeter>(sp => sp.GetRequiredService<LlmGreeter>());
+            // Registered only alongside a real model: faces that want an instant opener show the
+            // deterministic Greeter's message first and upgrade the wording when this completes.
+            services.AddScoped<IGreetingRephraser>(sp => sp.GetRequiredService<LlmGreeter>());
+        }
         else
+        {
             services.AddScoped<IGreeter>(sp => sp.GetRequiredService<Greeter>());
+        }
 
         // The brain facade every face (CLI, HTTP, voice, avatar) drives the companion through.
         services.AddScoped<IAgent, Agent>();
