@@ -53,9 +53,17 @@ mic → VAD → STT → [turn] → LLM tokens (stream) → TTS → speaker
 camera → frames (opt-in) → vision model → context
 ```
 
-Local building blocks: whisper (built — `/transcribe`), **Piper** for TTS (fast, local, emits
-phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity. Start with
-**push-to-talk**; add wake-word and **barge-in** (interrupt mid-sentence) later.
+Local building blocks: whisper (built — `/transcribe`) and **TTS** (built — `POST /speak`, an
+OpenAI-compatible `/v1/audio/speech` provider behind `ISpeechSynthesizer`; Piper/Speaches/LocalAI).
+The reference web client wires them into a full voice loop (built): **push-to-talk** (hold-to-talk
+mic) **or hands-free** (voice-activity detection — just talk), **streaming playback** (the reply is
+synthesized sentence-by-sentence as it streams and the clips play in order, so speech starts within a
+sentence), and **talk-to-interrupt barge-in** (speech onset cuts off playback mid-sentence). A
+**3D avatar with lip-sync** is built too — three.js (vendored offline) loads a viseme-capable `.glb`
+(Avaturn, VRoid, or any glTF with ARKit/Oculus visemes) and drives the mouth from the reply's audio
+amplitude, with idle blinking and drag/zoom (see
+[`AVATAR.md`](AVATAR.md)). Next on this axis: **phoneme-accurate visemes** from Piper's phoneme
+timings (crisper mouth shapes), then body gestures/emotes.
 
 ## Style: editable now, trainable later
 
@@ -154,6 +162,8 @@ project's local-first, forgettable ethos and must precede any ambient capture.
 
 1. ✅ Natural-language intents + editable persona + feedback capture.
 2. ✅ Headless streaming API (brain/face split) — `Companion.Api` (HTTP + SSE + WebSocket).
-3. Voice loop (push-to-talk → whisper → turn → Piper TTS).
-4. 3D avatar front-end (visemes + emotion).
+3. ✅ Voice loop — `/transcribe` + `/speak` endpoints and a web client with push-to-talk, hands-free
+   VAD, streaming playback, and talk-to-interrupt barge-in.
+4. 3D avatar front-end — first version built (three.js, viseme-capable `.glb`, amplitude lip-sync +
+   blink); remaining: phoneme-accurate visemes, body gestures/emotes.
 5. Opt-in camera (vision frames), privacy-gated.

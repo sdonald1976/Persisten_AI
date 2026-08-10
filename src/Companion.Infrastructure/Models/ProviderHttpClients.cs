@@ -24,6 +24,7 @@ internal static class ProviderHttpClients
     public const string Embeddings = "embeddings";
     public const string Vision = "vision";
     public const string Transcription = "transcription";
+    public const string Speech = "speech";
 
     public static void AddModelHttpClients(this IServiceCollection services, ModelOptions options)
     {
@@ -36,6 +37,7 @@ internal static class ProviderHttpClients
         Register(services, Embeddings, options.Embeddings);
         if (options.Vision is { } vision) Register(services, Vision, vision);
         if (options.Transcription is { } transcription) Register(services, Transcription, transcription);
+        if (options.Speech is { } speech) Register(services, Speech, speech);
     }
 
     private static void Register(IServiceCollection services, string role, EndpointOptions ep)

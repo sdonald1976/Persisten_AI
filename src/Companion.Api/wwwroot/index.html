@@ -4,6 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Persistent Companion</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/vendor/three/three.module.js",
+      "three/addons/": "/vendor/three/addons/"
+    }
+  }
+  </script>
   <style>
     :root {
       color-scheme: light dark;
@@ -49,6 +57,34 @@
     #send { padding: 0 20px; border: none; border-radius: 10px; background: var(--accent);
       color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
     #send:disabled { opacity: .5; cursor: default; }
+    /* Push-to-talk mic, hands-free toggle, speak toggle */
+    #mic, #hands, #speak { border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+      border-radius: 10px; font-size: 18px; cursor: pointer; padding: 0 14px; line-height: 1;
+      touch-action: none; user-select: none; -webkit-user-select: none; }
+    #mic:disabled, #hands:disabled { opacity: .4; cursor: default; }
+    #mic.recording { background: #ef4444; border-color: #ef4444; color: #fff;
+      animation: pulse 1s ease-in-out infinite; }
+    #hands.on { background: #16a34a; border-color: #16a34a; color: #fff; }
+    #speak { font-size: 15px; margin-left: auto; }
+    #hands { font-size: 15px; }
+    #speak.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    #avatarBtn { border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+      border-radius: 10px; font-size: 15px; cursor: pointer; padding: 4px 12px; }
+    #avatarBtn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    /* 3D avatar stage */
+    #stage { position: relative; height: 42vh; min-height: 240px; border-bottom: 1px solid var(--line);
+      background: radial-gradient(120% 120% at 50% 20%, #2a2f3a 0%, #14161b 100%); display: none; }
+    #stage.show { display: block; }
+    #avatarCanvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+    #avatarCanvas:active { cursor: grabbing; }
+    #stageBar { position: absolute; left: 10px; bottom: 10px; right: 10px; display: flex; gap: 8px;
+      align-items: center; font-size: 12.5px; color: #cbd2dc; }
+    #stageBar .spacer { flex: 1; }
+    #stageHint { background: rgba(0,0,0,.45); padding: 4px 8px; border-radius: 8px; }
+    #loadModel { border: 1px solid #4b5563; background: rgba(0,0,0,.4); color: #e8eaed;
+      border-radius: 8px; padding: 5px 12px; cursor: pointer; font: inherit; }
+    @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.5); }
+      50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
     .msg.typing { display: inline-flex; gap: 5px; align-items: center; }
     .msg.typing span { width: 7px; height: 7px; border-radius: 50%; background: currentColor;
       opacity: .3; animation: blink 1.2s infinite both; }
@@ -60,8 +96,20 @@
 <body>
   <header>
     <h1>🧠 Persistent Companion</h1>
+    <button id="avatarBtn" title="Show a 3D avatar that lip-syncs the spoken reply">🧍 Avatar</button>
+    <button id="speak" title="Speak replies aloud (text-to-speech)">🔈 Speak</button>
     <span id="status"><span class="dot"></span><span id="status-text">connecting…</span></span>
   </header>
+
+  <div id="stage">
+    <canvas id="avatarCanvas"></canvas>
+    <div id="stageBar">
+      <span id="stageHint">Load a full-body model with visemes — a VRoid <code>.vrm</code> or a <code>.glb</code> (Avaturn) — to bring the companion to life.</span>
+      <span class="spacer"></span>
+      <button id="loadModel">Load model…</button>
+      <input id="avatarFile" type="file" accept=".glb,.gltf,.vrm,model/gltf-binary,model/gltf+json" hidden />
+    </div>
+  </div>
 
   <div id="log">
     <div class="sys">This page is a thin "face" over the local companion API — the brain runs headless
@@ -69,6 +117,8 @@
   </div>
 
   <footer>
+    <button id="hands" title="Hands-free listening (just talk; talk over me to interrupt)">🎙️</button>
+    <button id="mic" title="Hold to talk">🎤</button>
     <textarea id="input" rows="1" placeholder="Talk to your companion…  (Enter to send)"></textarea>
     <button id="send" disabled>Send</button>
   </footer>
@@ -77,6 +127,9 @@
     const log = document.getElementById('log');
     const input = document.getElementById('input');
     const send = document.getElementById('send');
+    const mic = document.getElementById('mic');
+    const handsBtn = document.getElementById('hands');
+    const speakBtn = document.getElementById('speak');
     const status = document.getElementById('status');
     const statusText = document.getElementById('status-text');
 
@@ -177,26 +230,32 @@
             hideThinking();
             if (!currentBot) currentBot = add('bot', '');
             currentBot.textContent += m.text;
+            feedSpeech(m.text); // synthesize each sentence as it streams in
             log.scrollTop = log.scrollHeight;
             break;
-          case 'reply':
+          case 'reply': {
             hideThinking();
+            let finalText = m.text;
             if (m.kind === 'Confirmation') {
               if (currentBot) currentBot = null;
               add('bot', m.text);
               offerConfirm(m.confirmationToken);
             } else if (m.kind === 'Chat') {
-              if (!currentBot) add('bot', m.text); // non-streaming fallback
+              if (currentBot) finalText = currentBot.textContent; // the streamed text
+              else add('bot', m.text);                            // non-streaming fallback
               currentBot = null;
             } else { // Action
               add('bot', m.text);
               currentBot = null;
             }
+            finalizeSpeech(finalText);
             break;
+          }
           case 'error':
             hideThinking();
             add('sys', '⚠ ' + m.message);
             currentBot = null;
+            stopSpeech();
             break;
         }
       };
@@ -233,22 +292,566 @@
       log.scrollTop = log.scrollHeight;
     }
 
-    function submit() {
-      const text = input.value.trim();
-      if (!text || socket.readyState !== WebSocket.OPEN) return;
+    function sendText(text, viaVoice) {
+      text = (text || '').trim();
+      if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
       add('you', text);
       currentBot = null;
+      newSpeechTurn(speakAll || viaVoice); // voice in → voice out, or speak-all toggle on
       socket.send(JSON.stringify({ type: 'chat', text, conversationId }));
       showThinking();
       input.value = '';
     }
+
+    function submit() { sendText(input.value, false); }
 
     send.onclick = submit;
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
     });
 
+    // ---- voice loop: push-to-talk (mic → /transcribe → turn → /speak → speaker) ----
+
+    // Local API token also authorizes the HTTP fetches (WebSocket used a query param instead).
+    function authHeaders(extra) {
+      const h = extra || {};
+      const t = localStorage.getItem('companionApiToken') || '';
+      if (t) h['Authorization'] = 'Bearer ' + t;
+      return h;
+    }
+
+    let mediaStream = null, recorder = null, chunks = [], recording = false, micDisabled = false, recStart = 0;
+
+    function pickMime() {
+      const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg', 'audio/mp4'];
+      for (const t of types) if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+      return '';
+    }
+
+    // Echo cancellation matters for hands-free: it keeps the companion's own playback from feeding
+    // back into the mic and self-triggering. Harmless for push-to-talk.
+    async function ensureStream() {
+      if (mediaStream) return mediaStream;
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      return mediaStream;
+    }
+
+    async function startRecording() {
+      if (recording || micDisabled) return;
+      stopSpeech(); // barge-in: talking over the companion stops its playback and pending speech
+      try {
+        await ensureStream();
+        const mime = pickMime();
+        recorder = new MediaRecorder(mediaStream, mime ? { mimeType: mime } : undefined);
+        chunks = [];
+        recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        recorder.onstop = onRecordingStop;
+        recorder.start();
+        recording = true;
+        recStart = performance.now();
+        mic.classList.add('recording');
+        statusText.textContent = 'listening…';
+      } catch (err) {
+        add('sys', '⚠ Microphone unavailable: ' + (err && err.message ? err.message : err));
+        micDisabled = true; mic.disabled = true;
+      }
+    }
+
+    function stopRecording() {
+      if (!recording) return;
+      recording = false;
+      mic.classList.remove('recording');
+      if (authenticated) statusText.textContent = 'connected';
+      try { recorder.stop(); } catch {}
+    }
+
+    async function onRecordingStop() {
+      const blob = new Blob(chunks, { type: (recorder && recorder.mimeType) || 'audio/webm' });
+      const durMs = performance.now() - recStart;
+      chunks = [];
+      if (blob.size < 1200 || durMs < 250) return; // ignore an accidental tap or a VAD blip
+      statusText.textContent = 'transcribing…';
+      try {
+        const fd = new FormData();
+        fd.append('file', blob, 'speech.webm');
+        const res = await fetch('/transcribe', { method: 'POST', headers: authHeaders(), body: fd });
+        if (authenticated) statusText.textContent = 'connected';
+        if (res.status === 503) {
+          add('sys', '⚠ Speech-to-text isn’t configured on the server (set Models.Transcription — see docs/AUDIO.md).');
+          micDisabled = true; mic.disabled = true; return;
+        }
+        if (!res.ok) { add('sys', '⚠ Transcription failed (' + res.status + ').'); return; }
+        const data = await res.json();
+        const text = (data.text || '').trim();
+        if (text) sendText(text, true);
+        else add('sys', '(didn’t catch that — try again)');
+      } catch (err) {
+        add('sys', '⚠ Transcription error: ' + (err && err.message ? err.message : err));
+      }
+    }
+
+    // Press-and-hold anywhere on the mic; release anywhere stops (classic push-to-talk).
+    mic.addEventListener('pointerdown', (e) => { e.preventDefault(); startRecording(); });
+    window.addEventListener('pointerup', () => { if (recording) stopRecording(); });
+    mic.addEventListener('pointercancel', () => { if (recording) stopRecording(); });
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      mic.disabled = true; mic.title = 'Microphone not supported in this browser';
+      handsBtn.disabled = true; handsBtn.title = 'Microphone not supported in this browser';
+    }
+
+    // ---- hands-free: voice-activity detection (talk to speak, talk over the reply to interrupt) ----
+    // A lightweight energy VAD over the mic (Web Audio AnalyserNode): speech onset starts a capture
+    // (and cuts off the companion mid-sentence — barge-in), and a stretch of silence ends it,
+    // handing the clip to the same transcribe→send path push-to-talk uses.
+
+    let handsFree = false, audioCtx = null, analyser = null, vadData = null, vadTimer = null;
+    let vadSpeaking = false, vadSilenceSince = 0;
+    const VAD_ON = 0.055;               // RMS onset threshold in quiet listening
+    const VAD_ON_WHILE_TALKING = 0.10;  // higher bar to interrupt, so the companion's own audio (post-AEC) doesn't self-trigger
+    const VAD_OFF = 0.030;              // below this is silence
+    const VAD_HANGOVER_MS = 700;        // trailing silence that ends an utterance
+    const VAD_POLL_MS = 50;
+
+    function rmsLevel() {
+      analyser.getByteTimeDomainData(vadData);
+      let sum = 0;
+      for (let i = 0; i < vadData.length; i++) { const v = (vadData[i] - 128) / 128; sum += v * v; }
+      return Math.sqrt(sum / vadData.length);
+    }
+
+    function vadTick() {
+      if (!analyser) return;
+      const now = performance.now();
+      const level = rmsLevel();
+      const onThreshold = currentAudio ? VAD_ON_WHILE_TALKING : VAD_ON; // harder to trigger while it's speaking
+      if (!vadSpeaking) {
+        if (level > onThreshold) {
+          vadSpeaking = true; vadSilenceSince = 0;
+          startRecording(); // captures from onset; also cuts off any playback (barge-in)
+        }
+      } else if (level < VAD_OFF) {
+        if (!vadSilenceSince) vadSilenceSince = now;
+        else if (now - vadSilenceSince >= VAD_HANGOVER_MS) {
+          vadSpeaking = false; vadSilenceSince = 0;
+          stopRecording(); // → transcribe → send
+        }
+      } else {
+        vadSilenceSince = 0; // mid-level: still talking (hysteresis dead-zone)
+      }
+    }
+
+    async function enableHandsFree() {
+      try {
+        await ensureStream();
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 1024;
+        vadData = new Uint8Array(analyser.fftSize);
+        audioCtx.createMediaStreamSource(mediaStream).connect(analyser); // analyser is a sink; not wired to output, so no echo
+        vadSpeaking = false; vadSilenceSince = 0;
+        vadTimer = setInterval(vadTick, VAD_POLL_MS);
+        handsFree = true;
+        handsBtn.classList.add('on');
+        handsBtn.title = 'Hands-free listening: on — click to turn off';
+        add('sys', '🎙️ Hands-free listening is on — just start talking, and talk over me to interrupt.');
+      } catch (err) {
+        add('sys', '⚠ Couldn’t start hands-free listening: ' + (err && err.message ? err.message : err));
+        handsFree = false;
+      }
+    }
+
+    function disableHandsFree() {
+      handsFree = false;
+      if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+      analyser = null; vadData = null;
+      if (vadSpeaking) { vadSpeaking = false; if (recording) stopRecording(); }
+      handsBtn.classList.remove('on');
+      handsBtn.title = 'Hands-free listening (just talk; talk over me to interrupt)';
+    }
+
+    handsBtn.onclick = () => { handsFree ? disableHandsFree() : enableHandsFree(); };
+
+    // ---- streaming text-to-speech playback ----
+    // Synthesize the reply sentence-by-sentence as it streams in and play the clips in order, so the
+    // companion starts talking within a sentence instead of after the whole reply is written. Each
+    // turn gets its own pipeline; a new turn or barge-in cancels the previous one.
+
+    let currentAudio = null, speakDisabled = false, speakAll = false, speech = null;
+
+    function newSpeechTurn(enabled) {
+      stopSpeech();
+      speech = (enabled && !speakDisabled)
+        ? { buf: '', queue: [], playing: false, fed: false, cancelled: false }
+        : null;
+    }
+
+    function stopSpeech() {
+      if (speech) speech.cancelled = true;
+      speech = null;
+      stopAudio();
+    }
+
+    function stopAudio() {
+      if (!currentAudio) return;
+      const a = currentAudio; currentAudio = null;
+      try { a.pause(); } catch {}
+      try { URL.revokeObjectURL(a.src); } catch {}
+      if (window.companionAvatar) window.companionAvatar.onClipEnd(); // let the avatar's mouth close
+      if (a._resolve) { const r = a._resolve; a._resolve = null; r(); } // let a paused clip's play loop advance
+    }
+
+    // Pull the next speakable chunk from the growing buffer: a whole sentence (terminal punctuation
+    // followed by a space), or — when a clause runs long with no punctuation — a split at a space so
+    // playback latency stays bounded. Returns null when nothing is ready yet.
+    function nextChunk(s) {
+      const m = /[.!?…]+["')\]]*\s/.exec(s.buf);
+      if (m) {
+        const end = m.index + m[0].length;
+        const chunk = s.buf.slice(0, end).trim();
+        s.buf = s.buf.slice(end);
+        return chunk || null;
+      }
+      if (s.buf.length > 220) {
+        let cut = s.buf.lastIndexOf(' ', 220);
+        if (cut < 40) cut = 220;
+        const chunk = s.buf.slice(0, cut).trim();
+        s.buf = s.buf.slice(cut);
+        return chunk || null;
+      }
+      return null;
+    }
+
+    function feedSpeech(text) {
+      if (!speech) return;
+      speech.fed = true;
+      speech.buf += text;
+      let chunk;
+      while ((chunk = nextChunk(speech)) !== null) enqueueChunk(speech, chunk);
+    }
+
+    // End of the reply: speak the trailing partial sentence. For a non-streamed reply (Action /
+    // Confirmation arrives whole, no tokens), synthesize the full text here instead.
+    function finalizeSpeech(finalText) {
+      if (!speech) return;
+      if (!speech.fed && finalText) feedSpeech(finalText);
+      const tail = speech.buf.trim();
+      speech.buf = '';
+      if (tail) enqueueChunk(speech, tail);
+    }
+
+    function enqueueChunk(s, text) {
+      if (!text) return;
+      s.queue.push({ p: synthAudio(text) }); // synthesis starts now; playback stays in order
+      playLoop(s);
+    }
+
+    async function synthAudio(text) {
+      if (speakDisabled) return null;
+      try {
+        const res = await fetch('/speak', {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ text }),
+        });
+        if (res.status === 503) {
+          speakDisabled = true; speakAll = false;
+          speakBtn.classList.remove('on'); speakBtn.textContent = '🔈 Speak';
+          add('sys', '⚠ Text-to-speech isn’t configured on the server (set Models.Speech — see docs/AUDIO.md).');
+          stopSpeech();
+          return null;
+        }
+        if (!res.ok) return null;
+        return URL.createObjectURL(await res.blob());
+      } catch { return null; } // speech is a nicety; never break the turn over it
+    }
+
+    // One player per pipeline (guarded by s.playing): await each queued clip's synthesis in order,
+    // play it to completion, then move on — so clips never overlap even if a later one synthesizes first.
+    async function playLoop(s) {
+      if (s.playing || s.cancelled) return;
+      s.playing = true;
+      while (s.queue.length && !s.cancelled) {
+        let url;
+        try { url = await s.queue[0].p; } catch { url = null; }
+        if (s.cancelled) { if (url) { try { URL.revokeObjectURL(url); } catch {} } break; }
+        if (url) await playUrl(url);
+        if (s.cancelled) break;
+        s.queue.shift();
+      }
+      s.playing = false;
+    }
+
+    function playUrl(url) {
+      return new Promise((resolve) => {
+        const audio = new Audio(url);
+        audio._resolve = resolve;
+        currentAudio = audio;
+        if (window.companionAvatar) window.companionAvatar.onClipStart(audio); // drive lip-sync from this clip
+        const done = () => {
+          try { URL.revokeObjectURL(url); } catch {}
+          if (currentAudio === audio) currentAudio = null;
+          if (window.companionAvatar) window.companionAvatar.onClipEnd(audio);
+          if (audio._resolve) { audio._resolve = null; resolve(); }
+        };
+        audio.onended = done; audio.onerror = done;
+        audio.play().catch(done); // autoplay can be blocked until the user interacts
+      });
+    }
+
+    speakBtn.onclick = () => {
+      if (speakDisabled) return;
+      speakAll = !speakAll;
+      speakBtn.classList.toggle('on', speakAll);
+      speakBtn.textContent = speakAll ? '🔊 Speak' : '🔈 Speak';
+      if (!speakAll) stopSpeech();
+    };
+
     connect();
+  </script>
+
+  <!-- 3D avatar (three.js, vendored). Loads a viseme-capable .glb and lip-syncs the spoken reply
+       from its audio amplitude. Isolated module; it only talks to the chat via window.companionAvatar. -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+    const stage = document.getElementById('stage');
+    const canvas = document.getElementById('avatarCanvas');
+    const avatarBtn = document.getElementById('avatarBtn');
+    const fileInput = document.getElementById('avatarFile');
+    const loadBtn = document.getElementById('loadModel');
+    const hint = document.getElementById('stageHint');
+
+    // --- tuning ---
+    const MOUTH_GAIN = 7.0;     // amplitude → mouth-open scale
+    const MOUTH_SMOOTH = 0.35;  // lerp factor toward the target open amount
+    const BLINK_MIN = 2.5, BLINK_MAX = 6.5, BLINK_MS = 150;
+
+    let enabled = false, inited = false;
+    let renderer, scene, camera, clock, model = null;
+    let mouthMorphs = [], blinkMorphs = [];
+    let mouthValue = 0, userRotY = 0, camDist = 3, camTargetY = 1.4, modelHeight = 1.8;
+
+    // Audio analysis of the companion's own playback (separate from the mic VAD in the chat script).
+    let actx = null, analyser = null, vadBuf = null, currentSrc = null;
+
+    // blink state
+    let nextBlink = 0, blinking = false, blinkStart = 0;
+
+    function initOnce() {
+      if (inited) return;
+      inited = true;
+
+      // alpha:true lets the CSS gradient backdrop show through; ACES tone mapping + sRGB give
+      // natural skin tones instead of the blown-out or muddy look of raw output.
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(35, 1, 0.05, 100);
+      clock = new THREE.Clock();
+
+      // Image-based lighting is the big one: PBR materials (skin, eyes, hair) look flat and dark
+      // without an environment. A neutral studio room gives soft, even, realistic light.
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+      // A soft key light on top of the IBL for a little shape and a highlight in the eyes.
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x384050, 0.6));
+      const key = new THREE.DirectionalLight(0xffffff, 1.2);
+      key.position.set(1, 3, 2);
+      scene.add(key);
+
+      // Output audio graph (created lazily; resumed on the enabling click, which is a user gesture).
+      try {
+        actx = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = actx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.connect(actx.destination); // source → analyser → speakers
+        vadBuf = new Uint8Array(analyser.fftSize);
+      } catch { actx = null; }
+
+      new ResizeObserver(resize).observe(stage);
+    }
+
+    function resize() {
+      if (!renderer) return;
+      const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+
+    function setModel(root, isVrm) {
+      if (model) { scene.remove(model); }
+      model = root;
+
+      // Recenter horizontally and stand the feet on y=0.
+      const box = new THREE.Box3().setFromObject(model);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      model.position.x -= center.x;
+      model.position.z -= center.z;
+      model.position.y -= box.min.y;
+      modelHeight = size.y || 1.8;
+      scene.add(model);
+
+      // Frame the head + upper torso by default (lip-sync is the point); the user can zoom out.
+      camTargetY = modelHeight * 0.86;
+      camDist = modelHeight * 0.62;
+      // VRM/VRoid avatars are authored facing away from the camera (-Z), so turn them around to face us.
+      userRotY = isVrm ? Math.PI : 0;
+
+      // Discover the blendshapes we drive. Names are normalized (lowercase, letters only) so this
+      // matches ARKit (jawOpen), Oculus (viseme_aa), and Character-Creator/Daz-style (Mouth_Open,
+      // V_Open, V_AA) rigs alike.
+      mouthMorphs = []; blinkMorphs = [];
+      const allMorphs = [];
+      const isMouth = (k) => k.includes('jawopen') || k.includes('mouthopen') || k === 'vopen'
+        || k.includes('visemeaa') || k === 'aa' || k === 'vaa' || k.includes('mouthaa')
+        || k.includes('mtha'); // VRoid Fcl_MTH_A
+      const isBlink = (k) => k.includes('eyeblink') || k.includes('eyesclosed') || k === 'blink'
+        || k.includes('blinkleft') || k.includes('blinkright') || k.includes('eyeclose'); // VRoid Fcl_EYE_Close
+      model.traverse((o) => {
+        if (!o.isMesh || !o.morphTargetDictionary || !o.morphTargetInfluences) return;
+        for (const [name, idx] of Object.entries(o.morphTargetDictionary)) {
+          allMorphs.push(name);
+          const k = name.toLowerCase().replace(/[^a-z]/g, '');
+          if (isMouth(k)) mouthMorphs.push({ inf: o.morphTargetInfluences, idx });
+          if (isBlink(k)) blinkMorphs.push({ inf: o.morphTargetInfluences, idx });
+        }
+      });
+
+      // Report what we found — so a model with oddly-named visemes is fixable rather than a mystery.
+      console.log('[avatar] meshes with morphs; total blendshapes:', allMorphs.length,
+        '· mouth matched:', mouthMorphs.length, '· blink:', blinkMorphs.length);
+      if (allMorphs.length) console.log('[avatar] all blendshape names:', allMorphs);
+
+      hint.textContent = mouthMorphs.length
+        ? 'Loaded — drag to turn · scroll to zoom · lip-sync will follow the voice.'
+        : (allMorphs.length
+            ? `Loaded, but none of its ${allMorphs.length} blendshapes looked like a mouth viseme. Open the browser console (F12) and send me the names — I’ll map them.`
+            : 'Loaded, but this model has no facial blendshapes, so it can’t lip-sync. Export one with ARKit/visemes (e.g. Avaturn) to see the mouth move.');
+      resize();
+    }
+
+    const loader = new GLTFLoader();
+    function loadArrayBuffer(buf) {
+      hint.textContent = 'Loading model…';
+      loader.parse(buf, '', (gltf) => {
+        // VRM files carry a VRM / VRMC_vrm glTF extension; they load with GLTFLoader but face away.
+        const ext = (gltf.parser && gltf.parser.json && gltf.parser.json.extensions) || {};
+        const isVrm = !!(ext.VRM || ext.VRMC_vrm);
+        setModel(gltf.scene, isVrm);
+      }, () => { hint.textContent = 'Couldn’t read that file — is it a .glb / .gltf / .vrm?'; });
+    }
+
+    // Optional: drop a file in wwwroot to auto-load on open — /avatar.vrm, /avatar.glb, or /avatar.gltf.
+    async function tryDefaultModel() {
+      for (const path of ['/avatar.vrm', '/avatar.glb', '/avatar.gltf']) {
+        try {
+          const res = await fetch(path);
+          if (res.ok) { loadArrayBuffer(await res.arrayBuffer()); return; }
+        } catch { /* try the next */ }
+      }
+    }
+
+    function tick() {
+      const t = clock.getElapsedTime();
+
+      // Mouth: follow the playback amplitude when a clip is routed through the analyser.
+      let target = 0;
+      if (currentSrc && analyser) {
+        analyser.getByteTimeDomainData(vadBuf);
+        let sum = 0;
+        for (let i = 0; i < vadBuf.length; i++) { const v = (vadBuf[i] - 128) / 128; sum += v * v; }
+        target = Math.min(1, Math.sqrt(sum / vadBuf.length) * MOUTH_GAIN);
+      }
+      mouthValue += (target - mouthValue) * MOUTH_SMOOTH;
+      for (const m of mouthMorphs) m.inf[m.idx] = mouthValue;
+
+      // Blink.
+      if (!blinking && t >= nextBlink) { blinking = true; blinkStart = t; }
+      if (blinking) {
+        const p = (t - blinkStart) / (BLINK_MS / 1000);
+        const v = p >= 1 ? 0 : (p < 0.5 ? p * 2 : (1 - p) * 2);
+        for (const m of blinkMorphs) m.inf[m.idx] = v;
+        if (p >= 1) { blinking = false; nextBlink = t + BLINK_MIN + Math.random() * (BLINK_MAX - BLINK_MIN); }
+      }
+
+      // Gentle idle sway on top of the user's rotation.
+      if (model) model.rotation.y = userRotY + Math.sin(t * 0.6) * 0.03;
+
+      camera.position.set(0, camTargetY, camDist);
+      camera.lookAt(0, camTargetY, 0);
+      renderer.render(scene, camera);
+    }
+
+    // ---- controls: drag to rotate / pan, wheel to zoom ----
+    let dragging = false, lastX = 0, lastY = 0;
+    canvas.addEventListener('pointerdown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.setPointerCapture(e.pointerId); });
+    canvas.addEventListener('pointerup', (e) => { dragging = false; try { canvas.releasePointerCapture(e.pointerId); } catch {} });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      userRotY += (e.clientX - lastX) * 0.01;
+      camTargetY = Math.max(0, Math.min(modelHeight, camTargetY - (e.clientY - lastY) * 0.005 * modelHeight));
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      camDist = Math.max(modelHeight * 0.3, Math.min(modelHeight * 3, camDist * (1 + Math.sign(e.deltaY) * 0.1)));
+    }, { passive: false });
+
+    // ---- load triggers ----
+    loadBtn.onclick = () => fileInput.click();
+    fileInput.onchange = async () => { const f = fileInput.files[0]; if (f) loadArrayBuffer(await f.arrayBuffer()); };
+    ['dragover', 'drop'].forEach((ev) => stage.addEventListener(ev, (e) => e.preventDefault()));
+    stage.addEventListener('drop', async (e) => {
+      const f = e.dataTransfer && e.dataTransfer.files[0];
+      if (f) loadArrayBuffer(await f.arrayBuffer());
+    });
+
+    avatarBtn.onclick = async () => {
+      enabled = !enabled;
+      stage.classList.toggle('show', enabled);
+      avatarBtn.classList.toggle('on', enabled);
+      if (enabled) {
+        try {
+          initOnce();
+          if (actx && actx.state === 'suspended') await actx.resume();
+          resize();
+          if (!model) tryDefaultModel();
+          nextBlink = (clock ? clock.getElapsedTime() : 0) + 2;
+          renderer.setAnimationLoop(tick);
+        } catch (err) {
+          hint.textContent = '3D view failed to start: ' + (err && err.message ? err.message : err);
+        }
+      } else if (renderer) {
+        renderer.setAnimationLoop(null);
+      }
+    };
+
+    // ---- lip-sync bridge from the chat script's TTS playback ----
+    window.companionAvatar = {
+      onClipStart(audio) {
+        if (!enabled || !actx || actx.state !== 'running') return; // never route through a suspended ctx (would mute audio)
+        try {
+          const src = actx.createMediaElementSource(audio); // one source per (single-use) element
+          src.connect(analyser);
+          currentSrc = src;
+        } catch { /* element already sourced, or unsupported — skip lip-sync for this clip */ }
+      },
+      onClipEnd() {
+        if (currentSrc) { try { currentSrc.disconnect(); } catch {} currentSrc = null; }
+      },
+    };
   </script>
 </body>
 </html>
