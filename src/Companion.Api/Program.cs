@@ -507,7 +507,7 @@ internal sealed class WebSocketConversation
             if (rephraser is null)
                 return; // offline mocks: the deterministic greeting IS the greeting
 
-            var upgraded = await rephraser.RephraseAsync(grounded, ct);
+            var upgraded = await rephraser.RephraseAsync(grounded, _userId, ct);
             if (string.Equals(upgraded.Message, grounded.Message, StringComparison.Ordinal))
                 return; // the model added nothing (or fell back) — the shown greeting stands
 

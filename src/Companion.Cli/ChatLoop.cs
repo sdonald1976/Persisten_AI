@@ -88,14 +88,18 @@ public sealed class ChatLoop
             using var scope = _services.CreateScope();
             var agent = scope.ServiceProvider.GetRequiredService<IAgent>();
 
+            // Show a "thinking" line until the first token arrives (local models take a beat to warm
+            // up / process the prompt), then clear it and stream the reply in its place.
+            Console.Write("\ncompanion is thinking…");
             var wrotePrefix = false;
             var sink = new SyncProgress<string>(chunk =>
             {
-                if (!wrotePrefix) { Console.Write("\ncompanion> "); wrotePrefix = true; }
+                if (!wrotePrefix) { Console.Write("\r\u001b[K\rcompanion> "); wrotePrefix = true; }
                 Console.Write(chunk);
             });
 
             var reply = await agent.HandleAsync(_userId, _conversationId, input, sink, ct);
+            if (!wrotePrefix) Console.Write("\r\u001b[K\r"); // no tokens streamed — clear the thinking line
 
             switch (reply.Kind)
             {

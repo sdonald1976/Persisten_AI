@@ -1,3 +1,4 @@
+using Companion.Core;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Companion.Core.Services;
@@ -6,6 +7,7 @@ using Companion.Infrastructure.Seeding;
 using Companion.Tests.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Companion.Tests;
@@ -225,5 +227,61 @@ public class GreetingTests
             string systemPrompt, string userMessage, IProgress<string> sink,
             string? assistantPrefix = null, CancellationToken ct = default)
             => Task.FromException<ChatCompletion>(_make());
+    }
+
+    // ---- in-character greeting (identity + personality reach the greeting prompt) ----
+
+    [Fact]
+    public async Task Greeting_IsWrittenInCharacter_WhenIdentityAndPersonaAreKnown()
+    {
+        var capturing = new CapturingChatModel("Hey you — good to see you back.");
+        var personality = new PersonalityService(
+            Options.Create(new PersonalityOptions { Default = "flirty" }),
+            Options.Create(new IdentityOptions { Name = "Ava", Gender = "female", Pronouns = "she/her" }));
+        var profiles = new FakeProfileStore(new UserProfile { UserId = User });
+
+        var greeter = new LlmGreeter(
+            new StubGreeter(Grounded), capturing, NullLogger<LlmGreeter>.Instance, personality, profiles);
+
+        await greeter.GreetAsync(User);
+
+        // The identity and personality were injected into the system prompt the greeter sent.
+        Assert.Contains("Ava", capturing.LastSystem);
+        Assert.Contains("she/her", capturing.LastSystem);
+        Assert.Contains("flirt", capturing.LastSystem, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class CapturingChatModel : IChatModel
+    {
+        private readonly string _reply;
+        public string LastSystem { get; private set; } = "";
+        public CapturingChatModel(string reply) => _reply = reply;
+
+        public Task<ChatCompletion> CompleteAsync(
+            string systemPrompt, string userMessage, bool jsonMode = false,
+            string? assistantPrefix = null, CancellationToken ct = default)
+        {
+            LastSystem = systemPrompt;
+            return Task.FromResult(ChatCompletion.FromText(_reply));
+        }
+
+        public Task<ChatCompletion> StreamAsync(
+            string systemPrompt, string userMessage, IProgress<string> sink,
+            string? assistantPrefix = null, CancellationToken ct = default)
+        {
+            LastSystem = systemPrompt;
+            sink.Report(_reply);
+            return Task.FromResult(ChatCompletion.FromText(_reply));
+        }
+    }
+
+    private sealed class FakeProfileStore : IProfileStore
+    {
+        private readonly UserProfile _profile;
+        public FakeProfileStore(UserProfile profile) => _profile = profile;
+        public Task<UserProfile> GetOrCreateAsync(string userId, CancellationToken ct = default) => Task.FromResult(_profile);
+        public Task SetPersonaAsync(string userId, string? persona, CancellationToken ct = default) { _profile.Persona = persona; return Task.CompletedTask; }
+        public Task SetPersonalityPresetAsync(string userId, string? presetName, CancellationToken ct = default) { _profile.PersonalityPreset = presetName; return Task.CompletedTask; }
+        public Task SetIdentityAsync(string userId, string? name, string? gender, string? pronouns, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

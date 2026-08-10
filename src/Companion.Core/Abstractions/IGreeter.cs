@@ -20,5 +20,10 @@ public interface IGreeter
 /// </summary>
 public interface IGreetingRephraser
 {
-    Task<Greeting> RephraseAsync(Greeting grounded, CancellationToken ct = default);
+    /// <summary>
+    /// Rephrase the grounded greeting in the companion's voice. When <paramref name="userId"/> is
+    /// given, the greeting is written in that user's active identity + personality (so it opens in
+    /// character); when null, a neutral voice is used.
+    /// </summary>
+    Task<Greeting> RephraseAsync(Greeting grounded, string? userId = null, CancellationToken ct = default);
 }

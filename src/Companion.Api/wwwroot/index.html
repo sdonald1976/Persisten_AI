@@ -49,6 +49,12 @@
     #send { padding: 0 20px; border: none; border-radius: 10px; background: var(--accent);
       color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
     #send:disabled { opacity: .5; cursor: default; }
+    .msg.typing { display: inline-flex; gap: 5px; align-items: center; }
+    .msg.typing span { width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+      opacity: .3; animation: blink 1.2s infinite both; }
+    .msg.typing span:nth-child(2) { animation-delay: .2s; }
+    .msg.typing span:nth-child(3) { animation-delay: .4s; }
+    @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: .9; } }
   </style>
 </head>
 <body>
@@ -83,6 +89,21 @@
       log.appendChild(el);
       log.scrollTop = log.scrollHeight;
       return el;
+    }
+
+    // Animated "…" bubble shown while waiting for the companion to respond (local models can take
+    // a beat to warm up / process the prompt before the first token arrives).
+    let typingEl = null;
+    function showThinking() {
+      if (typingEl) return;
+      typingEl = document.createElement('div');
+      typingEl.className = 'msg bot typing';
+      typingEl.innerHTML = '<span></span><span></span><span></span>';
+      log.appendChild(typingEl);
+      log.scrollTop = log.scrollHeight;
+    }
+    function hideThinking() {
+      if (typingEl) { typingEl.remove(); typingEl = null; }
     }
 
     // Local API token: browsers can't set headers on a WebSocket, so it travels as ?access_token=.
@@ -153,11 +174,13 @@
             }
             break;
           case 'token':
+            hideThinking();
             if (!currentBot) currentBot = add('bot', '');
             currentBot.textContent += m.text;
             log.scrollTop = log.scrollHeight;
             break;
           case 'reply':
+            hideThinking();
             if (m.kind === 'Confirmation') {
               if (currentBot) currentBot = null;
               add('bot', m.text);
@@ -171,6 +194,7 @@
             }
             break;
           case 'error':
+            hideThinking();
             add('sys', '⚠ ' + m.message);
             currentBot = null;
             break;
@@ -215,6 +239,7 @@
       add('you', text);
       currentBot = null;
       socket.send(JSON.stringify({ type: 'chat', text, conversationId }));
+      showThinking();
       input.value = '';
     }
 
