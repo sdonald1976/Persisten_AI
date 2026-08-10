@@ -53,6 +53,30 @@ public class GreetingTests
         Assert.Contains("just say what's on your mind", greeting.Message); // no pressure to pick one
     }
 
+    [Fact]
+    public async Task Greeting_AcknowledgesHowLongItsBeen()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var conversations = scope.ServiceProvider.GetRequiredService<IConversationStore>();
+        var conv = await conversations.StartConversationAsync(User, "t", "mock", "test");
+        // A message left three days before "now".
+        await conversations.AddMessageAsync(new Message
+        {
+            Id = Guid.NewGuid(),
+            ConversationId = conv.Id,
+            UserId = User,
+            Role = MessageRole.User,
+            Content = "see you later",
+            Timestamp = Now.AddDays(-3),
+        });
+
+        var greeting = await scope.ServiceProvider.GetRequiredService<IGreeter>().GreetAsync(User);
+
+        Assert.Equal("3 days", greeting.TimeContext);
+        Assert.Contains("It's been 3 days", greeting.Message);
+    }
+
     [Theory]
     [InlineData("hi")]
     [InlineData("Hi!")]

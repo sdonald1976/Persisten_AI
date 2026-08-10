@@ -21,4 +21,10 @@ public interface IConversationStore
         Guid conversationId, string userId, int count, CancellationToken ct = default);
 
     Task<Message?> GetMessageAsync(Guid messageId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Timestamp of the user's most recent message across all their conversations, or null if they
+    /// have never sent one. Used to tell how long it's been since you last talked (time-aware greetings).
+    /// </summary>
+    Task<DateTimeOffset?> GetLastMessageAtAsync(string userId, CancellationToken ct = default);
 }
