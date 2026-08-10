@@ -20,7 +20,11 @@ single developer should be able to hold the whole thing in their head.
 
 - **Runtime:** .NET 9, nullable reference types on, async + `CancellationToken`.
 - **Storage:** EF Core over **SQLite** (authoritative). Embeddings stored as `BLOB`.
-- **Vector search (initial):** in-process cosine similarity behind `IVectorIndex`.
+- **Vector search:** exact in-process cosine behind `IVectorIndex`, backed by an in-memory cache
+  (`InMemoryVectorIndex`) that cold-loads a user's embeddings once and is kept in step by a
+  write-through hook (`IVectorIndexMaintenance`, called by the memory store after every save) — no
+  per-turn BLOB re-read, no staleness. Still the swap point for a dedicated ANN store (sqlite-vec,
+  Qdrant, …) if exact O(n) ever stops being enough.
 - **Models:** `Mock` (default, for dev/tests), `Ollama` (local), `OpenAiCompatible`
   (hosted) — each behind role interfaces.
 - **Config/DI/logging:** `Microsoft.Extensions.*` + `ILogger` structured logs.
@@ -58,7 +62,8 @@ EF Core nor any LLM SDK.
 
 - `CompanionDbContext` (EF Core, SQLite) + entity configurations + migrations.
 - Store implementations backed by the DbContext.
-- `SqliteBlobVectorIndex` implementing `IVectorIndex` (cosine over stored embeddings).
+- `InMemoryVectorIndex` implementing `IVectorIndex` (exact cosine over embeddings held in memory;
+  cold-loaded per user from the tables, then kept in step through the store's write-through hook).
 - Model adapters: `MockChatModel`/`MockEmbeddingModel`, `OllamaChatModel`, etc.
 
 ### API (the face)

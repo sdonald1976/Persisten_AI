@@ -12,14 +12,20 @@ namespace Companion.Infrastructure.Persistence;
 public sealed class MemoryStore : IMemoryStore
 {
     private readonly CompanionDbContext _db;
+    private readonly IVectorIndexMaintenance _vectorIndex;
 
-    public MemoryStore(CompanionDbContext db) => _db = db;
+    public MemoryStore(CompanionDbContext db, IVectorIndexMaintenance vectorIndex)
+    {
+        _db = db;
+        _vectorIndex = vectorIndex;
+    }
 
     public async Task AddSemanticAsync(SemanticMemory memory, CancellationToken ct = default)
     {
         _db.SemanticMemories.Add(memory);
         await PersistEvidenceAsync(memory.Evidence, memory.Id, MemoryKind.Semantic, memory.UserId, ct);
         await _db.SaveChangesAsync(ct);
+        _vectorIndex.Sync(memory); // write-through: keep the derived index in step with the tables
     }
 
     public async Task AddEpisodicAsync(EpisodicMemory memory, CancellationToken ct = default)
@@ -27,6 +33,7 @@ public sealed class MemoryStore : IMemoryStore
         _db.EpisodicMemories.Add(memory);
         await PersistEvidenceAsync(memory.Evidence, memory.Id, MemoryKind.Episodic, memory.UserId, ct);
         await _db.SaveChangesAsync(ct);
+        _vectorIndex.Sync(memory);
     }
 
     public async Task<IReadOnlyList<IMemory>> GetRetrievableMemoriesAsync(
@@ -59,12 +66,14 @@ public sealed class MemoryStore : IMemoryStore
     {
         _db.SemanticMemories.Update(memory);
         await _db.SaveChangesAsync(ct);
+        _vectorIndex.Sync(memory); // re-embed, soft-delete, or status change is reflected immediately
     }
 
     public async Task UpdateEpisodicAsync(EpisodicMemory memory, CancellationToken ct = default)
     {
         _db.EpisodicMemories.Update(memory);
         await _db.SaveChangesAsync(ct);
+        _vectorIndex.Sync(memory);
     }
 
     public async Task AddEvidenceAsync(

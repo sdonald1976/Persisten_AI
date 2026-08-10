@@ -57,7 +57,7 @@ Since the repository started empty, every file below was **added** (none changed
 | `Persistence/Configurations/*.cs` | Entity type configs + indexes (incl. `UserId`). |
 | `Persistence/ConversationStore.cs` | `IConversationStore` impl. |
 | `Persistence/MemoryStore.cs` | `IMemoryStore` impl (filters soft-deleted). |
-| `Vector/SqliteBlobVectorIndex.cs` | `IVectorIndex` — cosine over stored embedding BLOBs. |
+| `Vector/InMemoryVectorIndex.cs` | `IVectorIndex` — exact cosine over cached embeddings, write-through synced. |
 | `Models/MockChatModel.cs` | Deterministic canned/templated responses. |
 | `Models/MockEmbeddingModel.cs` | Deterministic hash-based embeddings. |
 | `DependencyInjection.cs` | `AddCompanionInfrastructure(...)` extension. |
