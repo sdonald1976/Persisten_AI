@@ -57,6 +57,25 @@ public class ApiSecurityTests : IClassFixture<CompanionApiFactory>
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
     }
 
+    // ---- voice loop: TTS endpoint ----
+
+    [Fact]
+    public async Task Speak_WhenTtsNotConfigured_Is503()
+    {
+        // The offline test app has no Models.Speech, so /speak reports it's unavailable rather than 500.
+        using var client = Authed(_factory.CreateClient());
+        var resp = await client.PostAsJsonAsync("/speak", new { text = "hello there" });
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Speak_WithoutToken_Is401()
+    {
+        using var client = _factory.CreateClient();
+        var resp = await client.PostAsJsonAsync("/speak", new { text = "hello" });
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
     [Fact]
     public async Task XCompanionKeyHeader_IsAlsoAccepted()
     {

@@ -53,9 +53,11 @@ mic → VAD → STT → [turn] → LLM tokens (stream) → TTS → speaker
 camera → frames (opt-in) → vision model → context
 ```
 
-Local building blocks: whisper (built — `/transcribe`), **Piper** for TTS (fast, local, emits
-phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity. Start with
-**push-to-talk**; add wake-word and **barge-in** (interrupt mid-sentence) later.
+Local building blocks: whisper (built — `/transcribe`) and **TTS** (built — `POST /speak`, an
+OpenAI-compatible `/v1/audio/speech` provider behind `ISpeechSynthesizer`; Piper/Speaches/LocalAI).
+Both halves of the round trip now exist as endpoints; still to build in the face: a **push-to-talk**
+mic loop wiring them together, then **streaming playback** (synthesize as the reply generates) and
+**barge-in** (interrupt mid-sentence). A web avatar (three.js + Ready Player Me) or Unity comes after.
 
 ## Style: editable now, trainable later
 
@@ -154,6 +156,7 @@ project's local-first, forgettable ethos and must precede any ambient capture.
 
 1. ✅ Natural-language intents + editable persona + feedback capture.
 2. ✅ Headless streaming API (brain/face split) — `Companion.Api` (HTTP + SSE + WebSocket).
-3. Voice loop (push-to-talk → whisper → turn → Piper TTS).
+3. Voice loop — endpoints built (`/transcribe` → turn → `/speak`); remaining: push-to-talk mic loop,
+   streaming playback, barge-in.
 4. 3D avatar front-end (visemes + emotion).
 5. Opt-in camera (vision frames), privacy-gated.
