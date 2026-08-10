@@ -87,6 +87,7 @@ app.UseDefaultFiles();   // serve wwwroot/index.html at "/" (static files need n
 var contentTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
 contentTypes.Mappings[".glb"] = "model/gltf-binary";
 contentTypes.Mappings[".gltf"] = "model/gltf+json";
+contentTypes.Mappings[".vrm"] = "model/gltf-binary"; // VRoid/VRM is glTF-binary under the hood
 app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = contentTypes });
 
 // Local API authentication: every REST/SSE/WebSocket call must present the local token (header
