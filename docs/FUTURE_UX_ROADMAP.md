@@ -71,6 +71,20 @@ phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity
 - **Later:** feedback → **DPO** shapes a style LoRA (see `training/`). Facts always stay in the
   forgettable memory layer, never baked into weights.
 
+## Proactivity & time-awareness
+
+- **Now (built):** the companion initiates instead of only reacting.
+  - **Time-aware greetings** — it knows how long it's been (`RelativeTime`, from the user's last
+    message across all conversations) and leads with it ("It's been 3 days. Good to see you back…"),
+    in the deterministic opener and the model-written one.
+  - **Follows up on its own commitments** — when it promises something in a reply ("I'll check in
+    tomorrow"), a conservative `CommitmentDetector` captures it as a *companion-owned* open loop
+    (`Owner = "companion"`), which the greeter re-raises next session ("Last time I said I'd … —
+    want to pick that up?"). Deduped, and it expires after ~14 days so it never nags.
+- **Later:** follow up on the user's own upcoming events ("you mentioned an interview Thursday —
+  how did it go?"), which needs the extractor to capture planned events with timing; and a
+  background job runner (below) for check-ins that happen off-turn.
+
 ## Long tasks: finish in-turn now, background jobs later
 
 - **Now (built):** an `IReplyGenerator` owns "when to keep going" using **deterministic, topic-free

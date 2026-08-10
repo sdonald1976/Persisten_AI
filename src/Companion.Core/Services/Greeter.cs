@@ -15,6 +15,9 @@ public sealed class Greeter : IGreeter
     // Below this, a "gap" isn't worth acknowledging — you were basically still here.
     private static readonly TimeSpan MinGapToAcknowledge = TimeSpan.FromMinutes(30);
 
+    // A companion commitment stops being surfaced after this, so it never nags indefinitely.
+    private static readonly TimeSpan CommitmentSurfaceWindow = TimeSpan.FromDays(14);
+
     private readonly IProjectStore _projects;
     private readonly IMemoryStore _memories;
     private readonly IConversationStore _conversations;
@@ -36,24 +39,41 @@ public sealed class Greeter : IGreeter
             .ToList();
         var memories = await _memories.GetRetrievableMemoriesAsync(userId, ct);
 
+        var now = _clock.GetUtcNow();
+
         // How long since we last talked? Only surfaced when it's a real gap.
         var lastSeen = await _conversations.GetLastMessageAtAsync(userId, ct);
         string? timeContext = null;
         if (lastSeen is { } seen)
         {
-            var gap = _clock.GetUtcNow() - seen;
+            var gap = now - seen;
             if (gap >= MinGapToAcknowledge)
                 timeContext = RelativeTime.Describe(gap);
         }
 
+        // A companion commitment is a promise the companion itself made ("I'll check in tomorrow").
+        // Surface the freshest one — but let it expire so it never nags indefinitely.
+        var commitments = openLoops
+            .Where(l => string.Equals(l.Owner, "companion", StringComparison.OrdinalIgnoreCase)
+                && now - l.CreatedAt <= CommitmentSurfaceWindow)
+            .OrderByDescending(l => l.CreatedAt)
+            .ToList();
+        var userLoops = openLoops
+            .Where(l => !string.Equals(l.Owner, "companion", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
         var openers = new List<string>();
 
-        // Unfinished business first — the most natural place to resume.
-        foreach (var loop in openLoops.Take(2))
+        // Follow up on what the companion itself promised (its own initiative).
+        foreach (var c in commitments.Take(1))
+            openers.Add($"Last time I said I'd {LowerFirst(c.Description.TrimEnd('.'))} — want to pick that up?");
+
+        // Then the user's own unfinished business.
+        foreach (var loop in userLoops.Take(MaxOpeners - openers.Count))
             openers.Add($"Pick up where we left off — {LowerFirst(loop.Description.TrimEnd('.'))}?");
 
-        // Then recent projects that aren't already covered by an open loop above.
-        var loopProjectIds = openLoops.Select(l => l.ProjectId).ToHashSet();
+        // Then recent projects that aren't already covered by a user loop above.
+        var loopProjectIds = userLoops.Select(l => l.ProjectId).ToHashSet();
         foreach (var project in projects.Where(p => !loopProjectIds.Contains(p.Id)).Take(MaxOpeners - openers.Count))
             openers.Add($"How's {project.Name} going?");
 

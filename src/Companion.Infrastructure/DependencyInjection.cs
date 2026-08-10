@@ -38,7 +38,12 @@ public static class DependencyInjection
         services.AddScoped<IProfileStore, ProfileStore>();
         services.AddScoped<IFeedbackStore, FeedbackStore>();
         services.AddScoped<IPendingClarificationStore, PendingClarificationStore>();
-        services.AddScoped<IVectorIndex, SqliteBlobVectorIndex>();
+        // The vector index is a singleton in-memory cache (cold-loaded per user from the tables,
+        // then kept in step via the write-through hook the memory store calls). Both faces of it —
+        // search and maintenance — resolve to the same instance so writes reach the cache.
+        services.AddSingleton<InMemoryVectorIndex>();
+        services.AddSingleton<IVectorIndex>(sp => sp.GetRequiredService<InMemoryVectorIndex>());
+        services.AddSingleton<IVectorIndexMaintenance>(sp => sp.GetRequiredService<InMemoryVectorIndex>());
 
         // Natural-language intent parsing (so slash commands aren't required).
         services.AddSingleton<IIntentParser, RuleBasedIntentParser>();
