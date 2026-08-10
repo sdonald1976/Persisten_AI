@@ -45,12 +45,7 @@ public sealed class Greeter : IGreeter
             openers.Add("Ask me what I remember about you.");
 
         var hasHistory = openLoops.Count > 0 || projects.Count > 0 || memories.Count > 0;
-        var message = hasHistory
-            ? "Hey — you don't have to figure out how to start. Here's where we left things; " +
-              "pick whatever you feel like, or ignore them all and just say what's on your mind."
-            : "Hey — and you don't need an opener ready. We haven't talked before, so there's " +
-              "nothing to catch up on yet. Tell me anything — what you're working on, something " +
-              "on your mind — or ask \"what can you do?\"";
+        var message = hasHistory  ? "" : "";
 
         return new Greeting { Message = message, Openers = openers };
     }
