@@ -28,6 +28,7 @@ public sealed class Companion : ICompanion
     private readonly IPersonalityService _personality;
     private readonly IMemoryPipeline _pipeline;
     private readonly IProjectUpdater _projectUpdater;
+    private readonly IProjectStore _projects;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -43,6 +44,7 @@ public sealed class Companion : ICompanion
         IPersonalityService personality,
         IMemoryPipeline pipeline,
         IProjectUpdater projectUpdater,
+        IProjectStore projects,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -57,6 +59,7 @@ public sealed class Companion : ICompanion
         _personality = personality;
         _pipeline = pipeline;
         _projectUpdater = projectUpdater;
+        _projects = projects;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -238,6 +241,12 @@ public sealed class Companion : ICompanion
             ? await _projectUpdater.ApplyAsync(userId, exchange, extraction, projectContext, ct)
             : ProjectUpdateResult.Empty;
 
+        // 10b. Capture a commitment the companion just made ("I'll check in tomorrow") as a
+        // companion-owned open loop, so it can follow up next session instead of forgetting it said
+        // so. Skipped on private turns; deduped against existing open commitments.
+        if (remember)
+            await CaptureCommitmentAsync(userId, response, assistantMsg.Id, now, ct);
+
         // 11. Record the trace for debugging (`/why`).
         _logger.LogInformation(
             "Turn complete for {UserId}: {Selected} memories, project={Project}, " +
@@ -290,6 +299,38 @@ public sealed class Companion : ICompanion
         };
         await _conversations.AddMessageAsync(message, ct);
         return message;
+    }
+
+    /// <summary>
+    /// Records a commitment the companion made in its reply as a companion-owned open loop, so it
+    /// can proactively follow up later. Deduped against existing open commitments; no-op when the
+    /// reply contains no clear promise.
+    /// </summary>
+    private async Task CaptureCommitmentAsync(
+        string userId, string reply, Guid sourceMessageId, DateTimeOffset now, CancellationToken ct)
+    {
+        var commitment = CommitmentDetector.Detect(reply);
+        if (commitment is null)
+            return;
+
+        var open = await _projects.GetOpenLoopsAsync(userId, onlyOpen: true, ct);
+        if (open.Any(l => string.Equals(l.Owner, "companion", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(l.Description, commitment, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        await _projects.AddOpenLoopAsync(new OpenLoop
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ProjectId = null,
+            Owner = "companion",
+            Description = commitment,
+            Status = OpenLoopStatus.Open,
+            CreatedAt = now,
+            SourceMessageId = sourceMessageId,
+        }, ct);
+
+        _logger.LogInformation("Captured a companion commitment for {UserId}: \"{Commitment}\"", userId, commitment);
     }
 
     /// <summary>A trace for a turn that paused (or cancelled) instead of answering — no retrieval/generation ran.</summary>
