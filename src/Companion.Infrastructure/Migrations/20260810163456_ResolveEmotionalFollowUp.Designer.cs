@@ -3,6 +3,7 @@ using System;
 using Companion.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Companion.Infrastructure.Migrations
 {
     [DbContext(typeof(CompanionDbContext))]
-    partial class CompanionDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260810163456_ResolveEmotionalFollowUp")]
+    partial class ResolveEmotionalFollowUp
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.18");

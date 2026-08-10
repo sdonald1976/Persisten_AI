@@ -30,6 +30,12 @@ public sealed record RelationshipSnapshot
     public string? RecentEmotion { get; init; }
 
     /// <summary>
+    /// What that recent feeling was about ("the interview"), when the message said — so the
+    /// companion can follow up specifically rather than just noting a general mood.
+    /// </summary>
+    public string? RecentTopic { get; init; }
+
+    /// <summary>
     /// A single, careful line of tone guidance for the model — or null when nothing is notable
     /// enough to mention. Phrased as an observation to hold loosely, not a fact to state back.
     /// </summary>
@@ -39,10 +45,15 @@ public sealed record RelationshipSnapshot
             return null;
 
         var emotion = string.IsNullOrWhiteSpace(RecentEmotion) ? null : RecentEmotion;
+        var topic = string.IsNullOrWhiteSpace(RecentTopic) ? null : RecentTopic;
 
         // A clearly low recent mood is the case that matters most — lead with care.
         if (RecentMood is Sentiment.Negative or Sentiment.VeryNegative)
         {
+            // Tied to a specific topic, it's fine (kind, even) to gently check in on that thing.
+            if (emotion is not null && topic is not null)
+                return $"The user has seemed {emotion} about {topic} lately — it's fine to gently ask how that's going.";
+
             var lately = emotion is null ? "has seemed low lately" : $"has seemed {emotion} lately";
             return $"The user {lately}. Be a little gentler and more attentive; don't bring this up unless they do.";
         }

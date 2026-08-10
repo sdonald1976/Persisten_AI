@@ -71,6 +71,7 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Sentiment).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Label).HasMaxLength(60);
             e.Property(x => x.Evidence).HasMaxLength(200);
+            e.Property(x => x.Topic).HasMaxLength(120);
             // The tracker reads a user's most recent signals in time order.
             e.HasIndex(x => new { x.UserId, x.Timestamp });
         });

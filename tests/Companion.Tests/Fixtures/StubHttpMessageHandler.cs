@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 
 namespace Companion.Tests.Fixtures;
 
@@ -17,11 +18,26 @@ public sealed class StubHttpMessageHandler : HttpMessageHandler
     public TimeSpan Delay { get; set; } = TimeSpan.Zero;
     public Exception? Throw { get; set; }
 
+    /// <summary>The last request's body text, captured for assertions (e.g. the JSON we sent).</summary>
+    public string? LastRequestBody { get; private set; }
+
     public StubHttpMessageHandler Enqueue(HttpStatusCode status, string body, string contentType = "application/json")
     {
         _responders.Enqueue(_ => new HttpResponseMessage(status)
         {
             Content = new StringContent(body, System.Text.Encoding.UTF8, contentType),
+        });
+        return this;
+    }
+
+    /// <summary>Enqueue a binary response (e.g. synthesized audio).</summary>
+    public StubHttpMessageHandler EnqueueBytes(HttpStatusCode status, byte[] body, string contentType)
+    {
+        _responders.Enqueue(_ =>
+        {
+            var content = new ByteArrayContent(body);
+            content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+            return new HttpResponseMessage(status) { Content = content };
         });
         return this;
     }
@@ -41,6 +57,9 @@ public sealed class StubHttpMessageHandler : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         CallCount++;
+
+        if (request.Content is not null)
+            LastRequestBody = await request.Content.ReadAsStringAsync(ct);
 
         if (Throw is not null)
             throw Throw;

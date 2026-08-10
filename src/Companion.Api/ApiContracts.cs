@@ -22,6 +22,9 @@ public sealed record IdentityRequest(string? Name, string? Gender, string? Prono
 
 public sealed record FeedbackRequest(string ConversationId, string Rating, string? Note);
 
+/// <summary>Text-to-speech request: the text to speak and an optional voice override.</summary>
+public sealed record SpeakRequest(string Text, string? Voice);
+
 // ---- responses ----
 
 /// <summary>Wire form of <see cref="AgentReply"/> — what the brain decided to say/do.</summary>
