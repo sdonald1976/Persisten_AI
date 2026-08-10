@@ -25,6 +25,11 @@ public class IntentParserTests
     [InlineData("what are my open loops", IntentKind.ListOpenLoops)]
     [InlineData("what's unfinished", IntentKind.ListOpenLoops)]
     [InlineData("consolidate your memories", IntentKind.Consolidate)]
+    [InlineData("what's on your mind?", IntentKind.ShareThoughts)]
+    [InlineData("what are you thinking about?", IntentKind.ShareThoughts)]
+    [InlineData("what have you been thinking about", IntentKind.ShareThoughts)]
+    [InlineData("penny for your thoughts", IntentKind.ShareThoughts)]
+    [InlineData("anything on your mind?", IntentKind.ShareThoughts)]
     public void RecognizesIntent(string input, IntentKind expected)
         => Assert.Equal(expected, Parser.Parse(input).Kind);
 
@@ -34,6 +39,8 @@ public class IntentParserTests
     [InlineData("tell me about the buoy project")]
     [InlineData("be quiet")] // not a style adjective — must not be hijacked
     [InlineData("I deployed the service today")]
+    [InlineData("what do you think about my garden plan?")] // opinion request, not the diary
+    [InlineData("what are you thinking about the move?")]   // thought about a subject — chat
     public void OrdinaryConversation_StaysChat(string input)
         => Assert.Equal(IntentKind.Chat, Parser.Parse(input).Kind);
 

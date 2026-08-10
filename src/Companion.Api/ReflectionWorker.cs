@@ -5,10 +5,11 @@ using Microsoft.Extensions.Options;
 namespace Companion.Api;
 
 /// <summary>
-/// Gives the companion its own clock: a background loop that runs the reflection pass (the inner
-/// monologue) when the user has been away for a while, instead of only ever thinking when spoken
-/// to. Mirrors how reflection actually works — you think a conversation over <em>after</em> it
-/// ends — and keeps the model call entirely off any request path.
+/// Gives the companion its own clock: a background loop that runs the full sleep cycle — the
+/// reflection pass (inner monologue) plus memory housekeeping — when the user has been away for a
+/// while, instead of only ever thinking when spoken to. Mirrors how reflection actually works —
+/// you think a conversation over <em>after</em> it ends — and keeps the model call entirely off
+/// any request path.
 ///
 /// Cheap when idle: each tick is one timestamp query; the reflector's own min-material guard
 /// decides whether a model call is worth it. Attempts are spaced at least one idle-window apart,
@@ -88,15 +89,9 @@ public sealed class ReflectionWorker : BackgroundService
             return;
 
         _lastAttempt = now;
-        var result = await scope.ServiceProvider.GetRequiredService<IReflector>()
-            .ReflectAsync(_user.UserId, ct);
 
-        if (result is not null)
-        {
-            _logger.LogInformation(
-                "Between-session reflection completed: {Kind}, {Curiosities} curiosities minted.",
-                result.Reflection.HasMusing ? "musing written" : "quiet day",
-                result.Curiosities.Count);
-        }
+        // The full sleep, not just the thought: reflect, then consolidate and tidy curiosities.
+        // The cycle logs its own outcome.
+        await scope.ServiceProvider.GetRequiredService<ISleepCycle>().RunAsync(_user.UserId, ct);
     }
 }

@@ -300,9 +300,12 @@ public class GreetingTests
     [Fact]
     public async Task Greeting_IsWrittenInCharacter_WhenIdentityAndPersonaAreKnown()
     {
+        // Whatever preset the catalog currently offers first — the test is about the mechanics
+        // (identity + active personality reach the greeting prompt), not a specific voice.
+        var offered = PersonalityCatalog.All[0];
         var capturing = new CapturingChatModel("Hey you — good to see you back.");
         var personality = new PersonalityService(
-            Options.Create(new PersonalityOptions { Default = "flirty" }),
+            Options.Create(new PersonalityOptions { Default = offered.Name }),
             Options.Create(new IdentityOptions { Name = "Ava", Gender = "female", Pronouns = "she/her" }));
         var profiles = new FakeProfileStore(new UserProfile { UserId = User });
 
@@ -314,7 +317,7 @@ public class GreetingTests
         // The identity and personality were injected into the system prompt the greeter sent.
         Assert.Contains("Ava", capturing.LastSystem);
         Assert.Contains("she/her", capturing.LastSystem);
-        Assert.Contains("flirt", capturing.LastSystem, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(offered.Instructions[..40], capturing.LastSystem);
     }
 
     private sealed class CapturingChatModel : IChatModel

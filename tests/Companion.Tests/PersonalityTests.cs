@@ -25,43 +25,57 @@ public class PersonalityTests
 
     // ---- resolution + composition ----
 
+    // The offered menu is whatever PersonalityCatalog.All currently holds — these tests exercise
+    // the resolution mechanics against the real menu rather than hard-coding preset names.
+    private static readonly PersonalityPreset Offered = PersonalityCatalog.All[0];
+
     [Fact]
     public void EmptyProfile_UsesTheConfiguredDefault()
     {
-        var active = Service("witty").Active(new UserProfile { UserId = User });
-        Assert.Equal("witty", active.Name);
+        var active = Service(Offered.Name).Active(new UserProfile { UserId = User });
+        Assert.Equal(Offered.Name, active.Name);
     }
 
     [Fact]
     public void ProfileChoice_WinsOverTheDefault()
     {
-        var active = Service("warm").Active(new UserProfile { UserId = User, PersonalityPreset = "direct" });
-        Assert.Equal("direct", active.Name);
+        // The configured default doesn't matter once the profile has made a choice.
+        var active = Service("warm").Active(new UserProfile { UserId = User, PersonalityPreset = Offered.Name });
+        Assert.Equal(Offered.Name, active.Name);
     }
 
     [Fact]
     public void UnknownPreset_FallsBackToTheDefault()
     {
-        var active = Service("playful").Active(new UserProfile { UserId = User, PersonalityPreset = "nonsense" });
-        Assert.Equal("playful", active.Name);
+        var active = Service(Offered.Name).Active(new UserProfile { UserId = User, PersonalityPreset = "nonsense" });
+        Assert.Equal(Offered.Name, active.Name);
+    }
+
+    [Fact]
+    public void UnknownPresetAndDefault_FallBackToTheBuiltInVoice()
+    {
+        // Nothing resolves — the companion still always has a valid personality.
+        var active = Service("also-nonsense").Active(new UserProfile { UserId = User, PersonalityPreset = "nonsense" });
+        Assert.Equal(PersonalityCatalog.Fallback.Name, active.Name);
     }
 
     [Fact]
     public void Compose_LayersCustomTweaksOnTopOfThePreset()
     {
-        var profile = new UserProfile { UserId = User, PersonalityPreset = "witty", Persona = "Keep replies under 3 sentences." };
+        var profile = new UserProfile { UserId = User, PersonalityPreset = Offered.Name, Persona = "Keep replies under 3 sentences." };
         var text = Service().Compose(profile);
 
-        Assert.Contains("irreverent", text);                       // the preset voice
+        Assert.Contains(Offered.Instructions[..40], text);         // the preset voice
         Assert.Contains("Keep replies under 3 sentences.", text);  // the user's tweak, layered on
     }
 
-    [Theory]
-    [InlineData("witty")]
-    [InlineData("Witty & irreverent")]
-    [InlineData("WITTY")]
-    public void Find_MatchesByKeyOrLabel_CaseInsensitive(string query)
-        => Assert.Equal("witty", Service().Find(query)!.Name);
+    [Fact]
+    public void Find_MatchesByKeyOrLabel_CaseInsensitive()
+    {
+        Assert.Equal(Offered.Name, Service().Find(Offered.Name)!.Name);
+        Assert.Equal(Offered.Name, Service().Find(Offered.Label)!.Name);
+        Assert.Equal(Offered.Name, Service().Find(Offered.Name.ToUpperInvariant())!.Name);
+    }
 
     // ---- natural-language switching ----
 
@@ -120,19 +134,19 @@ public class PersonalityTests
         using (var scope = host.CreateScope())
         {
             var reply = await scope.ServiceProvider.GetRequiredService<IAgent>()
-                .HandleAsync(User, conv, "switch to the direct personality");
+                .HandleAsync(User, conv, $"switch to the {Offered.Name} personality");
             Assert.Equal(IntentKind.SetPersonality, reply.Intent);
-            Assert.Contains("direct", reply.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(Offered.Name, reply.Text, StringComparison.OrdinalIgnoreCase);
         }
 
         using (var verify = host.CreateScope())
         {
             var profile = await verify.ServiceProvider.GetRequiredService<IProfileStore>().GetOrCreateAsync(User);
-            Assert.Equal("direct", profile.PersonalityPreset);
+            Assert.Equal(Offered.Name, profile.PersonalityPreset);
 
             var trace = await verify.ServiceProvider.GetRequiredService<ICompanion>()
                 .RespondAsync(User, conv, "what should we work on today?");
-            Assert.Contains("concise and precise", trace.Packet.Render()); // now the "direct" voice
+            Assert.Contains(Offered.Instructions[..40], trace.Packet.Render()); // now the chosen voice
         }
     }
 
@@ -148,8 +162,8 @@ public class PersonalityTests
             .HandleAsync(User, conv, "set personality to grumpy-badger");
 
         Assert.Equal(IntentKind.SetPersonality, reply.Intent);
-        Assert.Contains("warm", reply.Text);   // the menu of real presets
-        Assert.Contains("witty", reply.Text);
+        foreach (var preset in PersonalityCatalog.All)
+            Assert.Contains(preset.Name, reply.Text); // the menu of actually-offered presets
     }
 
     // ---- identity (name / gender / pronouns) ----

@@ -163,6 +163,11 @@ public static class DependencyInjection
         // structured-extraction chore.
         services.AddScoped<IReflector, Reflector>();
 
+        // The full idle "sleep": think, then tidy (consolidation + curiosity hygiene). This is what
+        // the background worker actually runs, so consolidation finally has a life of its own
+        // instead of waiting for an explicit command.
+        services.AddScoped<ISleepCycle, SleepCycle>();
+
         // Core services.
         services.AddScoped<IRetriever, Retriever>();
         services.AddScoped<IContextAssembler, ContextAssembler>();

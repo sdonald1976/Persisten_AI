@@ -25,6 +25,7 @@ public sealed class Agent : IAgent
     private readonly IMemoryConsolidator _consolidator;
     private readonly IGreeter _greeter;
     private readonly IPersonalityService _personality;
+    private readonly IReflectionStore _reflections;
     private readonly TimeProvider _clock;
 
     public Agent(
@@ -39,6 +40,7 @@ public sealed class Agent : IAgent
         IMemoryConsolidator consolidator,
         IGreeter greeter,
         IPersonalityService personality,
+        IReflectionStore reflections,
         TimeProvider clock)
     {
         _intents = intents;
@@ -52,6 +54,7 @@ public sealed class Agent : IAgent
         _consolidator = consolidator;
         _greeter = greeter;
         _personality = personality;
+        _reflections = reflections;
         _clock = clock;
     }
 
@@ -80,6 +83,7 @@ public sealed class Agent : IAgent
             IntentKind.FeedbackNegative => await FeedbackAsync(userId, conversationId, FeedbackRating.Negative, intent.Argument, ct),
             IntentKind.PrivacyDoNotRemember => await SetPrivacyAsync(userId, conversationId, ct),
             IntentKind.Greeting => await GreetAsync(userId, ct),
+            IntentKind.ShareThoughts => await ShareThoughtsAsync(userId, ct),
             _ => await ChatAsync(userId, conversationId, input, tokenSink, ct),
         };
     }
@@ -222,6 +226,49 @@ public sealed class Agent : IAgent
     {
         var greeting = await _greeter.GreetAsync(userId, ct);
         return AgentReply.Act(IntentKind.Greeting, greeting.ToDisplayText());
+    }
+
+    /// <summary>How many recent diary entries to search for actual musings (some are quiet days).</summary>
+    private const int ThoughtLookback = 10;
+
+    /// <summary>
+    /// "What's on your mind?" — answered honestly from the reflection diary: the thoughts really
+    /// were had, timestamped, while the user was away. Sharing an open curiosity here is voiced-on-
+    /// offer like everywhere else, but it deliberately bypasses the voicing cooldown: the user
+    /// asked, so answering isn't nagging.
+    /// </summary>
+    private async Task<AgentReply> ShareThoughtsAsync(string userId, CancellationToken ct)
+    {
+        var now = _clock.GetUtcNow();
+        var musings = (await _reflections.GetRecentAsync(userId, ThoughtLookback, ct))
+            .Where(r => r.HasMusing)
+            .Take(2)
+            .ToList();
+        var curiosity = (await _reflections.GetOpenCuriositiesAsync(userId, ct)).FirstOrDefault();
+
+        if (musings.Count == 0 && curiosity is null)
+            return AgentReply.Act(IntentKind.ShareThoughts,
+                "Honestly, nothing's had time to settle yet — my thoughts form between our " +
+                "conversations, while you're away. Ask me again after I've had a quiet stretch.");
+
+        var sb = new StringBuilder();
+        for (var i = 0; i < musings.Count; i++)
+        {
+            var age = RelativeTime.Describe(now - musings[i].CreatedAt);
+            sb.AppendLine(i == 0
+                ? $"While you were away ({age} ago), I found myself thinking: {musings[i].Musing}"
+                : $"And a little before that: {musings[i].Musing}");
+        }
+
+        if (curiosity is not null)
+        {
+            sb.AppendLine(musings.Count == 0
+                ? $"Mostly I've been wondering something: {curiosity.Question}"
+                : $"And since you're asking — something I've been wanting to know: {curiosity.Question}");
+            await _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct);
+        }
+
+        return AgentReply.Act(IntentKind.ShareThoughts, sb.ToString().TrimEnd());
     }
 
     private async Task<AgentReply> SetPrivacyAsync(string userId, Guid conversationId, CancellationToken ct)

@@ -30,13 +30,24 @@ about what you said…"* — the thought exists, timestamped, written while the 
    - **Unusable output** — nothing stored, watermark untouched: a model failure is not a quiet
      day, so the material is retried next pass.
 
-`ReflectionWorker` (Api) is the clock: a cheap periodic check that runs a pass only once the
-user has been idle for `ReflectionIdleMinutes`. Reflection happens *after* the conversation,
-never during it, and never on a request path.
+`ReflectionWorker` (Api) is the clock: a cheap periodic check that, once the user has been idle
+for `ReflectionIdleMinutes`, runs the full **sleep cycle** (`SleepCycle`): think first, then
+tidy. After a pass that actually processed new material, memory **consolidation** runs (it used
+to wait for an explicit command); every cycle also lets go of open curiosities older than two
+weeks — a wondering that never found its moment stops being current. Reflection happens *after*
+the conversation, never during it, and never on a request path.
 
 ## How thoughts surface
 
-Two existing seams, no new machinery:
+Three seams:
+
+- **On demand** — "what's on your mind?" / "what are you thinking about?" / "penny for your
+  thoughts" is a recognized intent (`ShareThoughts`), answered straight from the diary: the
+  latest musings with their age ("While you were away (2 days ago), I found myself thinking…")
+  plus one held curiosity. The answer is honest by construction — the thoughts really were had,
+  timestamped, while the user was gone. Sharing a curiosity here spends it as usual, but
+  deliberately bypasses the voicing cooldown: the user asked. An opinion question ("what do you
+  think about my plan?") is *not* captured — that stays an ordinary turn.
 
 - **The greeting** — the freshest open curiosity becomes an opener: *"Something I found myself
   wondering while you were away: how did the interview go?"*

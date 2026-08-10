@@ -48,6 +48,7 @@ public sealed class RuleBasedIntentParser : IIntentParser
             ?? TryRecall(text)
             ?? TryLists(text)
             ?? TryConsolidate(text)
+            ?? TryThoughts(text)
             ?? TryGreeting(text)
             ?? Intent.Chat;
     }
@@ -209,6 +210,23 @@ public sealed class RuleBasedIntentParser : IIntentParser
             return new Intent { Kind = IntentKind.ListProjects };
         return null;
     }
+
+    // Asking about the companion's OWN thoughts — "what's on your mind", "what are you thinking
+    // about?", "penny for your thoughts". Deliberately narrow and mostly end-anchored so an opinion
+    // request ("what do you think about my plan?") or a thought about a named subject ("what are
+    // you thinking about the move?") stays an ordinary chat turn.
+    private static readonly Regex ThoughtsRx = new(
+        @"^(?:so,?\s+)?(?:" +
+        @"what(?:'?s| is| has| have)? (?:been )?on your mind" +
+        @"|what (?:are|were) you thinking(?: about)?" +
+        @"|what (?:have|'?ve) you been thinking(?: about)?" +
+        @"|penny for your thoughts" +
+        @"|anything on your mind" +
+        @"|(?:tell me )?what you'?ve been thinking(?: about)?" +
+        @")[\s?!.,]*$", Opts);
+
+    private static Intent? TryThoughts(string text)
+        => ThoughtsRx.IsMatch(text) ? new Intent { Kind = IntentKind.ShareThoughts } : null;
 
     private static readonly Regex ConsolidateRx = new(@"\bconsolidate\b.*\bmemor|\bconsolidate your memor", Opts);
 
