@@ -57,8 +57,10 @@ Local building blocks: whisper (built — `/transcribe`) and **TTS** (built — 
 OpenAI-compatible `/v1/audio/speech` provider behind `ISpeechSynthesizer`; Piper/Speaches/LocalAI).
 The reference web client wires them into a **push-to-talk** loop (built — hold-to-talk mic →
 `/transcribe` → turn → `/speak` → playback, voice in → voice out, with a speak-everything toggle and
-basic barge-in on record). Still to build: **streaming playback** (synthesize as the reply generates)
-and true **barge-in** mid-playback. A web avatar (three.js + Ready Player Me) or Unity comes after.
+basic barge-in on record) with **streaming playback** (built — the reply is synthesized
+sentence-by-sentence as it streams and the clips play in order, so speech starts within a sentence).
+Still to build: **hands-free barge-in** (interrupt by talking, via voice-activity detection). A web
+avatar (three.js + Ready Player Me) or Unity comes after.
 
 ## Style: editable now, trainable later
 
@@ -157,7 +159,7 @@ project's local-first, forgettable ethos and must precede any ambient capture.
 
 1. ✅ Natural-language intents + editable persona + feedback capture.
 2. ✅ Headless streaming API (brain/face split) — `Companion.Api` (HTTP + SSE + WebSocket).
-3. Voice loop — endpoints + push-to-talk web client built (`/transcribe` → turn → `/speak`, voice in
-   → voice out); remaining: streaming playback, true mid-playback barge-in.
+3. Voice loop — endpoints + push-to-talk web client + streaming playback built (`/transcribe` → turn
+   → `/speak`, voice in → voice out); remaining: hands-free barge-in (voice-activity detection).
 4. 3D avatar front-end (visemes + emotion).
 5. Opt-in camera (vision frames), privacy-gated.
