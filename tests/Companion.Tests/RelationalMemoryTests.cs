@@ -36,6 +36,7 @@ public class RelationalMemoryTests
         var signal = Assert.Single(signals);
         Assert.Equal(Sentiment.VeryNegative, signal.Sentiment);
         Assert.Equal("stressed", signal.Label);
+        Assert.Equal("the deadline", signal.Topic); // tied to what it was about
     }
 
     [Fact]
@@ -87,6 +88,90 @@ public class RelationalMemoryTests
             .RespondAsync(User, conv, "I'm absolutely devastated about it");
 
         Assert.Empty(await sp.GetRequiredService<IEmotionStore>().GetRecentSignalsAsync(User, 10));
+    }
+
+    [Fact]
+    public async Task Greeter_FollowsUpOnTheTopic_OfARecentWorry()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        var companion = sp.GetRequiredService<ICompanion>();
+        var conv = await NewConversationAsync(sp);
+
+        // A worry voiced about a specific thing…
+        await companion.RespondAsync(User, conv, "I'm really nervous about the interview");
+
+        // …becomes a specific, caring follow-up next time.
+        var greeting = await sp.GetRequiredService<IGreeter>().GreetAsync(User);
+
+        Assert.Contains(greeting.Openers, o =>
+            o.Contains("the interview", StringComparison.OrdinalIgnoreCase)
+            && o.Contains("how's that going", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task MoodVoicedAboutAProject_TiesToThatProject()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        await sp.GetRequiredService<CompanionSeeder>().SeedAsync(Now);
+        var conv = await NewConversationAsync(sp);
+
+        // No "about X" phrase, but the turn resolves to a seeded project → the mood ties to it.
+        await sp.GetRequiredService<ICompanion>()
+            .RespondAsync(User, conv, "honestly the Jetson has me so frustrated lately");
+
+        var signal = (await sp.GetRequiredService<IEmotionStore>().GetRecentSignalsAsync(User, 10))
+            .Single(s => s.Label == "frustrated");
+        Assert.NotNull(signal.Topic);
+        Assert.NotNull(signal.ProjectId); // linked to the first-class project
+    }
+
+    [Fact]
+    public async Task Greeter_AsksAboutAWorryOnlyOnce_ThenLetsItGo()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        var greeter = sp.GetRequiredService<IGreeter>();
+        var conv = await NewConversationAsync(sp);
+
+        await sp.GetRequiredService<ICompanion>()
+            .RespondAsync(User, conv, "I'm really nervous about the interview");
+
+        // First greeting raises it…
+        var first = await greeter.GreetAsync(User);
+        Assert.Contains(first.Openers, o => o.Contains("the interview", StringComparison.OrdinalIgnoreCase));
+
+        // …the next one doesn't nag about the same thing.
+        var second = await greeter.GreetAsync(User);
+        Assert.DoesNotContain(second.Openers, o => o.Contains("the interview", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ANewerFeelingAboutATopic_SupersedesTheOldWorry()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        var companion = sp.GetRequiredService<ICompanion>();
+        var conv = await NewConversationAsync(sp);
+
+        await companion.RespondAsync(User, conv, "I'm worried about the deadline");
+        await companion.RespondAsync(User, conv, "feeling much better about the deadline");
+
+        var signals = await sp.GetRequiredService<IEmotionStore>().GetRecentSignalsAsync(User, 10);
+        Assert.Equal(2, signals.Count);
+        // The old worry is closed out; the fresh, brighter reading stands.
+        Assert.Single(signals, s => s.FollowedUp && s.Sentiment == Sentiment.Negative);
+        Assert.Single(signals, s => !s.FollowedUp && s.Valence > 0);
+
+        // So the greeter never re-raises the deadline as a worry.
+        var greeting = await sp.GetRequiredService<IGreeter>().GreetAsync(User);
+        Assert.DoesNotContain(greeting.Openers, o =>
+            o.Contains("worried about the deadline", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

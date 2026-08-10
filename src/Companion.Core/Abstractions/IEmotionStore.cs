@@ -14,7 +14,15 @@ public interface IEmotionStore
 
     /// <summary>
     /// Returns the most recent readings for a user, newest first, capped at <paramref name="count"/>.
+    /// Includes followed-up signals — the caller decides what still counts as an open concern.
     /// </summary>
     Task<IReadOnlyList<EmotionalSignal>> GetRecentSignalsAsync(
         string userId, int count, CancellationToken ct = default);
+
+    /// <summary>
+    /// Marks every open signal about <paramref name="topic"/> (case-insensitive) as followed-up, so
+    /// the concern stops being surfaced. Returns how many were closed. Used both when the companion
+    /// asks about a topic and when a newer feeling about the same topic supersedes the old one.
+    /// </summary>
+    Task<int> MarkTopicFollowedUpAsync(string userId, string topic, CancellationToken ct = default);
 }

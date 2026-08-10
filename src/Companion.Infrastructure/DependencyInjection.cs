@@ -75,6 +75,13 @@ public static class DependencyInjection
                 ProviderHttpClients.Name(ProviderHttpClients.Transcription),
                 sp.GetRequiredService<ILogger<OpenAiCompatibleTranscriber>>()));
         }
+        if (modelOptions.UsesRealModel && modelOptions.Speech is { } speechEndpoint)
+        {
+            services.AddSingleton<ISpeechSynthesizer>(sp => new OpenAiCompatibleSpeechSynthesizer(
+                speechEndpoint, sp.GetRequiredService<IHttpClientFactory>(),
+                ProviderHttpClients.Name(ProviderHttpClients.Speech),
+                sp.GetRequiredService<ILogger<OpenAiCompatibleSpeechSynthesizer>>()));
+        }
 
         if (modelOptions.UsesRealModel)
         {
@@ -216,6 +223,7 @@ public static class DependencyInjection
         Require("Embeddings", options.Embeddings);
         if (options.Vision is { } v) Require("Vision", v);
         if (options.Transcription is { } t) Require("Transcription", t);
+        if (options.Speech is { } s) Require("Speech", s);
 
         if (missing.Count > 0)
             throw new InvalidOperationException(

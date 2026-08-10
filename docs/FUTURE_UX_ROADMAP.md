@@ -53,9 +53,16 @@ mic → VAD → STT → [turn] → LLM tokens (stream) → TTS → speaker
 camera → frames (opt-in) → vision model → context
 ```
 
-Local building blocks: whisper (built — `/transcribe`), **Piper** for TTS (fast, local, emits
-phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity. Start with
-**push-to-talk**; add wake-word and **barge-in** (interrupt mid-sentence) later.
+Local building blocks: whisper (built — `/transcribe`) and **TTS** (built — `POST /speak`, an
+OpenAI-compatible `/v1/audio/speech` provider behind `ISpeechSynthesizer`; Piper/Speaches/LocalAI).
+The reference web client wires them into a full voice loop (built): **push-to-talk** (hold-to-talk
+mic) **or hands-free** (voice-activity detection — just talk), **streaming playback** (the reply is
+synthesized sentence-by-sentence as it streams and the clips play in order, so speech starts within a
+sentence), and **talk-to-interrupt barge-in** (speech onset cuts off playback mid-sentence). A
+**3D avatar with lip-sync** is built too — three.js (vendored offline) loads a Ready Player Me `.glb`
+and drives the mouth from the reply's audio amplitude, with idle blinking and drag/zoom (see
+[`AVATAR.md`](AVATAR.md)). Next on this axis: **phoneme-accurate visemes** from Piper's phoneme
+timings (crisper mouth shapes), then body gestures/emotes.
 
 ## Style: editable now, trainable later
 
@@ -97,14 +104,25 @@ phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity
     mood, dominant recent emotion, and a rising/slipping trend) *purely from the log*, so it can never
     drift from what actually happened — the same "relational store is authoritative, everything else is
     derived" rule the memory system already follows.
+  - **Tied to what it's about** — a deterministic `MoodTopic` extractor pulls the subject a feeling is
+    about from the same message ("stressed about **the deadline**", "excited for **the trip**"), and
+    when the message doesn't say, the mood attaches to the project the turn resolved to (`ProjectId`).
+    Contentless objects ("it", "everything") are rejected — you can't follow up on "it". This is what
+    turns a general mood into a specific, caring follow-up: the greeter opens with "Last time you
+    seemed nervous about the interview — how's that going?" and the in-turn tone note becomes "the
+    user has seemed anxious about the interview lately — it's fine to gently ask how that's going."
+  - **The loop closes** — a concern is followed up on *once*, then let go: surfacing it in a greeting
+    marks it closed (so it never nags across sessions, even if the user answered with a bare "it went
+    great"), and a newer feeling about the same topic supersedes the old one (latest-feeling-wins).
+    Closed concerns stay in the mood *history* (the trend can still show a low lifting back up) but
+    drop out of the "right now" read, so they're never re-raised.
   - **Used, not stated** — the snapshot becomes one line of *tone guidance* in the context packet
     ("the user has seemed stressed lately — be a little gentler; don't bring this up unless they do"),
     rendered as prose the model attunes to rather than reads back. The greeter opens with care after a
     low stretch ("you seemed a bit low last time — I'm here if you want to talk about it") or shares in
     good spirits.
-- **Later:** tie emotional signals to *what* they were about (link a low mood to the project/event in
-  the same turn), longer-horizon mood history beyond the recent window, and emotion cues from voice
-  tone once the audio loop lands.
+- **Later:** longer-horizon mood history beyond the recent window, and emotion cues from voice tone
+  once the audio loop lands.
 
 ## Long tasks: finish in-turn now, background jobs later
 
@@ -143,6 +161,8 @@ project's local-first, forgettable ethos and must precede any ambient capture.
 
 1. ✅ Natural-language intents + editable persona + feedback capture.
 2. ✅ Headless streaming API (brain/face split) — `Companion.Api` (HTTP + SSE + WebSocket).
-3. Voice loop (push-to-talk → whisper → turn → Piper TTS).
-4. 3D avatar front-end (visemes + emotion).
+3. ✅ Voice loop — `/transcribe` + `/speak` endpoints and a web client with push-to-talk, hands-free
+   VAD, streaming playback, and talk-to-interrupt barge-in.
+4. 3D avatar front-end — first version built (three.js, Ready Player Me `.glb`, amplitude lip-sync +
+   blink); remaining: phoneme-accurate visemes, body gestures/emotes.
 5. Opt-in camera (vision frames), privacy-gated.

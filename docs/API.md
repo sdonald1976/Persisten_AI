@@ -82,6 +82,7 @@ All endpoints require the API token (see Security). Bodies/queries never carry a
 | `PUT`  | `/identity` | `{ name?, gender?, pronouns? }` | `{ name, gender, pronouns }` (only provided fields change) |
 | `POST` | `/feedback` | `{ conversationId, rating: "positive"\|"negative", note? }` | `AgentReply` |
 | `POST` | `/transcribe` | multipart form-data, field `file` (audio) | `{ text }` (503 if no Whisper server configured) |
+| `POST` | `/speak` | `{ text, voice? }` | audio bytes (`audio/mpeg` etc.; 503 if no TTS server configured) |
 
 `AgentReply` shape:
 ```json
