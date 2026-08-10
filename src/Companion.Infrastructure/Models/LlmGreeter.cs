@@ -57,7 +57,7 @@ public sealed class LlmGreeter : IGreeter, IGreetingRephraser
         try
         {
             var system = await SystemPromptForAsync(userId, ct);
-            var reply = await _chat.CompleteAsync(system, BuildPrompt(grounded.Openers), jsonMode: false, ct: ct);
+            var reply = await _chat.CompleteAsync(system, BuildPrompt(grounded.Openers, grounded.TimeContext), jsonMode: false, ct: ct);
             // Small local models sometimes leak chat-template markers (e.g. a literal <|im_end|>)
             // into their text; they are never legitimate greeting content.
             var message = SpecialTokens.Replace(reply.Text ?? string.Empty, string.Empty).Trim();
@@ -99,13 +99,19 @@ public sealed class LlmGreeter : IGreeter, IGreetingRephraser
             : "Stay fully in character as described here:\n" + persona + "\n\n" + SystemPrompt;
     }
 
-    private static string BuildPrompt(IReadOnlyList<string> openers)
-        => openers.Count == 0
+    private static string BuildPrompt(IReadOnlyList<string> openers, string? timeContext)
+    {
+        var since = timeContext is null
+            ? ""
+            : $"It has been {timeContext} since you last talked with the user — acknowledge the gap warmly and naturally.\n\n";
+
+        return since + (openers.Count == 0
             ? "You don't remember anything about this user yet — this may be your first conversation. " +
               "Write a warm, brief opening greeting that invites them to talk about anything or to ask " +
               "what you can do. Don't claim to remember anything."
             : "Threads you actually remember with this user (reference one or two of them naturally, " +
               "and make clear they can also just talk about anything else):\n" +
               string.Join("\n", openers.Select(o => "- " + o)) +
-              "\n\nWrite your opening greeting now.";
+              "\n\nWrite your opening greeting now.");
+    }
 }

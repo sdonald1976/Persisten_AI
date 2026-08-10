@@ -81,4 +81,14 @@ public sealed class ConversationStore : IConversationStore
 
     public async Task<Message?> GetMessageAsync(Guid messageId, string userId, CancellationToken ct = default)
         => await _db.Messages.FirstOrDefaultAsync(m => m.Id == messageId && m.UserId == userId, ct);
+
+    public async Task<DateTimeOffset?> GetLastMessageAtAsync(string userId, CancellationToken ct = default)
+    {
+        var any = await _db.Messages
+            .Where(m => m.UserId == userId)
+            .OrderByDescending(m => m.Timestamp)
+            .Select(m => (DateTimeOffset?)m.Timestamp)
+            .FirstOrDefaultAsync(ct);
+        return any;
+    }
 }
