@@ -100,6 +100,11 @@ The reference client (`wwwroot/index.html`, served at `/`) has the round trip wi
 - **🎤 Hold to talk** — press and hold the mic button, speak, release. It records from your mic,
   posts to `/transcribe`, and sends the transcript as a normal turn. The companion's reply to a
   spoken turn is **spoken back** automatically (voice in → voice out).
+- **🎙️ Hands-free** — toggle it on and just *talk*, no button: a lightweight voice-activity detector
+  starts capturing when you speak and sends when you pause. **Talk over the companion to interrupt it**
+  — speech onset cuts off playback mid-sentence (barge-in) and captures what you say. Echo
+  cancellation keeps its own voice from self-triggering; headphones make it rock-solid. Click again
+  to turn off.
 - **🔈 Speak** — toggle in the header to read *every* reply aloud (including typed ones).
 - **Streaming playback** — the reply is synthesized sentence-by-sentence *as it streams in* and the
   clips play in order, so the companion starts talking within a sentence instead of after the whole
@@ -112,6 +117,6 @@ but a plain-`http` LAN address won't grant microphone access (use `localhost` or
 
 ## What's next for the voice loop
 
-Still to come: **hands-free barge-in** — interrupt playback just by starting to talk (voice-activity
-detection), instead of having to hold the mic. After that, a 3D avatar with lip-sync. See
+The loop is complete: hold-to-talk **or** hands-free, streaming spoken replies, and talk-to-interrupt
+barge-in. Next on this axis is a **3D avatar with lip-sync** (drive visemes from the TTS timing). See
 [`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md).

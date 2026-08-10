@@ -55,12 +55,11 @@ camera → frames (opt-in) → vision model → context
 
 Local building blocks: whisper (built — `/transcribe`) and **TTS** (built — `POST /speak`, an
 OpenAI-compatible `/v1/audio/speech` provider behind `ISpeechSynthesizer`; Piper/Speaches/LocalAI).
-The reference web client wires them into a **push-to-talk** loop (built — hold-to-talk mic →
-`/transcribe` → turn → `/speak` → playback, voice in → voice out, with a speak-everything toggle and
-basic barge-in on record) with **streaming playback** (built — the reply is synthesized
-sentence-by-sentence as it streams and the clips play in order, so speech starts within a sentence).
-Still to build: **hands-free barge-in** (interrupt by talking, via voice-activity detection). A web
-avatar (three.js + Ready Player Me) or Unity comes after.
+The reference web client wires them into a full voice loop (built): **push-to-talk** (hold-to-talk
+mic) **or hands-free** (voice-activity detection — just talk), **streaming playback** (the reply is
+synthesized sentence-by-sentence as it streams and the clips play in order, so speech starts within a
+sentence), and **talk-to-interrupt barge-in** (speech onset cuts off playback mid-sentence). Next on
+this axis: a web avatar (three.js + Ready Player Me) or Unity with **lip-sync** driven from TTS timing.
 
 ## Style: editable now, trainable later
 
@@ -159,7 +158,7 @@ project's local-first, forgettable ethos and must precede any ambient capture.
 
 1. ✅ Natural-language intents + editable persona + feedback capture.
 2. ✅ Headless streaming API (brain/face split) — `Companion.Api` (HTTP + SSE + WebSocket).
-3. Voice loop — endpoints + push-to-talk web client + streaming playback built (`/transcribe` → turn
-   → `/speak`, voice in → voice out); remaining: hands-free barge-in (voice-activity detection).
+3. ✅ Voice loop — `/transcribe` + `/speak` endpoints and a web client with push-to-talk, hands-free
+   VAD, streaming playback, and talk-to-interrupt barge-in.
 4. 3D avatar front-end (visemes + emotion).
 5. Opt-in camera (vision frames), privacy-gated.
