@@ -20,6 +20,11 @@ full-body humanoid rig**:
 
 Keep it web-friendly: ~10k–80k triangles, baked PBR textures.
 
+The scene lights the model with **image-based lighting** (a neutral studio environment) plus a soft
+key light and ACES filmic tone mapping, so skin/eyes/hair render naturally rather than flat and dark.
+If it looks too bright or too dim for your model, adjust `renderer.toneMappingExposure` in the avatar
+module.
+
 ## Using it
 
 1. Click **🧍 Avatar** in the header to open the stage.
