@@ -47,7 +47,7 @@ plug in without embedding .NET. See [`docs/API.md`](docs/API.md).
 | [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | Phased tasks, dependencies, acceptance criteria, test requirements. |
 | [`docs/FIRST_VERTICAL_SLICE.md`](docs/FIRST_VERTICAL_SLICE.md) | Exact files proposed for the first vertical slice. |
 | [`docs/AUDIO.md`](docs/AUDIO.md) | Voice loop: local STT + TTS server via `docker compose`, and the web client's push-to-talk / hands-free / streaming playback. |
-| [`docs/AVATAR.md`](docs/AVATAR.md) | The 3D avatar (three.js) — what model to get (Ready Player Me), how to load it, and how lip-sync works. |
+| [`docs/AVATAR.md`](docs/AVATAR.md) | The 3D avatar (three.js) — what model to get (a viseme-capable `.glb`, e.g. Avaturn / VRoid), how to load it, and how lip-sync works. |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | Continuation brief — paste into a fresh session to pick the project back up. |
 
 ## Stack

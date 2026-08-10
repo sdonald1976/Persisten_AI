@@ -104,7 +104,7 @@
   <div id="stage">
     <canvas id="avatarCanvas"></canvas>
     <div id="stageBar">
-      <span id="stageHint">Load a Ready Player Me <code>.glb</code> (full-body, with visemes) to bring the companion to life.</span>
+      <span id="stageHint">Load a full-body <code>.glb</code> with visemes (e.g. Avaturn) to bring the companion to life.</span>
       <span class="spacer"></span>
       <button id="loadModel">Load .glb…</button>
       <input id="avatarFile" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" hidden />
@@ -612,7 +612,7 @@
     connect();
   </script>
 
-  <!-- 3D avatar (three.js, vendored). Loads a Ready Player Me .glb and lip-syncs the spoken reply
+  <!-- 3D avatar (three.js, vendored). Loads a viseme-capable .glb and lip-syncs the spoken reply
        from its audio amplitude. Isolated module; it only talks to the chat via window.companionAvatar. -->
   <script type="module">
     import * as THREE from 'three';
@@ -714,9 +714,10 @@
       mouthMorphs = []; blinkMorphs = [];
       const allMorphs = [];
       const isMouth = (k) => k.includes('jawopen') || k.includes('mouthopen') || k === 'vopen'
-        || k.includes('visemeaa') || k === 'aa' || k === 'vaa' || k.includes('mouthaa');
+        || k.includes('visemeaa') || k === 'aa' || k === 'vaa' || k.includes('mouthaa')
+        || k.includes('mtha'); // VRoid Fcl_MTH_A
       const isBlink = (k) => k.includes('eyeblink') || k.includes('eyesclosed') || k === 'blink'
-        || k.includes('blinkleft') || k.includes('blinkright');
+        || k.includes('blinkleft') || k.includes('blinkright') || k.includes('eyeclose'); // VRoid Fcl_EYE_Close
       model.traverse((o) => {
         if (!o.isMesh || !o.morphTargetDictionary || !o.morphTargetInfluences) return;
         for (const [name, idx] of Object.entries(o.morphTargetDictionary)) {
@@ -736,7 +737,7 @@
         ? 'Loaded — drag to turn · scroll to zoom · lip-sync will follow the voice.'
         : (allMorphs.length
             ? `Loaded, but none of its ${allMorphs.length} blendshapes looked like a mouth viseme. Open the browser console (F12) and send me the names — I’ll map them.`
-            : 'Loaded, but this model has no facial blendshapes, so it can’t lip-sync. A Ready Player Me export includes them.');
+            : 'Loaded, but this model has no facial blendshapes, so it can’t lip-sync. Export one with ARKit/visemes (e.g. Avaturn) to see the mouth move.');
       resize();
     }
 
