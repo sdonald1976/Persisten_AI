@@ -128,18 +128,30 @@ public sealed class Greeter : IGreeter
             return null;
 
         var emotion = string.IsNullOrWhiteSpace(mood.RecentEmotion) ? null : mood.RecentEmotion;
+        var topic = string.IsNullOrWhiteSpace(mood.RecentTopic) ? null : mood.RecentTopic;
 
         if (mood.RecentMood is Sentiment.Negative or Sentiment.VeryNegative)
         {
-            var how = emotion is null ? "a bit low" : emotion;
-            return $"You seemed {how} last time — I'm here if you want to talk about it.";
+            // Tied to a subject → follow up on that specific thing ("how'd the interview go?").
+            if (topic is not null)
+            {
+                var how = emotion is null ? "concerned" : emotion;
+                return $"Last time you seemed {how} about {topic} — how's that going?";
+            }
+
+            var vibe = emotion is null ? "a bit low" : emotion;
+            return $"You seemed {vibe} last time — I'm here if you want to talk about it.";
         }
 
         if (mood.Trend == MoodTrend.Improving && mood.AverageValence < 0.2)
             return "Last stretch felt rough — hope things have been looking up.";
 
         if (mood.RecentMood is Sentiment.Positive or Sentiment.VeryPositive)
+        {
+            if (topic is not null)
+                return $"How's {topic}? You seemed {emotion ?? "upbeat"} about it last time.";
             return "You were in good spirits last time — hope that's still going.";
+        }
 
         return null;
     }

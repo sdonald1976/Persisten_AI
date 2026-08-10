@@ -28,4 +28,15 @@ public sealed class EmotionalSignal
 
     /// <summary>The cue phrase that triggered the reading, kept so a reading can explain itself.</summary>
     public string? Evidence { get; set; }
+
+    /// <summary>
+    /// What the feeling was <em>about</em> — a short subject phrase pulled from the same message
+    /// ("the interview", "the deadline") or the project the turn resolved to. Null when the mood
+    /// wasn't clearly tied to anything. This is what lets the companion follow up specifically:
+    /// "how'd the interview go — you seemed nervous about it?"
+    /// </summary>
+    public string? Topic { get; set; }
+
+    /// <summary>The first-class project this feeling attached to, when the turn resolved to one.</summary>
+    public Guid? ProjectId { get; set; }
 }

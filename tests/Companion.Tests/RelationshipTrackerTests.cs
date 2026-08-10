@@ -30,7 +30,7 @@ public class RelationshipTrackerTests
                     .ToList());
     }
 
-    private static EmotionalSignal Signal(string user, int minute, Sentiment s, double valence, string? label)
+    private static EmotionalSignal Signal(string user, int minute, Sentiment s, double valence, string? label, string? topic = null)
         => new()
         {
             Id = Guid.NewGuid(),
@@ -40,6 +40,7 @@ public class RelationshipTrackerTests
             Sentiment = s,
             Valence = valence,
             Label = label,
+            Topic = topic,
         };
 
     private static async Task<(RelationshipTracker tracker, FakeEmotionStore store)> WithSignals(params EmotionalSignal[] signals)
@@ -99,6 +100,20 @@ public class RelationshipTrackerTests
 
         Assert.True(snap.RecentMood is Sentiment.Positive or Sentiment.VeryPositive);
         Assert.Contains("share in that", snap.Describe()!);
+    }
+
+    [Fact]
+    public async Task RecentTopic_CarriesTheSubjectOfTheDominantFeeling()
+    {
+        var (tracker, _) = await WithSignals(
+            Signal("u", 0, Sentiment.Negative, -0.5, "worried", topic: "the move"),
+            Signal("u", 1, Sentiment.Negative, -0.6, "nervous", topic: "the interview"));
+
+        var snap = await tracker.BuildAsync("u");
+
+        Assert.Equal("nervous", snap.RecentEmotion);   // freshest matching signal
+        Assert.Equal("the interview", snap.RecentTopic); // …and its subject
+        Assert.Contains("the interview", snap.Describe()!);
     }
 
     [Fact]
