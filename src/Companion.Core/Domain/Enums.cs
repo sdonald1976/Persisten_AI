@@ -115,6 +115,32 @@ public enum FeedbackRating
     Negative,
 }
 
+/// <summary>
+/// Coarse emotional valence of a user's message, from a deterministic mood reading. Ordered from
+/// most distressed to most upbeat so buckets can be compared and averaged as an index.
+/// </summary>
+public enum Sentiment
+{
+    VeryNegative,
+    Negative,
+    Neutral,
+    Positive,
+    VeryPositive,
+}
+
+/// <summary>Which way the user's mood has been moving across recent interactions.</summary>
+public enum MoodTrend
+{
+    /// <summary>No clear direction — roughly level.</summary>
+    Steady,
+
+    /// <summary>More recent interactions are more positive than the earlier ones.</summary>
+    Improving,
+
+    /// <summary>More recent interactions are more negative than the earlier ones.</summary>
+    Declining,
+}
+
 /// <summary>Where a semantic memory came from — so system-generated knowledge isn't presented as a direct quote.</summary>
 public enum MemoryOrigin
 {
