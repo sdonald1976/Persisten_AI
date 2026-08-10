@@ -9,6 +9,13 @@ public sealed record Greeting
 {
     public required string Message { get; init; }
 
+    /// <summary>
+    /// How long it's been since the user last talked, as a natural phrase ("3 days"), or null when
+    /// it's their first time or they only just left. Lets a face — or the model-written greeting —
+    /// acknowledge the gap ("it's been 3 days").
+    /// </summary>
+    public string? TimeContext { get; init; }
+
     /// <summary>Concrete things to pick up, drawn from what the companion actually remembers.</summary>
     public IReadOnlyList<string> Openers { get; init; } = Array.Empty<string>();
 
