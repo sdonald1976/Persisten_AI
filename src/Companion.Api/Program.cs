@@ -128,6 +128,7 @@ app.MapGet("/health", (ModelOptions models) =>
                 embeddings = models.Embeddings.Model,
                 vision = models.Vision?.Model,
                 transcription = models.Transcription?.Model,
+                speech = models.Speech?.Model,
             }
             : null,
     });
@@ -391,6 +392,23 @@ app.MapPost("/transcribe", async (HttpContext ctx, IFormFile file, CancellationT
     var text = await transcriber.TranscribeAsync(stream, file.FileName, ct);
     return Results.Ok(new { text });
 }).DisableAntiforgery();
+
+// Text-to-speech: POST { "text": "...", "voice": "optional" } and get audio bytes back — the output
+// half of the voice loop. Requires a configured TTS server (Models.Speech — see docs/AUDIO.md). The
+// client plays the returned audio; a voice face pairs this with /transcribe and /chat/stream.
+app.MapPost("/speak", async (HttpContext ctx, SpeakRequest? body, CancellationToken ct) =>
+{
+    var synthesizer = ctx.RequestServices.GetService<ISpeechSynthesizer>();
+    if (synthesizer is null)
+        return Results.Json(
+            new ApiError("SpeechUnavailable", "Text-to-speech isn't configured (set Models.Speech).", ctx.TraceIdentifier),
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    if (body is null || string.IsNullOrWhiteSpace(body.Text))
+        return ApiError.BadRequest("Provide text to speak as JSON field 'text'.");
+
+    var audio = await synthesizer.SynthesizeAsync(body.Text, body.Voice, ct);
+    return Results.File(audio.Audio, audio.ContentType);
+});
 
 app.Run();
 

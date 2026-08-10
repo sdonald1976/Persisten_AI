@@ -1,4 +1,4 @@
-# Audio setup (speech-to-text, and text-to-speech later)
+# Audio setup (speech-to-text and text-to-speech)
 
 The companion's chat/embeddings run on Ollama or LM Studio, but **those can't do audio**. Speech
 runs in a separate local container — [Speaches](https://github.com/speaches-ai/speaches) (formerly
@@ -6,10 +6,11 @@ runs in a separate local container — [Speaches](https://github.com/speaches-ai
 
 | Endpoint | What | Used by |
 |----------|------|---------|
-| `/v1/audio/transcriptions` | speech → text (Whisper) | `POST /transcribe` today |
-| `/v1/audio/speech` | text → speech (TTS) | the upcoming voice-output step |
+| `/v1/audio/transcriptions` | speech → text (Whisper) | `POST /transcribe` |
+| `/v1/audio/speech` | text → speech (TTS) | `POST /speak` |
 
-One container covers both, so this is the whole audio dependency.
+One container covers both, so this is the whole audio dependency. Together the two endpoints close
+the voice loop: **mic → `/transcribe` → a normal chat turn → `/speak` → speaker.**
 
 ## Start it
 
@@ -38,11 +39,17 @@ Already present in `src/Companion.Api/appsettings.json` under `Models`:
 "Transcription": {
   "BaseUrl": "http://localhost:8000/v1",
   "Model": "Systran/faster-whisper-small"   // -base / -medium / -large-v3 for more accuracy
+},
+"Speech": {
+  "BaseUrl": "http://localhost:8000/v1",
+  "Model": "speaches-ai/piper-en_US-amy-low", // any TTS model the server serves
+  "Voice": "amy",                             // optional default voice; a /speak call can override
+  "AudioFormat": "mp3"                        // mp3 (default) · wav · opus · aac · flac · pcm
 }
 ```
 
-The model name is downloaded on first use. Bigger = more accurate but slower and heavier. Remove the
-`Transcription` block entirely to disable audio.
+The model name is downloaded on first use. Bigger = more accurate but slower and heavier. Remove a
+block entirely to disable that half: no `Transcription` → no `/transcribe`; no `Speech` → no `/speak`.
 
 ## Use it
 
@@ -54,8 +61,18 @@ curl -F file=@path/to/audio.wav http://localhost:5266/transcribe
 # → { "text": "…" }
 ```
 
-This is **file-based, not a live mic** yet — the push-to-talk mic loop is the next roadmap item
-(see [`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md)).
+And speak a reply — `POST /speak` returns raw audio bytes (content type follows `AudioFormat`):
+
+```bash
+curl -X POST http://localhost:5266/speak \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Hey, good to see you back.","voice":"amy"}' \
+  --output reply.mp3
+```
+
+`voice` is optional (falls back to the configured `Speech.Voice`). This is **file-based, not a live
+mic** yet — the push-to-talk mic loop and streaming playback are the next roadmap items (see
+[`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md)).
 
 ## GPU (optional, NVIDIA)
 
@@ -66,6 +83,7 @@ the `deploy:` block.
 ## Troubleshooting
 
 - **`/transcribe` returns 503** — transcription isn't configured (no `Models.Transcription`).
+- **`/speak` returns 503** — text-to-speech isn't configured (no `Models.Speech`).
 - **`/transcribe` errors / connection refused to :8000** — the container isn't up. `docker compose ps`, then
   `docker compose logs speaches`.
 - **First transcription hangs for a while** — that's the model downloading; watch the logs. Later
@@ -75,8 +93,9 @@ the `deploy:` block.
 - **`whisper-1` doesn't work** — that's OpenAI's *cloud* model id; it doesn't exist locally. Use a
   `Systran/faster-whisper-*` name.
 
-## Text-to-speech (coming with the voice loop)
+## What's next for the voice loop
 
-When we add voice output, TTS will reuse this same Speaches container via `/v1/audio/speech` — no
-new service to run. That's why the compose file and this doc are named for "audio" rather than just
-Whisper.
+Both halves of the round trip now exist as building blocks (`/transcribe`, `/speak`). Still to come,
+in the client/face layer: a **push-to-talk mic loop** (record → transcribe → chat → speak → play),
+then **streaming playback** (synthesize the reply in chunks as it's generated) and **barge-in**
+(interrupt playback when the user starts talking). See [`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md).
