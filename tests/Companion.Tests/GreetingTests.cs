@@ -77,6 +77,48 @@ public class GreetingTests
         Assert.Contains("It's been 3 days", greeting.Message);
     }
 
+    [Fact]
+    public async Task Greeting_FollowsUpOnACompanionCommitment()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var projects = scope.ServiceProvider.GetRequiredService<IProjectStore>();
+        await projects.AddOpenLoopAsync(new OpenLoop
+        {
+            Id = Guid.NewGuid(),
+            UserId = User,
+            Owner = "companion",
+            Description = "check in about your interview",
+            Status = OpenLoopStatus.Open,
+            CreatedAt = Now,
+        });
+
+        var greeting = await scope.ServiceProvider.GetRequiredService<IGreeter>().GreetAsync(User);
+
+        Assert.Contains(greeting.Openers, o => o.Contains("I said I'd check in about your interview"));
+    }
+
+    [Fact]
+    public async Task Greeting_DoesNotNagAboutAStaleCommitment()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var projects = scope.ServiceProvider.GetRequiredService<IProjectStore>();
+        await projects.AddOpenLoopAsync(new OpenLoop
+        {
+            Id = Guid.NewGuid(),
+            UserId = User,
+            Owner = "companion",
+            Description = "check in about your interview",
+            Status = OpenLoopStatus.Open,
+            CreatedAt = Now.AddDays(-20), // past the surfacing window
+        });
+
+        var greeting = await scope.ServiceProvider.GetRequiredService<IGreeter>().GreetAsync(User);
+
+        Assert.DoesNotContain(greeting.Openers, o => o.Contains("I said I'd"));
+    }
+
     [Theory]
     [InlineData("hi")]
     [InlineData("Hi!")]
