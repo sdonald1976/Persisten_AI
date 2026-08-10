@@ -53,10 +53,13 @@ EF Core nor any LLM SDK.
 - **Domain records** — see "Domain model" below.
 - **Interfaces**
   - Model roles: `IChatModel`, `IEmbeddingModel`, `IMemoryExtractor`, `ISummarizer`, `IReranker`.
-  - Storage: `IMemoryStore`, `IConversationStore`, `IProjectStore`, `IEntityStore`, `IVectorIndex`.
-  - Services: `IRetriever`, `IContextAssembler`, `IMemoryPipeline`, `IEntityResolver`, `ICompanion`.
+  - Storage: `IMemoryStore`, `IConversationStore`, `IProjectStore`, `IEntityStore`, `IVectorIndex`,
+    `IEmotionStore` (append-only emotional-signal log).
+  - Services: `IRetriever`, `IContextAssembler`, `IMemoryPipeline`, `IEntityResolver`, `ICompanion`,
+    `IRelationshipTracker` (derives how things have been feeling from the signal log).
 - **Pure services** — scoring/ranking math, temporal validity rules, dedup/normalization,
-  confidence calculation. No database, no network → trivially unit-testable.
+  confidence calculation, and deterministic detectors (`MoodDetector` for a message's emotional tone,
+  `CommitmentDetector` for the companion's own promises). No database, no network → trivially unit-testable.
 
 ### Infrastructure (I/O)
 

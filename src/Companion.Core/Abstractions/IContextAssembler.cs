@@ -10,5 +10,6 @@ public interface IContextAssembler
         IReadOnlyList<Message> recentMessages,
         IReadOnlyList<RetrievalResult> retrieved,
         ProjectContext projectContext,
-        string? persona = null);
+        string? persona = null,
+        RelationshipSnapshot? relationship = null);
 }

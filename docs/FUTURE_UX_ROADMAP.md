@@ -85,6 +85,27 @@ phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity
   how did it go?"), which needs the extractor to capture planned events with timing; and a
   background job runner (below) for check-ins that happen off-turn.
 
+## Relational & emotional memory
+
+- **Now (built):** the companion remembers not just *facts* but *how things have felt*, and lets that
+  shape its tone across sessions.
+  - **Emotional signals** — a deterministic, offline `MoodDetector` reads each user message's tone
+    (valence + a dominant emotion like "stressed"/"excited", with negation and intensifier handling)
+    and appends it to an **append-only** `EmotionalSignal` log. Flat/ordinary messages capture nothing,
+    so the log stays signal, not noise. Skipped on private ("don't remember this") turns.
+  - **Derived relationship state** — `RelationshipTracker` computes a `RelationshipSnapshot` (recent
+    mood, dominant recent emotion, and a rising/slipping trend) *purely from the log*, so it can never
+    drift from what actually happened — the same "relational store is authoritative, everything else is
+    derived" rule the memory system already follows.
+  - **Used, not stated** — the snapshot becomes one line of *tone guidance* in the context packet
+    ("the user has seemed stressed lately — be a little gentler; don't bring this up unless they do"),
+    rendered as prose the model attunes to rather than reads back. The greeter opens with care after a
+    low stretch ("you seemed a bit low last time — I'm here if you want to talk about it") or shares in
+    good spirits.
+- **Later:** tie emotional signals to *what* they were about (link a low mood to the project/event in
+  the same turn), longer-horizon mood history beyond the recent window, and emotion cues from voice
+  tone once the audio loop lands.
+
 ## Long tasks: finish in-turn now, background jobs later
 
 - **Now (built):** an `IReplyGenerator` owns "when to keep going" using **deterministic, topic-free
