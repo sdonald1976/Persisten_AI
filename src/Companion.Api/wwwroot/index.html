@@ -708,22 +708,35 @@
       camDist = modelHeight * 0.62;
       userRotY = 0;
 
-      // Discover the blendshapes we drive.
+      // Discover the blendshapes we drive. Names are normalized (lowercase, letters only) so this
+      // matches ARKit (jawOpen), Oculus (viseme_aa), and Character-Creator/Daz-style (Mouth_Open,
+      // V_Open, V_AA) rigs alike.
       mouthMorphs = []; blinkMorphs = [];
+      const allMorphs = [];
+      const isMouth = (k) => k.includes('jawopen') || k.includes('mouthopen') || k === 'vopen'
+        || k.includes('visemeaa') || k === 'aa' || k === 'vaa' || k.includes('mouthaa');
+      const isBlink = (k) => k.includes('eyeblink') || k.includes('eyesclosed') || k === 'blink'
+        || k.includes('blinkleft') || k.includes('blinkright');
       model.traverse((o) => {
         if (!o.isMesh || !o.morphTargetDictionary || !o.morphTargetInfluences) return;
         for (const [name, idx] of Object.entries(o.morphTargetDictionary)) {
-          const n = name.toLowerCase();
-          if (n.includes('jawopen') || n === 'mouthopen' || n.includes('viseme_aa') || n === 'aa')
-            mouthMorphs.push({ inf: o.morphTargetInfluences, idx });
-          if (n.includes('eyeblink') || n === 'eyesclosed' || n === 'blink')
-            blinkMorphs.push({ inf: o.morphTargetInfluences, idx });
+          allMorphs.push(name);
+          const k = name.toLowerCase().replace(/[^a-z]/g, '');
+          if (isMouth(k)) mouthMorphs.push({ inf: o.morphTargetInfluences, idx });
+          if (isBlink(k)) blinkMorphs.push({ inf: o.morphTargetInfluences, idx });
         }
       });
 
+      // Report what we found — so a model with oddly-named visemes is fixable rather than a mystery.
+      console.log('[avatar] meshes with morphs; total blendshapes:', allMorphs.length,
+        '· mouth matched:', mouthMorphs.length, '· blink:', blinkMorphs.length);
+      if (allMorphs.length) console.log('[avatar] all blendshape names:', allMorphs);
+
       hint.textContent = mouthMorphs.length
-        ? 'Loaded. Drag to turn · scroll to zoom · she’ll lip-sync when she speaks.'
-        : 'Loaded, but this model has no mouth blendshapes — lip-sync needs an ARKit/viseme rig (Ready Player Me works).';
+        ? 'Loaded — drag to turn · scroll to zoom · lip-sync will follow the voice.'
+        : (allMorphs.length
+            ? `Loaded, but none of its ${allMorphs.length} blendshapes looked like a mouth viseme. Open the browser console (F12) and send me the names — I’ll map them.`
+            : 'Loaded, but this model has no facial blendshapes, so it can’t lip-sync. A Ready Player Me export includes them.');
       resize();
     }
 
