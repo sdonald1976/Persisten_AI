@@ -104,10 +104,10 @@
   <div id="stage">
     <canvas id="avatarCanvas"></canvas>
     <div id="stageBar">
-      <span id="stageHint">Load a full-body <code>.glb</code> with visemes (e.g. Avaturn) to bring the companion to life.</span>
+      <span id="stageHint">Load a full-body model with visemes — a VRoid <code>.vrm</code> or a <code>.glb</code> (Avaturn) — to bring the companion to life.</span>
       <span class="spacer"></span>
-      <button id="loadModel">Load .glb…</button>
-      <input id="avatarFile" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" hidden />
+      <button id="loadModel">Load model…</button>
+      <input id="avatarFile" type="file" accept=".glb,.gltf,.vrm,model/gltf-binary,model/gltf+json" hidden />
     </div>
   </div>
 
@@ -689,7 +689,7 @@
       camera.updateProjectionMatrix();
     }
 
-    function setModel(root) {
+    function setModel(root, isVrm) {
       if (model) { scene.remove(model); }
       model = root;
 
@@ -706,7 +706,8 @@
       // Frame the head + upper torso by default (lip-sync is the point); the user can zoom out.
       camTargetY = modelHeight * 0.86;
       camDist = modelHeight * 0.62;
-      userRotY = 0;
+      // VRM/VRoid avatars are authored facing away from the camera (-Z), so turn them around to face us.
+      userRotY = isVrm ? Math.PI : 0;
 
       // Discover the blendshapes we drive. Names are normalized (lowercase, letters only) so this
       // matches ARKit (jawOpen), Oculus (viseme_aa), and Character-Creator/Daz-style (Mouth_Open,
@@ -744,15 +745,22 @@
     const loader = new GLTFLoader();
     function loadArrayBuffer(buf) {
       hint.textContent = 'Loading model…';
-      loader.parse(buf, '', (gltf) => setModel(gltf.scene),
-        () => { hint.textContent = 'Couldn’t read that file — is it a .glb / .gltf?'; });
+      loader.parse(buf, '', (gltf) => {
+        // VRM files carry a VRM / VRMC_vrm glTF extension; they load with GLTFLoader but face away.
+        const ext = (gltf.parser && gltf.parser.json && gltf.parser.json.extensions) || {};
+        const isVrm = !!(ext.VRM || ext.VRMC_vrm);
+        setModel(gltf.scene, isVrm);
+      }, () => { hint.textContent = 'Couldn’t read that file — is it a .glb / .gltf / .vrm?'; });
     }
 
+    // Optional: drop a file in wwwroot to auto-load on open — /avatar.vrm, /avatar.glb, or /avatar.gltf.
     async function tryDefaultModel() {
-      try {
-        const res = await fetch('/avatar.glb');           // optional: drop one in wwwroot to auto-load
-        if (res.ok) loadArrayBuffer(await res.arrayBuffer());
-      } catch { /* none provided — the file picker is the path */ }
+      for (const path of ['/avatar.vrm', '/avatar.glb', '/avatar.gltf']) {
+        try {
+          const res = await fetch(path);
+          if (res.ok) { loadArrayBuffer(await res.arrayBuffer()); return; }
+        } catch { /* try the next */ }
+      }
     }
 
     function tick() {

@@ -41,10 +41,12 @@ module.
 ## Using it
 
 1. Click **🧍 Avatar** in the header to open the stage.
-2. **Load .glb…** (or drag-and-drop a file onto the stage). To auto-load on open, drop your file at
-   `src/Companion.Api/wwwroot/avatar.glb` — the viewer fetches `/avatar.glb` if present.
+2. **Load model…** (or drag-and-drop a file onto the stage) — `.glb`, `.gltf`, or a VRoid **`.vrm`**.
+   To auto-load on open, drop your file at `src/Companion.Api/wwwroot/avatar.vrm` (or `avatar.glb` /
+   `avatar.gltf`) — the viewer fetches those paths in order if present.
 3. Turn on **🔈 Speak** (or use voice input) so the companion talks — the mouth follows along.
-4. **Drag** to turn · **scroll** to zoom.
+4. **Drag** to turn · **scroll** to zoom. (VRM/VRoid avatars are turned to face you automatically;
+   drag if yours ends up backwards.)
 
 ## How lip-sync works (and its limits)
 
