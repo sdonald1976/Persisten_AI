@@ -77,6 +77,16 @@ public class ApiSecurityTests : IClassFixture<CompanionApiFactory>
     }
 
     [Fact]
+    public async Task VendoredThreeJs_IsServed_AsAStaticFile_WithoutToken()
+    {
+        // The 3D avatar's three.js is vendored under wwwroot; static files are served ahead of auth.
+        using var client = _factory.CreateClient();
+        var resp = await client.GetAsync("/vendor/three/three.module.js");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Contains("javascript", resp.Content.Headers.ContentType?.MediaType ?? "");
+    }
+
+    [Fact]
     public async Task XCompanionKeyHeader_IsAlsoAccepted()
     {
         using var client = _factory.CreateClient();
