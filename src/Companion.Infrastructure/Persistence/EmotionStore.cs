@@ -31,4 +31,26 @@ public sealed class EmotionStore : IEmotionStore
             .Take(count)
             .ToListAsync(ct);
     }
+
+    public async Task<int> MarkTopicFollowedUpAsync(string userId, string topic, CancellationToken ct = default)
+    {
+        var norm = topic.Trim().ToLowerInvariant();
+        if (norm.Length == 0)
+            return 0;
+
+        var open = await _db.EmotionalSignals
+            .Where(s => s.UserId == userId
+                && !s.FollowedUp
+                && s.Topic != null
+                && s.Topic.ToLower() == norm)
+            .ToListAsync(ct);
+
+        foreach (var s in open)
+            s.FollowedUp = true;
+
+        if (open.Count > 0)
+            await _db.SaveChangesAsync(ct);
+
+        return open.Count;
+    }
 }

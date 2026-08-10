@@ -22,6 +22,7 @@ public sealed class Greeter : IGreeter
     private readonly IMemoryStore _memories;
     private readonly IConversationStore _conversations;
     private readonly IRelationshipTracker _relationship;
+    private readonly IEmotionStore _emotions;
     private readonly TimeProvider _clock;
 
     public Greeter(
@@ -29,12 +30,14 @@ public sealed class Greeter : IGreeter
         IMemoryStore memories,
         IConversationStore conversations,
         IRelationshipTracker relationship,
+        IEmotionStore emotions,
         TimeProvider clock)
     {
         _projects = projects;
         _memories = memories;
         _conversations = conversations;
         _relationship = relationship;
+        _emotions = emotions;
         _clock = clock;
     }
 
@@ -77,9 +80,14 @@ public sealed class Greeter : IGreeter
 
         // A gentle, mood-aware opener comes first when the recent tone is notable — presence before
         // to-do list. Never presumes the cause; always an invitation, never a demand.
-        var moodOpener = MoodOpener(mood);
+        var (moodOpener, surfacedTopic) = MoodOpener(mood);
         if (moodOpener is not null)
             openers.Add(moodOpener);
+
+        // Asking about a topic closes the loop on it: we've raised it once, so it won't be brought up
+        // again next session (the user can always return to it themselves).
+        if (surfacedTopic is not null)
+            await _emotions.MarkTopicFollowedUpAsync(userId, surfacedTopic, ct);
 
         // Follow up on what the companion itself promised (its own initiative).
         foreach (var c in commitments.Take(1))
@@ -118,14 +126,14 @@ public sealed class Greeter : IGreeter
     }
 
     /// <summary>
-    /// A low-pressure opener that acknowledges the recent emotional tone, or null when nothing is
-    /// notable. Care first for a low stretch; warmth for good spirits; encouragement when climbing
-    /// back up. Deterministic and never presumes why.
+    /// A low-pressure opener that acknowledges the recent emotional tone, plus the topic it surfaced
+    /// (so the caller can close that loop). Both null when nothing is notable. Care first for a low
+    /// stretch; warmth for good spirits; encouragement when climbing back up. Never presumes why.
     /// </summary>
-    private static string? MoodOpener(RelationshipSnapshot mood)
+    private static (string? Opener, string? SurfacedTopic) MoodOpener(RelationshipSnapshot mood)
     {
         if (!mood.HasHistory)
-            return null;
+            return (null, null);
 
         var emotion = string.IsNullOrWhiteSpace(mood.RecentEmotion) ? null : mood.RecentEmotion;
         var topic = string.IsNullOrWhiteSpace(mood.RecentTopic) ? null : mood.RecentTopic;
@@ -136,24 +144,24 @@ public sealed class Greeter : IGreeter
             if (topic is not null)
             {
                 var how = emotion is null ? "concerned" : emotion;
-                return $"Last time you seemed {how} about {topic} — how's that going?";
+                return ($"Last time you seemed {how} about {topic} — how's that going?", topic);
             }
 
             var vibe = emotion is null ? "a bit low" : emotion;
-            return $"You seemed {vibe} last time — I'm here if you want to talk about it.";
+            return ($"You seemed {vibe} last time — I'm here if you want to talk about it.", null);
         }
 
         if (mood.Trend == MoodTrend.Improving && mood.AverageValence < 0.2)
-            return "Last stretch felt rough — hope things have been looking up.";
+            return ("Last stretch felt rough — hope things have been looking up.", null);
 
         if (mood.RecentMood is Sentiment.Positive or Sentiment.VeryPositive)
         {
             if (topic is not null)
-                return $"How's {topic}? You seemed {emotion ?? "upbeat"} about it last time.";
-            return "You were in good spirits last time — hope that's still going.";
+                return ($"How's {topic}? You seemed {emotion ?? "upbeat"} about it last time.", topic);
+            return ("You were in good spirits last time — hope that's still going.", null);
         }
 
-        return null;
+        return (null, null);
     }
 
     private static string LowerFirst(string text)

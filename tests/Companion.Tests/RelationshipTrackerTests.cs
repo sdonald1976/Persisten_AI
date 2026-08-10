@@ -28,9 +28,18 @@ public class RelationshipTrackerTests
                     .OrderByDescending(s => s.Timestamp)
                     .Take(count)
                     .ToList());
+
+        public Task<int> MarkTopicFollowedUpAsync(string userId, string topic, CancellationToken ct = default)
+        {
+            var open = _signals.Where(s => s.UserId == userId && !s.FollowedUp
+                && string.Equals(s.Topic, topic, StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var s in open) s.FollowedUp = true;
+            return Task.FromResult(open.Count);
+        }
     }
 
-    private static EmotionalSignal Signal(string user, int minute, Sentiment s, double valence, string? label, string? topic = null)
+    private static EmotionalSignal Signal(
+        string user, int minute, Sentiment s, double valence, string? label, string? topic = null, bool followedUp = false)
         => new()
         {
             Id = Guid.NewGuid(),
@@ -41,6 +50,7 @@ public class RelationshipTrackerTests
             Valence = valence,
             Label = label,
             Topic = topic,
+            FollowedUp = followedUp,
         };
 
     private static async Task<(RelationshipTracker tracker, FakeEmotionStore store)> WithSignals(params EmotionalSignal[] signals)
@@ -114,6 +124,21 @@ public class RelationshipTrackerTests
         Assert.Equal("nervous", snap.RecentEmotion);   // freshest matching signal
         Assert.Equal("the interview", snap.RecentTopic); // …and its subject
         Assert.Contains("the interview", snap.Describe()!);
+    }
+
+    [Fact]
+    public async Task FollowedUpConcerns_DropOutOfTheCurrentRead()
+    {
+        // The only recent feeling is a worry that's already been closed out → nothing to surface.
+        var (tracker, _) = await WithSignals(
+            Signal("u", 0, Sentiment.Negative, -0.6, "nervous", topic: "the interview", followedUp: true));
+
+        var snap = await tracker.BuildAsync("u");
+
+        Assert.True(snap.HasHistory);                 // it still counts as history…
+        Assert.Equal(Sentiment.Neutral, snap.RecentMood); // …but not as a current mood
+        Assert.Null(snap.RecentTopic);
+        Assert.Null(snap.Describe());                 // so nothing is raised
     }
 
     [Fact]

@@ -39,4 +39,12 @@ public sealed class EmotionalSignal
 
     /// <summary>The first-class project this feeling attached to, when the turn resolved to one.</summary>
     public Guid? ProjectId { get; set; }
+
+    /// <summary>
+    /// True once this concern has been closed out — either the companion has surfaced a follow-up
+    /// about its topic (asked once, won't nag again) or a newer feeling about the same topic has
+    /// superseded it. Followed-up signals stay in the history but no longer surface as an open
+    /// concern to raise, so a worry the user has already engaged with isn't brought up again.
+    /// </summary>
+    public bool FollowedUp { get; set; }
 }
