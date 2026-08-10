@@ -29,6 +29,8 @@ public sealed class Companion : ICompanion
     private readonly IMemoryPipeline _pipeline;
     private readonly IProjectUpdater _projectUpdater;
     private readonly IProjectStore _projects;
+    private readonly IEmotionStore _emotions;
+    private readonly IRelationshipTracker _relationship;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -45,6 +47,8 @@ public sealed class Companion : ICompanion
         IMemoryPipeline pipeline,
         IProjectUpdater projectUpdater,
         IProjectStore projects,
+        IEmotionStore emotions,
+        IRelationshipTracker relationship,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -60,6 +64,8 @@ public sealed class Companion : ICompanion
         _pipeline = pipeline;
         _projectUpdater = projectUpdater;
         _projects = projects;
+        _emotions = emotions;
+        _relationship = relationship;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -198,6 +204,12 @@ public sealed class Companion : ICompanion
         Message extractionSource, Guid replyToId, TurnStatus status, Guid? pendingId,
         IProgress<string>? tokenSink, DateTimeOffset now, CancellationToken ct)
     {
+        // Privacy gate, computed up front: a "don't remember this conversation" turn produces a
+        // reply but writes NO durable derived memory — no extraction, no project/open-loop updates,
+        // and no emotional signal. Raw messages are still stored for in-session context.
+        var conversation = await _conversations.GetConversationAsync(conversationId, userId, ct);
+        var remember = _options.EnableExtraction && !(conversation?.DoNotRemember ?? false);
+
         // 4. Retrieve relevant memories, boosted by the resolved project.
         var outcome = await _retriever.RetrieveAsync(userId, promptText, projectContext.ResolvedProjectName, ct);
 
@@ -207,10 +219,17 @@ public sealed class Companion : ICompanion
             .Where(m => m.Id != extractionSource.Id)
             .ToList();
 
-        // 5. Assemble a bounded, labeled context packet (with the user's persona/style).
+        // 4b. Relational/emotional layer: read this message's tone and append it to the signal log
+        // (gated by privacy), then derive how things have been feeling so the reply can attune its
+        // tone. The snapshot includes this turn, so it reflects the user's mood right now.
+        if (remember)
+            await CaptureMoodAsync(userId, extractionSource, now, ct);
+        var relationship = await _relationship.BuildAsync(userId, ct);
+
+        // 5. Assemble a bounded, labeled context packet (with the user's persona/style + tone read).
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var persona = _personality.Compose(profile);
-        var packet = _assembler.Assemble(promptText, recent, outcome.Selected, projectContext, persona);
+        var packet = _assembler.Assemble(promptText, recent, outcome.Selected, projectContext, persona, relationship);
 
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
@@ -222,13 +241,6 @@ public sealed class Companion : ICompanion
         // reply is answerable after the fact instead of a mystery.
         var assistantMsg = await StoreMessageAsync(
             userId, conversationId, MessageRole.Assistant, response, replyToId, _clock.GetUtcNow(), ct, generated);
-
-        // Privacy: a "don't remember this conversation" turn produces a reply but creates NO
-        // durable derived memory — extraction and project/open-loop updates are skipped. Raw
-        // messages are still stored (needed for in-session context), but nothing is baked into
-        // long-term memory.
-        var conversation = await _conversations.GetConversationAsync(conversationId, userId, ct);
-        var remember = _options.EnableExtraction && !(conversation?.DoNotRemember ?? false);
 
         // 8–9. Extract candidate memories from the exchange and validate/persist accepted ones.
         var exchange = new[] { extractionSource, assistantMsg };
@@ -299,6 +311,34 @@ public sealed class Companion : ICompanion
         };
         await _conversations.AddMessageAsync(message, ct);
         return message;
+    }
+
+    /// <summary>
+    /// Reads the emotional tone of the user's message and, when a real cue is present, appends it to
+    /// the emotional-signal log — the substrate the relationship snapshot is derived from. No-op on
+    /// flat/neutral messages, so the log stays signal, not noise.
+    /// </summary>
+    private async Task CaptureMoodAsync(string userId, Message userMessage, DateTimeOffset now, CancellationToken ct)
+    {
+        var mood = MoodDetector.Detect(userMessage.Content);
+        if (mood.IsNeutral)
+            return;
+
+        await _emotions.AddSignalAsync(new EmotionalSignal
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            MessageId = userMessage.Id,
+            Timestamp = now,
+            Sentiment = mood.Sentiment,
+            Valence = mood.Valence,
+            Label = mood.Label,
+            Evidence = mood.Evidence,
+        }, ct);
+
+        _logger.LogDebug(
+            "Captured mood for {UserId}: {Sentiment} ({Valence:+0.00;-0.00}) from \"{Evidence}\"",
+            userId, mood.Sentiment, mood.Valence, mood.Evidence);
     }
 
     /// <summary>

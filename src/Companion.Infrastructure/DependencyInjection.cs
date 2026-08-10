@@ -38,6 +38,7 @@ public static class DependencyInjection
         services.AddScoped<IProfileStore, ProfileStore>();
         services.AddScoped<IFeedbackStore, FeedbackStore>();
         services.AddScoped<IPendingClarificationStore, PendingClarificationStore>();
+        services.AddScoped<IEmotionStore, EmotionStore>();
         // The vector index is a singleton in-memory cache (cold-loaded per user from the tables,
         // then kept in step via the write-through hook the memory store calls). Both faces of it —
         // search and maintenance — resolve to the same instance so writes reach the cache.
@@ -143,6 +144,10 @@ public static class DependencyInjection
 
         // Consolidation (Phase 6).
         services.AddScoped<IMemoryConsolidator, MemoryConsolidator>();
+
+        // Relational/emotional memory: derive how things have been feeling from the signal log so
+        // the companion can attune its tone across sessions.
+        services.AddScoped<IRelationshipTracker, RelationshipTracker>();
 
         // Core services.
         services.AddScoped<IRetriever, Retriever>();
