@@ -1,5 +1,6 @@
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Microsoft.Extensions.Options;
 
 namespace Companion.Core.Services;
 
@@ -23,6 +24,8 @@ public sealed class Greeter : IGreeter
     private readonly IConversationStore _conversations;
     private readonly IRelationshipTracker _relationship;
     private readonly IEmotionStore _emotions;
+    private readonly IReflectionStore _reflections;
+    private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
 
     public Greeter(
@@ -31,6 +34,8 @@ public sealed class Greeter : IGreeter
         IConversationStore conversations,
         IRelationshipTracker relationship,
         IEmotionStore emotions,
+        IReflectionStore reflections,
+        IOptions<CompanionOptions> options,
         TimeProvider clock)
     {
         _projects = projects;
@@ -38,6 +43,8 @@ public sealed class Greeter : IGreeter
         _conversations = conversations;
         _relationship = relationship;
         _emotions = emotions;
+        _reflections = reflections;
+        _options = options.Value;
         _clock = clock;
     }
 
@@ -92,6 +99,17 @@ public sealed class Greeter : IGreeter
         // Follow up on what the companion itself promised (its own initiative).
         foreach (var c in commitments.Take(1))
             openers.Add($"Last time I said I'd {LowerFirst(c.Description.TrimEnd('.'))} — want to pick that up?");
+
+        // A curiosity minted while the user was away — the between-session monologue reaching the
+        // greeting. Voicing it here consumes it: raised once, then let go, exactly like the mood
+        // follow-up above. The cooldown keeps a greeting and the following turns from each asking.
+        var curiosity = await _reflections.GetNextToVoiceAsync(
+            userId, now, TimeSpan.FromHours(_options.CuriosityCooldownHours), ct);
+        if (curiosity is not null && openers.Count < MaxOpeners)
+        {
+            openers.Add($"Something I found myself wondering while you were away: {curiosity.Question}");
+            await _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct);
+        }
 
         // Then the user's own unfinished business.
         foreach (var loop in userLoops.Take(MaxOpeners - openers.Count))

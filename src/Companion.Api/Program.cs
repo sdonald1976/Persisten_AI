@@ -12,6 +12,9 @@ var builder = WebApplication.CreateBuilder(args);
 var dbPath = builder.Configuration["Database:Path"] ?? "companion.db";
 builder.Services.AddCompanion(builder.Configuration, $"Data Source={dbPath}");
 
+// The companion's own clock: reflect (inner monologue) while the user is away.
+builder.Services.AddHostedService<ReflectionWorker>();
+
 var apiOptions = builder.Configuration.GetSection(ApiOptions.SectionName).Get<ApiOptions>() ?? new ApiOptions();
 
 // Bind to loopback by default. The API is never exposed on LAN interfaces unless the host
@@ -304,6 +307,54 @@ app.MapGet("/loops", async (IUserContext user, IProjectStore store, Cancellation
 {
     var loops = await store.GetOpenLoopsAsync(user.UserId, onlyOpen: true, ct);
     return Results.Ok(loops.Select(OpenLoopDto.From));
+});
+
+// ---- the inner monologue (between-session reflection) ----
+
+// The companion's diary: recent musings, newest first. Watermark-only quiet days are skipped —
+// this endpoint answers "what has it been thinking?", not "when did the job run?".
+app.MapGet("/reflections", async (IUserContext user, IReflectionStore store, CancellationToken ct) =>
+{
+    var recent = await store.GetRecentAsync(user.UserId, 20, ct);
+    return Results.Ok(recent
+        .Where(r => r.HasMusing)
+        .Select(r => new
+        {
+            id = r.Id,
+            createdAt = r.CreatedAt,
+            musing = r.Musing,
+            messagesReflected = r.MessagesReflected,
+        }));
+});
+
+// What it currently wonders about (open, not-yet-voiced curiosities).
+app.MapGet("/curiosities", async (IUserContext user, IReflectionStore store, CancellationToken ct) =>
+{
+    var open = await store.GetOpenCuriositiesAsync(user.UserId, ct);
+    return Results.Ok(open.Select(c => new
+    {
+        id = c.Id,
+        question = c.Question,
+        about = c.About,
+        reason = c.Reason,
+        createdAt = c.CreatedAt,
+    }));
+});
+
+// Run a reflection pass right now (demo/debug; the worker normally does this while you're away).
+app.MapPost("/reflect", async (IUserContext user, IReflector reflector, CancellationToken ct) =>
+{
+    var result = await reflector.ReflectAsync(user.UserId, ct);
+    if (result is null)
+        return Results.Ok(new { reflected = false, reason = "Nothing new enough to think about (or the model's output was unusable — see logs)." });
+
+    return Results.Ok(new
+    {
+        reflected = true,
+        musing = result.Reflection.Musing,
+        quietDay = !result.Reflection.HasMusing,
+        curiosities = result.Curiosities.Select(c => new { c.Question, c.About, c.Reason }),
+    });
 });
 
 app.MapGet("/persona", async (IUserContext user, IProfileStore store, CancellationToken ct) =>

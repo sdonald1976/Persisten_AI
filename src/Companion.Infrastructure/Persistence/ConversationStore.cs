@@ -91,4 +91,32 @@ public sealed class ConversationStore : IConversationStore
             .FirstOrDefaultAsync(ct);
         return any;
     }
+
+    public async Task<IReadOnlyList<Message>> GetRememberableMessagesSinceAsync(
+        string userId, DateTimeOffset? after, int max, CancellationToken ct = default)
+    {
+        if (max <= 0)
+            return Array.Empty<Message>();
+
+        // The privacy gate lives in the query itself: a do-not-remember conversation's messages
+        // can't reach the reflection pass through any call site.
+        var query =
+            from m in _db.Messages
+            join c in _db.Conversations on m.ConversationId equals c.Id
+            where m.UserId == userId && c.UserId == userId && !c.DoNotRemember
+            select m;
+
+        if (after is { } cutoff)
+            query = query.Where(m => m.Timestamp > cutoff);
+
+        // Newest N so a long backlog keeps the freshest material, then chronological for reading.
+        var newestDesc = await query
+            .OrderByDescending(m => m.Timestamp)
+            .ThenByDescending(m => m.Id)
+            .Take(max)
+            .ToListAsync(ct);
+
+        newestDesc.Reverse();
+        return newestDesc;
+    }
 }

@@ -27,4 +27,13 @@ public interface IConversationStore
     /// have never sent one. Used to tell how long it's been since you last talked (time-aware greetings).
     /// </summary>
     Task<DateTimeOffset?> GetLastMessageAtAsync(string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Messages across all the user's conversations strictly newer than <paramref name="after"/>
+    /// (or all of them when null), oldest first, capped at <paramref name="max"/>. Excludes every
+    /// message in a do-not-remember conversation — private turns are never reflected on, the same
+    /// gate that keeps them out of extraction. Feeds the reflection pass.
+    /// </summary>
+    Task<IReadOnlyList<Message>> GetRememberableMessagesSinceAsync(
+        string userId, DateTimeOffset? after, int max, CancellationToken ct = default);
 }

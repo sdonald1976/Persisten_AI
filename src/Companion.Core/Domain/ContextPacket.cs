@@ -35,6 +35,20 @@ public sealed record ContextPacket
     /// </summary>
     public string? RelationshipNote { get; init; }
 
+    /// <summary>
+    /// A recent private musing from the companion's between-session reflection — its own thought,
+    /// not a fact about the user. Rendered under an explicit "hold loosely, never read back" label;
+    /// it colors attention and continuity ("I was thinking about what you said…"), nothing more.
+    /// </summary>
+    public string? Musing { get; init; }
+
+    /// <summary>
+    /// A held curiosity offered to this turn — a question the companion genuinely wonders about.
+    /// The model is told to raise it at most once and only when it fits naturally; injecting it
+    /// consumes it (it is marked voiced), so it can never become a nag.
+    /// </summary>
+    public string? CuriosityQuestion { get; init; }
+
     /// <summary>Notes about uncertainty, conflicts, or superseded information.</summary>
     public IReadOnlyList<string> UncertaintyNotes { get; init; } = Array.Empty<string>();
 
