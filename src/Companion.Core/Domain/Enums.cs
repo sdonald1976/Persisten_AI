@@ -106,6 +106,9 @@ public enum IntentKind
 
     /// <summary>A bare greeting ("hi", "hello") — answered with memory-grounded openers.</summary>
     Greeting,
+
+    /// <summary>"What's on your mind / what are you thinking about?" — answered from the reflection diary.</summary>
+    ShareThoughts,
 }
 
 /// <summary>How the user rated a reply — the signal a style fine-tune (DPO) later learns from.</summary>

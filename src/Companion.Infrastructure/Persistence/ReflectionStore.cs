@@ -85,4 +85,22 @@ public sealed class ReflectionStore : IReflectionStore
         curiosity.VoicedAt = now;
         await _db.SaveChangesAsync(ct);
     }
+
+    public async Task<int> DismissStaleAsync(
+        string userId, DateTimeOffset olderThan, CancellationToken ct = default)
+    {
+        var stale = await _db.Curiosities
+            .Where(c => c.UserId == userId
+                && c.Status == CuriosityStatus.Open
+                && c.CreatedAt < olderThan)
+            .ToListAsync(ct);
+
+        foreach (var curiosity in stale)
+            curiosity.Status = CuriosityStatus.Dismissed;
+
+        if (stale.Count > 0)
+            await _db.SaveChangesAsync(ct);
+
+        return stale.Count;
+    }
 }

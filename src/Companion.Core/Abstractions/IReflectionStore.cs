@@ -33,4 +33,11 @@ public interface IReflectionStore
 
     /// <summary>Marks a curiosity voiced (ownership-scoped; a foreign or unknown id is a no-op).</summary>
     Task MarkVoicedAsync(string userId, Guid curiosityId, DateTimeOffset now, CancellationToken ct = default);
+
+    /// <summary>
+    /// Dismisses every open curiosity created before <paramref name="olderThan"/> and returns how
+    /// many were let go. A wondering that never found its moment eventually stops being current —
+    /// the companion drops it rather than asking about something weeks stale.
+    /// </summary>
+    Task<int> DismissStaleAsync(string userId, DateTimeOffset olderThan, CancellationToken ct = default);
 }
