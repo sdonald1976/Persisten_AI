@@ -97,14 +97,21 @@ phoneme timing for lip-sync), a web avatar (three.js + Ready Player Me) or Unity
     mood, dominant recent emotion, and a rising/slipping trend) *purely from the log*, so it can never
     drift from what actually happened — the same "relational store is authoritative, everything else is
     derived" rule the memory system already follows.
+  - **Tied to what it's about** — a deterministic `MoodTopic` extractor pulls the subject a feeling is
+    about from the same message ("stressed about **the deadline**", "excited for **the trip**"), and
+    when the message doesn't say, the mood attaches to the project the turn resolved to (`ProjectId`).
+    Contentless objects ("it", "everything") are rejected — you can't follow up on "it". This is what
+    turns a general mood into a specific, caring follow-up: the greeter opens with "Last time you
+    seemed nervous about the interview — how's that going?" and the in-turn tone note becomes "the
+    user has seemed anxious about the interview lately — it's fine to gently ask how that's going."
   - **Used, not stated** — the snapshot becomes one line of *tone guidance* in the context packet
     ("the user has seemed stressed lately — be a little gentler; don't bring this up unless they do"),
     rendered as prose the model attunes to rather than reads back. The greeter opens with care after a
     low stretch ("you seemed a bit low last time — I'm here if you want to talk about it") or shares in
     good spirits.
-- **Later:** tie emotional signals to *what* they were about (link a low mood to the project/event in
-  the same turn), longer-horizon mood history beyond the recent window, and emotion cues from voice
-  tone once the audio loop lands.
+- **Later:** longer-horizon mood history beyond the recent window, resolving a follow-up once the
+  user answers it (so the same worry isn't re-raised), and emotion cues from voice tone once the audio
+  loop lands.
 
 ## Long tasks: finish in-turn now, background jobs later
 

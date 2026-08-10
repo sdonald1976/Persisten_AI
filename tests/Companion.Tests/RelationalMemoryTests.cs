@@ -36,6 +36,7 @@ public class RelationalMemoryTests
         var signal = Assert.Single(signals);
         Assert.Equal(Sentiment.VeryNegative, signal.Sentiment);
         Assert.Equal("stressed", signal.Label);
+        Assert.Equal("the deadline", signal.Topic); // tied to what it was about
     }
 
     [Fact]
@@ -87,6 +88,45 @@ public class RelationalMemoryTests
             .RespondAsync(User, conv, "I'm absolutely devastated about it");
 
         Assert.Empty(await sp.GetRequiredService<IEmotionStore>().GetRecentSignalsAsync(User, 10));
+    }
+
+    [Fact]
+    public async Task Greeter_FollowsUpOnTheTopic_OfARecentWorry()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        var companion = sp.GetRequiredService<ICompanion>();
+        var conv = await NewConversationAsync(sp);
+
+        // A worry voiced about a specific thing…
+        await companion.RespondAsync(User, conv, "I'm really nervous about the interview");
+
+        // …becomes a specific, caring follow-up next time.
+        var greeting = await sp.GetRequiredService<IGreeter>().GreetAsync(User);
+
+        Assert.Contains(greeting.Openers, o =>
+            o.Contains("the interview", StringComparison.OrdinalIgnoreCase)
+            && o.Contains("how's that going", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task MoodVoicedAboutAProject_TiesToThatProject()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        await sp.GetRequiredService<CompanionSeeder>().SeedAsync(Now);
+        var conv = await NewConversationAsync(sp);
+
+        // No "about X" phrase, but the turn resolves to a seeded project → the mood ties to it.
+        await sp.GetRequiredService<ICompanion>()
+            .RespondAsync(User, conv, "honestly the Jetson has me so frustrated lately");
+
+        var signal = (await sp.GetRequiredService<IEmotionStore>().GetRecentSignalsAsync(User, 10))
+            .Single(s => s.Label == "frustrated");
+        Assert.NotNull(signal.Topic);
+        Assert.NotNull(signal.ProjectId); // linked to the first-class project
     }
 
     [Fact]

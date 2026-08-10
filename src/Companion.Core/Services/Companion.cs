@@ -223,7 +223,7 @@ public sealed class Companion : ICompanion
         // (gated by privacy), then derive how things have been feeling so the reply can attune its
         // tone. The snapshot includes this turn, so it reflects the user's mood right now.
         if (remember)
-            await CaptureMoodAsync(userId, extractionSource, now, ct);
+            await CaptureMoodAsync(userId, extractionSource, projectContext, now, ct);
         var relationship = await _relationship.BuildAsync(userId, ct);
 
         // 5. Assemble a bounded, labeled context packet (with the user's persona/style + tone read).
@@ -318,11 +318,18 @@ public sealed class Companion : ICompanion
     /// the emotional-signal log — the substrate the relationship snapshot is derived from. No-op on
     /// flat/neutral messages, so the log stays signal, not noise.
     /// </summary>
-    private async Task CaptureMoodAsync(string userId, Message userMessage, DateTimeOffset now, CancellationToken ct)
+    private async Task CaptureMoodAsync(
+        string userId, Message userMessage, ProjectContext projectContext, DateTimeOffset now, CancellationToken ct)
     {
         var mood = MoodDetector.Detect(userMessage.Content);
         if (mood.IsNeutral)
             return;
+
+        // Tie the feeling to what it's about: the subject phrase from the message ("the interview"),
+        // or — failing that — the project this turn resolved to, so a mood voiced while discussing a
+        // project still knows its subject.
+        var resolvedProject = projectContext.Summary?.Project;
+        var topic = MoodTopic.Extract(userMessage.Content) ?? resolvedProject?.Name;
 
         await _emotions.AddSignalAsync(new EmotionalSignal
         {
@@ -334,11 +341,13 @@ public sealed class Companion : ICompanion
             Valence = mood.Valence,
             Label = mood.Label,
             Evidence = mood.Evidence,
+            Topic = topic,
+            ProjectId = resolvedProject?.Id,
         }, ct);
 
         _logger.LogDebug(
-            "Captured mood for {UserId}: {Sentiment} ({Valence:+0.00;-0.00}) from \"{Evidence}\"",
-            userId, mood.Sentiment, mood.Valence, mood.Evidence);
+            "Captured mood for {UserId}: {Sentiment} ({Valence:+0.00;-0.00}) about \"{Topic}\" from \"{Evidence}\"",
+            userId, mood.Sentiment, mood.Valence, topic ?? "(untied)", mood.Evidence);
     }
 
     /// <summary>
