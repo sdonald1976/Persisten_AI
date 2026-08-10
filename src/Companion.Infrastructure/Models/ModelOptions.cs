@@ -33,6 +33,13 @@ public sealed class ModelOptions
     /// </summary>
     public EndpointOptions? Transcription { get; set; }
 
+    /// <summary>
+    /// Optional text-to-speech endpoint (OpenAI-compatible <c>/v1/audio/speech</c>: Piper via a
+    /// wrapper, Speaches, LocalAI, …). Requires a separate audio server. Enables <c>POST /speak</c>,
+    /// the output half of the voice loop.
+    /// </summary>
+    public EndpointOptions? Speech { get; set; }
+
     public bool UsesRealModel =>
         !string.Equals(Provider, "Mock", StringComparison.OrdinalIgnoreCase);
 
@@ -61,6 +68,18 @@ public sealed class EndpointOptions
 
     /// <summary>Informational only — the true dimension is whatever the model returns.</summary>
     public int Dimensions { get; set; } = 0;
+
+    /// <summary>
+    /// Speech-only: the default voice name the TTS server should use (e.g. "alloy", or a Piper voice
+    /// id). Null lets the server pick its default; a per-request voice can still override it.
+    /// </summary>
+    public string? Voice { get; set; }
+
+    /// <summary>
+    /// Speech-only: the audio format to request ("mp3", "wav", "opus", …). Null defaults to "mp3".
+    /// Determines the response's content type.
+    /// </summary>
+    public string? AudioFormat { get; set; }
 
     /// <summary>
     /// Sampling temperature (0 = deterministic, higher = more creative). Lower values reduce the

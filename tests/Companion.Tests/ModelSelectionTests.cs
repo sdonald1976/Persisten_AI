@@ -99,9 +99,9 @@ public class ModelSelectionTests
     }
 
     [Fact]
-    public void Vision_And_Transcription_AreRegistered_OnlyWhenConfigured()
+    public void Vision_Transcription_AndSpeech_AreRegistered_OnlyWhenConfigured()
     {
-        using var withBoth = Build(new Dictionary<string, string?>
+        using var withAll = Build(new Dictionary<string, string?>
         {
             ["Models:Provider"] = "OpenAiCompatible",
             ["Models:Chat:Model"] = "chat",
@@ -110,12 +110,15 @@ public class ModelSelectionTests
             ["Models:Vision:Model"] = "llama3.2-vision",
             ["Models:Transcription:BaseUrl"] = "http://localhost:9000/v1",
             ["Models:Transcription:Model"] = "whisper-1",
+            ["Models:Speech:BaseUrl"] = "http://localhost:8080/v1",
+            ["Models:Speech:Model"] = "tts-1",
         });
         Assert.Equal("llama3.2-vision",
-            ((OpenAiCompatibleVisionModel)withBoth.GetRequiredService<IVisionModel>()).ModelName);
-        Assert.NotNull(withBoth.GetService<ITranscriber>());
+            ((OpenAiCompatibleVisionModel)withAll.GetRequiredService<IVisionModel>()).ModelName);
+        Assert.NotNull(withAll.GetService<ITranscriber>());
+        Assert.NotNull(withAll.GetService<ISpeechSynthesizer>());
 
-        // Real provider, but no Vision/Transcription sections → not registered.
+        // Real provider, but no Vision/Transcription/Speech sections → not registered.
         using var withoutMultimodal = Build(new Dictionary<string, string?>
         {
             ["Models:Provider"] = "OpenAiCompatible",
@@ -124,5 +127,6 @@ public class ModelSelectionTests
         });
         Assert.Null(withoutMultimodal.GetService<IVisionModel>());
         Assert.Null(withoutMultimodal.GetService<ITranscriber>());
+        Assert.Null(withoutMultimodal.GetService<ISpeechSynthesizer>());
     }
 }

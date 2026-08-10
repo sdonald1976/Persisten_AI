@@ -97,6 +97,27 @@ internal static class ProviderHttp
         return await JsonSerializer.DeserializeAsync<T>(buffer, JsonOptions, ct);
     }
 
+    /// <summary>Reads a binary body with a hard size cap, so a huge/hostile response can't exhaust memory.</summary>
+    public static async Task<byte[]> ReadCappedBytesAsync(
+        HttpResponseMessage response, long maxBytes, CancellationToken ct)
+    {
+        if (response.Content.Headers.ContentLength is { } declared && declared > maxBytes)
+            throw new ModelProviderException($"The model response was too large ({declared} bytes > cap {maxBytes}).");
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        int read;
+        while ((read = await stream.ReadAsync(chunk, ct)) > 0)
+        {
+            if (buffer.Length + read > maxBytes)
+                throw new ModelProviderException($"The model response exceeded the {maxBytes}-byte cap.");
+            buffer.Write(chunk, 0, read);
+        }
+
+        return buffer.ToArray();
+    }
+
     public static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     /// <summary>Maps a non-transient failure status to a specific, actionable message (body snippet included, capped).</summary>
