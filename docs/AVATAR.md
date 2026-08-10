@@ -9,11 +9,17 @@ and drives the model's mouth from the amplitude of the companion's own speech.
 You supply the character — the app ships no model. Get a **glTF `.glb` with facial blendshapes and a
 full-body humanoid rig**:
 
-- **Easiest: [Ready Player Me](https://readyplayer.me)** — free, browser-based, exports a full-body
-  `.glb` with **ARKit + Oculus visemes** and a standard rig. Guaranteed to lip-sync here.
-- Any other `.glb` works **as long as it has mouth blendshapes** — the viewer looks for
-  `jawOpen` (ARKit), `mouthOpen`, or the `viseme_aa` / `aa` morph. Without one of those, the model
-  loads but the mouth won't move (the panel says so).
+- **Avatar-as-a-service** (the easiest path — a rigged full-body `.glb` with ARKit visemes, no
+  Blender needed): **[Avaturn](https://avaturn.me)** or **[Union Avatars](https://unionavatars.com)**
+  build one from a photo/customizer and export a `.glb` that lip-syncs here out of the box. (Ready
+  Player Me used to be the go-to here but is no longer available.)
+- **Make your own, free:** **[VRoid Studio](https://vroid.com/en/studio)** exports a stylized
+  full-body avatar with viseme blendshapes (`.vrm`, which is glTF under the hood). *Note:* VRoid names
+  its mouth shapes `Fcl_MTH_*` — if the mouth doesn't move, send me the console list (below) and I'll
+  add the mapping.
+- Any `.glb` works **as long as it has mouth blendshapes** — the viewer looks for `jawOpen` (ARKit),
+  `mouthOpen`, `viseme_aa`, or Character-Creator/Daz names. Without one, the model loads but the mouth
+  won't move (the panel says so).
 - Marketplaces (Fab, Sketchfab, CGTrader, …): most character models are **not** rigged for lip-sync,
   so filter/check for `glTF`/`glb` **with "blendshapes" / "ARKit" / "visemes" / "morph targets"**. A
   gorgeous model with none of those will display but won't move its mouth.
