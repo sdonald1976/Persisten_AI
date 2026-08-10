@@ -37,6 +37,9 @@ public static class ContextPacketRenderer
         sb.AppendLine(
             "These notes are for you only. Never repeat them back, never print their headings, and never list " +
             "out what you remember unless the user asks — reply as the companion, in your own words, once.");
+        sb.AppendLine(
+            "Respond fresh to the latest message; do not repeat your earlier replies word-for-word. If you find " +
+            "yourself about to say what you already said, move the conversation forward instead.");
         sb.AppendLine();
 
         sb.AppendLine(
