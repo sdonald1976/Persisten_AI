@@ -131,7 +131,9 @@ Three distinct timestamps, plus validity:
    ask a small-model `ICompletionJudge` and continue on its say-so, feeding the text so far back
    each round so it resumes the same task. Bounded by `MaxContinuations`; the judge fails closed.
 7. **Store** the response, with its generation metadata (`finish_reason`, rounds, truncated,
-   model, token usage) so how each reply was produced is recorded, not guessed.
+   model, token usage) so how each reply was produced is recorded, not guessed. A reasoning model's
+   `<think>…</think>` trace is stripped first (`ReasoningFilter`) — it's never shown, stored, or fed
+   back next turn, since replaying a small model's own reasoning + replies drives it to repeat itself.
 8. **Extract** candidate memory updates via `IMemoryExtractor`.
 9. **Validate & persist** accepted updates through the deterministic pipeline.
 10. **Update** project state and open loops.

@@ -57,7 +57,8 @@ public sealed class OpenAiCompatibleChatModel : IChatModel
             c => http.PostAsJsonAsync("chat/completions", request, c), _options, "chat", _logger, ct);
         var body = await ProviderHttp.ReadCappedJsonAsync<ChatResponse>(response, _options.MaxResponseBytes, ct);
         var choice = body?.Choices?.FirstOrDefault();
-        var text = choice?.Message?.Content ?? string.Empty;
+        // Strip any <think> reasoning trace — it must never be shown, stored, or fed back next turn.
+        var text = ReasoningFilter.StripAll(choice?.Message?.Content ?? string.Empty);
 
         LogReply(text, choice?.FinishReason, body?.Usage);
         return new ChatCompletion
@@ -89,6 +90,7 @@ public sealed class OpenAiCompatibleChatModel : IChatModel
             _options, "chat", _logger, ct);
 
         var accumulated = new StringBuilder();
+        var reasoning = new ReasoningFilter(); // drop <think> traces from both the stream and the stored text
         string? finishReason = null;
         string? model = null;
         Usage? usage = null;
@@ -125,13 +127,24 @@ public sealed class OpenAiCompatibleChatModel : IChatModel
 
                 if (!string.IsNullOrEmpty(content))
                 {
-                    accumulated.Append(content);
-                    sink.Report(content);
+                    var visible = reasoning.Feed(content);
+                    if (visible.Length > 0)
+                    {
+                        accumulated.Append(visible);
+                        sink.Report(visible);
+                    }
                 }
             }
         }
 
-        var text = accumulated.ToString();
+        var trailing = reasoning.Flush();
+        if (trailing.Length > 0)
+        {
+            accumulated.Append(trailing);
+            sink.Report(trailing);
+        }
+
+        var text = accumulated.ToString().Trim();
         LogReply(text, finishReason, usage);
         return new ChatCompletion
         {
