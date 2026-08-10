@@ -118,5 +118,6 @@ but a plain-`http` LAN address won't grant microphone access (use `localhost` or
 ## What's next for the voice loop
 
 The loop is complete: hold-to-talk **or** hands-free, streaming spoken replies, and talk-to-interrupt
-barge-in. Next on this axis is a **3D avatar with lip-sync** (drive visemes from the TTS timing). See
+barge-in — and a **3D avatar that lip-syncs** the reply (see [`AVATAR.md`](AVATAR.md)). Next on this
+axis is **phoneme-accurate visemes** driven from Piper's phoneme timings. See
 [`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md).

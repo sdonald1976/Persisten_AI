@@ -82,7 +82,12 @@ app.Use(async (ctx, next) =>
 app.UseCors();
 app.UseWebSockets();
 app.UseDefaultFiles();   // serve wwwroot/index.html at "/" (static files need no token)
-app.UseStaticFiles();
+// Teach the static-file middleware the 3D model MIME types so a dropped-in wwwroot/avatar.glb (the
+// optional default avatar) serves correctly; the JS avatar viewer can also load a model via file-picker.
+var contentTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+contentTypes.Mappings[".glb"] = "model/gltf-binary";
+contentTypes.Mappings[".gltf"] = "model/gltf+json";
+app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = contentTypes });
 
 // Local API authentication: every REST/SSE/WebSocket call must present the local token (header
 // Authorization: Bearer / X-Companion-Key, or ?access_token= for EventSource/WebSocket which can't
