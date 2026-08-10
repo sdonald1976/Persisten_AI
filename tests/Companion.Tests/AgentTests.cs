@@ -72,9 +72,11 @@ public class AgentTests
         var conversationId = await StartConversationAsync(sp);
 
         var chunks = new List<string>();
+        // Synchronous sink on purpose: Progress<string> posts callbacks to the thread pool, so
+        // under a loaded parallel run the assertions can race the last chunk's delivery.
         var reply = await sp.GetRequiredService<IAgent>().HandleAsync(
             User, conversationId, "tell me something",
-            new Progress<string>(c => chunks.Add(c)));
+            new SyncProgress(chunks.Add));
 
         Assert.Equal(AgentReplyKind.Chat, reply.Kind);
         // The mock chat model streams; the concatenated chunks reconstruct the reply.
@@ -187,5 +189,12 @@ public class AgentTests
         Assert.Equal(IntentKind.FeedbackPositive, reply.Intent);
         Assert.Contains("Nothing to rate", reply.Text);
         Assert.Equal(0, await sp.GetRequiredService<IFeedbackStore>().CountAsync(User));
+    }
+
+    private sealed class SyncProgress : IProgress<string>
+    {
+        private readonly Action<string> _on;
+        public SyncProgress(Action<string> on) => _on = on;
+        public void Report(string value) => _on(value);
     }
 }

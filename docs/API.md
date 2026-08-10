@@ -106,7 +106,11 @@ GET /chat/stream?conversationId=<guid>&message=hello&access_token=<token>
 ## WebSocket `/ws` (the avatar/voice channel)
 
 Connect to `ws://127.0.0.1:5266/ws?access_token=<token>`. The server sends a `ready` frame with
-a fresh `conversationId`, then it's request/response.
+a fresh `conversationId`, then it's request/response. The `ready` greeting is the instant
+deterministic opener; when a real model is configured, a `greeting` frame follows once the model
+has rephrased it in the companion's own voice — replace the shown greeting text in place (the
+openers don't change). It may never arrive (offline mocks, model failure): the `ready` message
+is always a complete greeting on its own.
 
 **Client → server**
 ```json
@@ -117,6 +121,7 @@ a fresh `conversationId`, then it's request/response.
 **Server → client**
 ```json
 { "type": "ready", "conversationId": "…", "message": "…", "openers": ["…"] }  // openers = session starters
+{ "type": "greeting", "message": "…" }                // model-phrased greeting upgrade (optional, once)
 { "type": "token", "text": "…" }                      // one per chunk, for chat turns
 { "type": "reply", "kind": "Chat|Action|Confirmation", "intent": "…",
   "text": "…", "confirmationToken": null }            // terminates a turn

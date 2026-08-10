@@ -19,6 +19,9 @@ namespace Companion.Infrastructure.Models;
 /// </summary>
 public sealed class ReplyGenerator : IReplyGenerator
 {
+    /// <summary>Sink for buffered continuation rounds (the transport requires one when streaming).</summary>
+    private static readonly IProgress<string> Discard = new NullSink();
+
     private readonly IChatModel _chat;
     private readonly ICompletionJudge _judge;
     private readonly EndpointOptions _options;
@@ -44,27 +47,45 @@ public sealed class ReplyGenerator : IReplyGenerator
 
         for (; ; round++)
         {
-            var prefix = round == 0 ? null : full.ToString();
             var before = full.ToString();
+            var prefix = round == 0 ? null : before;
+
+            // Continuation rounds are never streamed live: a model that repeats instead of
+            // continuing would put its duplicate on the user's screen before the guard below
+            // could see it. The round is buffered, vetted, and only the new text is forwarded.
+            var liveSink = round == 0 ? sink : Discard;
 
             var result = sink is not null
-                ? await _chat.StreamAsync(systemPrompt, userMessage, sink, prefix, ct)
+                ? await _chat.StreamAsync(systemPrompt, userMessage, liveSink!, prefix, ct)
                 : await _chat.CompleteAsync(systemPrompt, userMessage, jsonMode: false, prefix, ct);
 
-            full.Append(result.Text);
             finishReason = result.FinishReason;
             model ??= result.Model;
             promptTokens += result.PromptTokens ?? 0;
             completionTokens += result.CompletionTokens ?? 0;
 
-            // Hard stop: if a continuation just repeats what's already there, the model is looping —
-            // never keep going and amplify it into a wall of duplicated text.
-            if (round > 0 && TextRepetition.IsLargelyContained(result.Text, before))
+            var roundText = result.Text;
+            if (round > 0)
             {
-                _logger.LogWarning("Reply from {Model} began repeating on continuation (round {Round}); stopping.",
-                    _options.Model, round + 1);
-                break;
+                // Models asked to "continue" often re-say the tail of what they already wrote
+                // (or restart the whole answer) before adding anything new; drop the echoed part
+                // so the reply never reads twice.
+                roundText = TextRepetition.TrimLeadingOverlap(before, roundText);
+
+                // Hard stop: a continuation that is just a repeat of what's already there means
+                // the model is looping. Drop it entirely — the duplicate must never reach the
+                // stored reply — and stop rather than amplify it into a wall of text.
+                if (TextRepetition.IsLargelyContained(roundText, before))
+                {
+                    _logger.LogWarning("Reply from {Model} began repeating on continuation (round {Round}); stopping.",
+                        _options.Model, round + 1);
+                    break;
+                }
+
+                sink?.Report(roundText);
             }
+
+            full.Append(roundText);
 
             if (!await ShouldContinueAsync(finishReason, full.ToString(), userMessage, round, ct))
                 break;
@@ -131,5 +152,10 @@ public sealed class ReplyGenerator : IReplyGenerator
             _logger.LogDebug("Completion judge says the deliverable reply to {Model} is unfinished; continuing (round {Round}).",
                 _options.Model, round + 1);
         return !complete;
+    }
+
+    private sealed class NullSink : IProgress<string>
+    {
+        public void Report(string value) { }
     }
 }

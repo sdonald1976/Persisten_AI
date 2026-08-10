@@ -35,6 +35,32 @@ internal static class TextRepetition
         return (double)seen / candShingles.Count >= threshold;
     }
 
+    /// <summary>
+    /// Removes from the start of <paramref name="candidate"/> the longest run (≥ <paramref name="minOverlap"/>
+    /// chars, ending on a word boundary) that merely re-says the end of <paramref name="existing"/> — the
+    /// way a model asked to "continue" often re-emits its last sentence, or restarts the whole answer,
+    /// before adding anything new. Returns the candidate unchanged when there is no such echo.
+    /// </summary>
+    public static string TrimLeadingOverlap(string existing, string candidate, int minOverlap = 12)
+    {
+        var tail = existing.TrimEnd();
+        var cand = candidate.TrimStart();
+        if (tail.Length < minOverlap || cand.Length < minOverlap)
+            return candidate;
+
+        var max = Math.Min(Math.Min(tail.Length, cand.Length), 4096);
+        for (var len = max; len >= minOverlap; len--)
+        {
+            // Never split a word: an overlap must end where a token ends, or a coincidental
+            // mid-word match would corrupt the seam ("…was" + "wasps" → "ps").
+            if (len < cand.Length && char.IsLetterOrDigit(cand[len - 1]) && char.IsLetterOrDigit(cand[len]))
+                continue;
+            if (tail.AsSpan().EndsWith(cand.AsSpan(0, len), StringComparison.Ordinal))
+                return cand[len..];
+        }
+        return candidate;
+    }
+
     private static HashSet<string> Shingles(List<string> words)
     {
         var set = new HashSet<string>();
