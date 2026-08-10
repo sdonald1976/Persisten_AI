@@ -93,9 +93,22 @@ the `deploy:` block.
 - **`whisper-1` doesn't work** — that's OpenAI's *cloud* model id; it doesn't exist locally. Use a
   `Systran/faster-whisper-*` name.
 
+## Using it from the web client (push-to-talk)
+
+The reference client (`wwwroot/index.html`, served at `/`) has the round trip wired up:
+
+- **🎤 Hold to talk** — press and hold the mic button, speak, release. It records from your mic,
+  posts to `/transcribe`, and sends the transcript as a normal turn. The companion's reply to a
+  spoken turn is **spoken back** automatically (voice in → voice out).
+- **🔈 Speak** — toggle in the header to read *every* reply aloud (including typed ones).
+- Starting to talk stops any in-progress playback (basic barge-in).
+
+Both degrade gracefully: if the server has no `Transcription` the mic disables itself with a note;
+if it has no `Speech`, the speak toggle does. Mic capture needs a secure context — `localhost` counts,
+but a plain-`http` LAN address won't grant microphone access (use `localhost` or serve over HTTPS).
+
 ## What's next for the voice loop
 
-Both halves of the round trip now exist as building blocks (`/transcribe`, `/speak`). Still to come,
-in the client/face layer: a **push-to-talk mic loop** (record → transcribe → chat → speak → play),
-then **streaming playback** (synthesize the reply in chunks as it's generated) and **barge-in**
-(interrupt playback when the user starts talking). See [`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md).
+Still to come: **streaming playback** (synthesize the reply in chunks as it's generated, for lower
+latency, likely over new WebSocket audio frames) and true **barge-in** during playback. See
+[`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md).
