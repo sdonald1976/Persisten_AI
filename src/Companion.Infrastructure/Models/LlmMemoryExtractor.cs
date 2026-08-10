@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.Core.Text;
 using Microsoft.Extensions.Logging;
 
 namespace Companion.Infrastructure.Models;
@@ -100,20 +101,50 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
     private static string? Cap(string? value)
         => value is null ? null : value.Length <= MaxFieldChars ? value : value[..MaxFieldChars];
 
+    /// <summary>Minimum share of an excerpt's words that must appear in a user message to count it as support.</summary>
+    private const double EvidenceOverlapThreshold = 0.6;
+
     /// <summary>
-    /// Verifies the model-supplied excerpt against the real user messages. Returns evidence only
-    /// when the excerpt actually occurs in one of them; otherwise returns empty (no fabrication).
+    /// Verifies the model-supplied excerpt against the real user messages and returns grounded
+    /// evidence, or empty if nothing supports it (no fabrication). An exact quote matches directly;
+    /// but models routinely paraphrase the "excerpt", so a near-quote also counts when it overlaps
+    /// strongly with a real user message — the evidence still cites that real message, we just don't
+    /// drop a genuine memory over wording. A truly unrelated excerpt (low overlap) is still rejected.
     /// </summary>
     private static List<CandidateEvidence> ResolveEvidence(string? excerpt, List<Message> userMessages)
     {
         if (string.IsNullOrWhiteSpace(excerpt))
             return new List<CandidateEvidence>();
 
-        var match = userMessages.FirstOrDefault(m =>
+        // Fast path: an exact (case-insensitive) quote.
+        var exact = userMessages.FirstOrDefault(m =>
             m.Content.Contains(excerpt, StringComparison.OrdinalIgnoreCase));
-        return match is null
-            ? new List<CandidateEvidence>()
-            : new List<CandidateEvidence> { new(match.Id, excerpt.Trim()) };
+        if (exact is not null)
+            return new List<CandidateEvidence> { new(exact.Id, excerpt.Trim()) };
+
+        // Paraphrase path: cite the user message the excerpt overlaps most, if it's strong enough.
+        var excerptTokens = new HashSet<string>(Tokenizer.Tokenize(excerpt));
+        if (excerptTokens.Count == 0)
+            return new List<CandidateEvidence>();
+
+        Message? best = null;
+        var bestScore = 0.0;
+        foreach (var m in userMessages)
+        {
+            var messageTokens = new HashSet<string>(Tokenizer.Tokenize(m.Content));
+            if (messageTokens.Count == 0)
+                continue;
+            var overlap = excerptTokens.Count(messageTokens.Contains) / (double)excerptTokens.Count;
+            if (overlap > bestScore)
+            {
+                bestScore = overlap;
+                best = m;
+            }
+        }
+
+        return best is not null && bestScore >= EvidenceOverlapThreshold
+            ? new List<CandidateEvidence> { new(best.Id, excerpt.Trim()) }
+            : new List<CandidateEvidence>();
     }
 
     /// <summary>
@@ -221,11 +252,35 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
         => value is null ? fallback : Math.Clamp(value.Value, 0.0, 1.0);
 
     private const string SystemPrompt =
-        "You extract durable memories from a conversation. Return ONLY a JSON array. Each item: " +
-        "{\"kind\":\"semantic\"|\"episodic\", \"subject\":string?, \"predicate\":string?, \"value\":string?, " +
-        "\"content\":string, \"validity\":\"Current\"|\"Temporary\"|\"Historical\"?, " +
+        "You read a short conversation and extract durable MEMORIES about the user as a JSON array.\n\n" +
+        "There are two kinds, and choosing correctly matters:\n" +
+        "- \"semantic\" — a STABLE fact, preference, trait, relationship, or identity detail that will still " +
+        "be true next week (the user's name, where they live, their job, their pets, what they like or dislike, " +
+        "lasting interests). Fill subject/predicate/value.\n" +
+        "- \"episodic\" — a specific EVENT or action at a point in time (something they did, decided, or that " +
+        "happened).\n\n" +
+        "Rule of thumb: if it will still be true next week, it is SEMANTIC. A stated fact or preference is " +
+        "semantic, NOT episodic — do not log lasting facts as events.\n\n" +
+        "Return ONLY a JSON array. Each item: {\"kind\":\"semantic\"|\"episodic\", \"subject\":string?, " +
+        "\"predicate\":string?, \"value\":string?, \"content\":string, " +
+        "\"validity\":\"Current\"|\"Temporary\"|\"Historical\"?, " +
         "\"episodeStatus\":\"Occurred\"|\"Planned\"|\"InProgress\"|\"Resolved\"?, \"relatedProject\":string?, " +
-        "\"importance\":0..1, \"confidence\":0..1, \"excerpt\":\"the exact user words that support this\"}. " +
+        "\"importance\":0..1, \"confidence\":0..1, \"excerpt\":\"the user's own words that support this\"}.\n\n" +
+        "Examples:\n" +
+        "User: \"My name is Ava and I have a corgi named Kanga.\"\n" +
+        "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"name\",\"value\":\"Ava\"," +
+        "\"content\":\"The user's name is Ava.\",\"importance\":0.9,\"confidence\":0.95,\"excerpt\":\"My name is Ava\"}," +
+        "{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"has_pet\",\"value\":\"a corgi named Kanga\"," +
+        "\"content\":\"The user has a corgi named Kanga.\",\"importance\":0.7,\"confidence\":0.9," +
+        "\"excerpt\":\"I have a corgi named Kanga\"}]\n" +
+        "User: \"I prefer tea over coffee these days.\"\n" +
+        "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"prefers\",\"value\":\"tea over coffee\"," +
+        "\"content\":\"The user prefers tea over coffee.\",\"importance\":0.5,\"confidence\":0.8," +
+        "\"excerpt\":\"I prefer tea over coffee\"}]\n" +
+        "User: \"I finally deployed the service to the Jetson yesterday.\"\n" +
+        "[{\"kind\":\"episodic\",\"content\":\"The user deployed the service to the Jetson.\"," +
+        "\"episodeStatus\":\"Occurred\",\"importance\":0.5,\"confidence\":0.8," +
+        "\"excerpt\":\"I finally deployed the service to the Jetson yesterday\"}]\n\n" +
         "Only include things the user actually stated. Do not invent. If nothing is worth remembering, return [].";
 
     private sealed record CandidateDto(
