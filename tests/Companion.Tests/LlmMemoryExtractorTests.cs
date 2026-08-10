@@ -131,4 +131,40 @@ public class LlmMemoryExtractorTests
 
         Assert.Empty(await extractor.ExtractAsync("u", new[] { msg }));
     }
+
+    [Fact]
+    public async Task ParaphrasedExcerpt_StillResolves_WhenItOverlapsAUserMessage()
+    {
+        // The model paraphrases the excerpt (not an exact substring), but it clearly comes from the
+        // user's message — a genuine memory that the old exact-substring check would have dropped.
+        var msg = UserMsg("My name is Ava and I have a corgi named Kanga.");
+        var json = """
+        [
+          {"kind":"semantic","subject":"user","predicate":"has_pet","value":"a corgi named Kanga",
+           "content":"The user has a corgi named Kanga.","confidence":0.9,
+           "excerpt":"the user has a corgi named Kanga"}
+        ]
+        """;
+        var extractor = new LlmMemoryExtractor(new CannedChatModel(json), NullLogger<LlmMemoryExtractor>.Instance);
+
+        var c = Assert.Single(await extractor.ExtractAsync("u", new[] { msg }));
+        Assert.Equal(MemoryKind.Semantic, c.Kind);
+        Assert.Equal(msg.Id, Assert.Single(c.Evidence).MessageId); // grounded to the real message
+    }
+
+    [Fact]
+    public async Task LooselyRelatedExcerpt_IsStillRejected()
+    {
+        // Below the overlap threshold — fuzzy matching must not turn "no support" into a fabrication.
+        var msg = UserMsg("I switched from the Raspberry Pi to a Jetson Nano.");
+        var json = """
+        [
+          {"kind":"semantic","content":"The user loves hiking in the mountains.",
+           "excerpt":"I love hiking in the mountains every weekend"}
+        ]
+        """;
+        var extractor = new LlmMemoryExtractor(new CannedChatModel(json), NullLogger<LlmMemoryExtractor>.Instance);
+
+        Assert.Empty(await extractor.ExtractAsync("u", new[] { msg }));
+    }
 }
