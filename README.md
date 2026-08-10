@@ -22,10 +22,10 @@ validate-before-store pipeline, update project/open-loop state, and revise over 
 deterministic mock/rule-based providers. The full test suite passes (`dotnet test`), including
 the five reference scenarios. Design docs are under `docs/`.
 
-The companion logic is a **headless brain** (`IAgent`) that every face drives identically: the
-CLI is a thin client over it, and a local **HTTP + WebSocket API** (`Companion.Api`) exposes the
-same brain — streaming replies token-by-token — so a web page, desktop app, or future voice + 3D
-avatar can plug in without embedding .NET. See [`docs/API.md`](docs/API.md).
+The companion logic is a **headless brain** (`IAgent`) that every face drives identically. A local
+**HTTP + WebSocket API** (`Companion.Api`) exposes it — streaming replies token-by-token — with a
+small reference web client built in, so a web page, desktop app, or future voice + 3D avatar can
+plug in without embedding .NET. See [`docs/API.md`](docs/API.md).
 
 ### Reference scenarios (the acceptance benchmark)
 
@@ -60,10 +60,9 @@ mockable model providers (local/hosted/mock) · xUnit.
 src/Companion.Core            domain records, interfaces, retrieval + extraction + project + curation logic,
                               the IAgent brain facade (intents + persona + turn, returns structured replies)
 src/Companion.Infrastructure  EF Core store, SQLite BLOB vector index, mock + rule-based/LLM extractors, DI
-src/Companion.Cli             thin console face over IAgent: chat + plain-language intents, plus /why and
-                              /seed, /remember, /projects, /loops, /forget, /correct, /consolidate … shortcuts
 src/Companion.Api             headless HTTP + WebSocket face over IAgent: /chat, SSE /chat/stream, /ws,
-                              and structured /memories, /projects, /loops, /persona, /feedback (+ reference web client)
+                              /transcribe, and structured /memories, /projects, /loops, /persona,
+                              /personality, /identity, /feedback, /greeting (+ reference web client)
 tests/Companion.Tests         the test suite (run `dotnet test`): retrieval, packet, provenance, isolation, score math,
                               extraction (accept/merge/reject/review/supersede), confidence, normalizer,
                               LLM parsing, resolution + clarification, project summary, open-loop create/close,
@@ -80,33 +79,24 @@ build it). Install it from https://dotnet.microsoft.com/download, then:
 dotnet build                                   # build the solution
 dotnet test                                    # run all tests
 
-# seed a few months of demo history, then chat
-dotnet run --project src/Companion.Cli -- seed
-dotnet run --project src/Companion.Cli
-
-#  you> I finally tested that board at home.
-#  companion> ...
-#  you> /why        # show retrieval scores, reasons, exclusions, and the context packet
-#  you> /remember   # show what the companion remembers about you
+dotnet run --project src/Companion.Api         # start the local HTTP + WebSocket service
+# then open http://localhost:5266 for the reference web client, or drive the API directly.
 ```
+
+Talk to it in plain language — memory, recall ("what do you remember about me?"), corrections
+("that's wrong", "forget that"), consolidation, persona/personality/identity, and feedback all
+work conversationally through `/chat` and the WebSocket. See [`docs/API.md`](docs/API.md).
 
 The schema is managed with **EF Core migrations** and applied automatically on startup, so it
 upgrades in place as new versions add tables. Before applying any pending migration the database
 is **backed up** (`companion.db.bak-<timestamp>`), and if a migration fails it is **restored** —
-you never lose memories to a schema change. You can also snapshot/restore explicitly:
-
-```bash
-dotnet run --project src/Companion.Cli -- export my-memories.db   # consistent snapshot
-dotnet run --project src/Companion.Cli -- import my-memories.db   # restore (backs up current first)
-```
-
-(A database created before migrations existed can't be upgraded in place — `export` it, delete
-`companion.db`, re-run to recreate, then `import`.)
+you never lose memories to a schema change. For your own snapshots, just copy the SQLite file
+(`companion.db`) while the service is stopped.
 
 ## Using a real model (Ollama / LM Studio)
 
 By default the app runs on offline mocks. To use a real local model, set the `Models` section
-in `src/Companion.Cli/appsettings.json` (or override with env vars, e.g.
+in `src/Companion.Api/appsettings.json` (or override with env vars, e.g.
 `Models__Provider=OpenAiCompatible`). Both Ollama and LM Studio speak the OpenAI `/v1` API, so
 the same adapter works for both — just change the base URL and model names.
 
@@ -138,7 +128,7 @@ Each chat/vision endpoint also accepts optional sampling controls: `Temperature`
 less random; ~0.2 for extraction, ~0.6 for conversation), `MaxTokens`, and — the fix if a small
 local model **repeats itself** — `FrequencyPenalty` and `PresencePenalty` (both honored by Ollama
 and LM Studio; try ~0.6 / ~0.3 on the conversational model, which the shipped config sets). Leave
-any of them out to use the server's defaults. On startup the CLI prints a banner showing the
+any of them out to use the server's defaults. On startup the service logs the
 active provider and the per-role models (or `Mock (offline)`), so you can tell at a glance what
 you're running.
 
@@ -177,8 +167,8 @@ When a real model is configured, extraction and summarization use it too
   ```bash
   ollama pull llama3.2-vision   # or load a vision GGUF (e.g. llava/qwen2-vl) in LM Studio
   ```
-- **Voice / Whisper** (`/transcribe <audio file>`) — transcribes an audio file and sends it as a
-  turn. **Ollama and LM Studio cannot run Whisper** — they have no audio support, so there's
+- **Voice / Whisper** (`POST /transcribe`, multipart `file`) — transcribes an uploaded audio file
+  and returns the text, which the client then sends as a normal turn. **Ollama and LM Studio cannot run Whisper** — they have no audio support, so there's
   nothing to `ollama pull`. You need a *separate* server that exposes an OpenAI-compatible
   `/v1/audio/transcriptions` endpoint. Easiest is **Speaches** (formerly `faster-whisper-server`),
   which ships as a service in [`docker-compose.yml`](docker-compose.yml) — see
@@ -231,7 +221,7 @@ deterministic (`MockChatModel`, `MockEmbeddingModel`, `RuleBasedMemoryExtractor`
 
 ## Run it headless (HTTP + WebSocket)
 
-The CLI is just one face. The same brain runs as a local service for web/desktop/voice front-ends:
+The brain runs as a local service for web/desktop/voice front-ends:
 
 ```bash
 dotnet run --project src/Companion.Api     # http://127.0.0.1:5266 (loopback only)
@@ -248,7 +238,7 @@ SSE/WebSocket — the web client prompts for it and remembers it). Errors always
 as `{ error, message, correlationId }`; the detail stays in the server log.
 
 It defaults to the offline mocks (no model server needed) and uses the same `Models`
-configuration as the CLI when you want a real model. Replies stream token-by-token over
+configuration (see above) when you want a real model. Replies stream token-by-token over
 Server-Sent Events (`GET /chat/stream`) and the bidirectional `/ws` channel; plain-language
 intents, persona edits, and feedback all work over the wire, and there are structured
 `/memories`, `/projects`, `/loops`, and `/persona` endpoints for rich UIs. A request for a
@@ -292,7 +282,7 @@ The companion is built to be safe for real local use, not just a demo:
   value itself is validated at startup (unknown providers fail fast, no silent fallback).
   Extraction requests JSON mode and is parsed by a validated, balanced-bracket parser (not
   "first `[` to last `]`"); the model proposes memories, deterministic code decides what persists.
-  `/health` (CLI) tests the configured endpoints.
+  `GET /health` reports the configured endpoints.
 - **Privacy controls.** Say "don't remember this conversation" (or "keep this off the record") and
   the turn still replies but creates **no durable memory** — extraction and project updates are
   skipped (raw messages are still stored for in-session context). Obvious credentials (API keys,

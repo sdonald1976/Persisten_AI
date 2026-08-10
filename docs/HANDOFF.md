@@ -11,7 +11,7 @@ you're oriented before making changes.
 ## What it is
 
 A local-first, persistent AI companion with durable memory. A pure "brain" (Core) with swappable
-"faces" (CLI, headless HTTP+WebSocket API) and swappable model providers (offline Mock, or
+"faces" (a headless HTTP+WebSocket API with a reference web client) and swappable model providers (offline Mock, or
 OpenAI-compatible Ollama/LM Studio). The point is continuity: it remembers me across sessions,
 initiates conversation, and has a configurable identity + personality.
 
@@ -21,14 +21,13 @@ initiates conversation, and has a configurable identity + personality.
   - `src/Companion.Core` — domain + interfaces + all logic (retrieval, extraction, personality,
     reply generation). Pure, no I/O deps.
   - `src/Companion.Infrastructure` — EF, model provider adapters, DI composition root.
-  - `src/Companion.Cli` — terminal face.
   - `src/Companion.Api` — headless HTTP + SSE + WebSocket face (+ `wwwroot` reference web client).
   - `tests/Companion.Tests` — full suite, all passing (263 at last handoff).
 - `global.json` pins .NET 9 (`9.0.313`, `latestFeature`). Use a .NET 9 SDK; if yours differs, adjust
   `global.json`.
 - EF migrations: `dotnet ef migrations add <Name> --project src/Companion.Infrastructure
   --startup-project src/Companion.Infrastructure` (the `dotnet-ef` tool).
-- Real-model config (`appsettings.json` in Cli + Api): Ollama at `http://localhost:11434/v1`, chat
+- Real-model config (`src/Companion.Api/appsettings.json`): Ollama at `http://localhost:11434/v1`, chat
   model `huihui_ai/dolphin3-abliterated`, embeddings `nomic-embed-text`. Audio (Whisper STT) runs
   via `docker compose up -d speaches` — see [`AUDIO.md`](AUDIO.md).
 

@@ -5,7 +5,7 @@
 can drive it without embedding .NET. It's the "brain/face split": `Core` stays pure, and this
 project only translates the wire to `IAgent` calls and streams the results back.
 
-The same brain powers the CLI, so behavior is identical across faces: plain language is
+Plain language is
 understood as intent (`"forget that"`, `"be more concise"`, `"what am I working on?"`), replies
 stream token-by-token, and destructive actions require a confirmation.
 
@@ -17,10 +17,10 @@ dotnet run --project src/Companion.Api          # serves http://localhost:5266
 ```
 
 By default it runs on the **offline mocks** (no model server needed). To use a real local model,
-set the `Models` section exactly as the CLI does (see the main README) — Ollama/LM Studio for
-chat/extraction/embeddings, plus optional vision and a separate Whisper server. The schema is
-created/upgraded on startup via EF Core migrations (with an automatic pre-migration backup), same
-as the CLI, against `Database:Path`.
+set the `Models` section (see the main README) — Ollama/LM Studio for
+chat/extraction/embeddings, plus a separate Whisper server for `/transcribe`. The schema is
+created/upgraded on startup via EF Core migrations (with an automatic pre-migration backup),
+against `Database:Path`.
 
 ## Security (secure-by-default)
 
@@ -81,6 +81,7 @@ All endpoints require the API token (see Security). Bodies/queries never carry a
 | `GET`  | `/identity` | — | `{ name, gender, pronouns }` — who the companion is |
 | `PUT`  | `/identity` | `{ name?, gender?, pronouns? }` | `{ name, gender, pronouns }` (only provided fields change) |
 | `POST` | `/feedback` | `{ conversationId, rating: "positive"\|"negative", note? }` | `AgentReply` |
+| `POST` | `/transcribe` | multipart form-data, field `file` (audio) | `{ text }` (503 if no Whisper server configured) |
 
 `AgentReply` shape:
 ```json
