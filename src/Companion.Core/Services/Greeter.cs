@@ -21,13 +21,20 @@ public sealed class Greeter : IGreeter
     private readonly IProjectStore _projects;
     private readonly IMemoryStore _memories;
     private readonly IConversationStore _conversations;
+    private readonly IRelationshipTracker _relationship;
     private readonly TimeProvider _clock;
 
-    public Greeter(IProjectStore projects, IMemoryStore memories, IConversationStore conversations, TimeProvider clock)
+    public Greeter(
+        IProjectStore projects,
+        IMemoryStore memories,
+        IConversationStore conversations,
+        IRelationshipTracker relationship,
+        TimeProvider clock)
     {
         _projects = projects;
         _memories = memories;
         _conversations = conversations;
+        _relationship = relationship;
         _clock = clock;
     }
 
@@ -62,7 +69,17 @@ public sealed class Greeter : IGreeter
             .Where(l => !string.Equals(l.Owner, "companion", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
+        // How things have been feeling — so the opener can lead with care or shared good spirits
+        // rather than jumping straight to tasks.
+        var mood = await _relationship.BuildAsync(userId, ct);
+
         var openers = new List<string>();
+
+        // A gentle, mood-aware opener comes first when the recent tone is notable — presence before
+        // to-do list. Never presumes the cause; always an invitation, never a demand.
+        var moodOpener = MoodOpener(mood);
+        if (moodOpener is not null)
+            openers.Add(moodOpener);
 
         // Follow up on what the companion itself promised (its own initiative).
         foreach (var c in commitments.Take(1))
@@ -98,6 +115,33 @@ public sealed class Greeter : IGreeter
         }
 
         return new Greeting { Message = message, TimeContext = timeContext, Openers = openers };
+    }
+
+    /// <summary>
+    /// A low-pressure opener that acknowledges the recent emotional tone, or null when nothing is
+    /// notable. Care first for a low stretch; warmth for good spirits; encouragement when climbing
+    /// back up. Deterministic and never presumes why.
+    /// </summary>
+    private static string? MoodOpener(RelationshipSnapshot mood)
+    {
+        if (!mood.HasHistory)
+            return null;
+
+        var emotion = string.IsNullOrWhiteSpace(mood.RecentEmotion) ? null : mood.RecentEmotion;
+
+        if (mood.RecentMood is Sentiment.Negative or Sentiment.VeryNegative)
+        {
+            var how = emotion is null ? "a bit low" : emotion;
+            return $"You seemed {how} last time — I'm here if you want to talk about it.";
+        }
+
+        if (mood.Trend == MoodTrend.Improving && mood.AverageValence < 0.2)
+            return "Last stretch felt rough — hope things have been looking up.";
+
+        if (mood.RecentMood is Sentiment.Positive or Sentiment.VeryPositive)
+            return "You were in good spirits last time — hope that's still going.";
+
+        return null;
     }
 
     private static string LowerFirst(string text)

@@ -29,6 +29,12 @@ public sealed record ContextPacket
     /// <summary>A clarifying question to ask when the project reference was ambiguous.</summary>
     public string? ClarificationQuestion { get; init; }
 
+    /// <summary>
+    /// One line of tone guidance from the relational/emotional layer ("the user has seemed stressed
+    /// lately…"), or null. It shapes how the companion responds — never something to state back.
+    /// </summary>
+    public string? RelationshipNote { get; init; }
+
     /// <summary>Notes about uncertainty, conflicts, or superseded information.</summary>
     public IReadOnlyList<string> UncertaintyNotes { get; init; } = Array.Empty<string>();
 

@@ -48,6 +48,15 @@ public static class ContextPacketRenderer
             "going, and don't end with an offer to continue; finish the task, then stop.");
         sb.AppendLine();
 
+        if (!string.IsNullOrWhiteSpace(packet.RelationshipNote))
+        {
+            // Tone guidance, not a fact. Rendered as prose (no "- " bullet) so it shapes delivery
+            // without becoming a "remembered item" the model might read back.
+            sb.AppendLine("## How things have been (attune your tone; don't state this back)");
+            sb.AppendLine(packet.RelationshipNote!.Trim());
+            sb.AppendLine();
+        }
+
         if (packet.RecentMessages.Count > 0)
         {
             sb.AppendLine("## Recent conversation");

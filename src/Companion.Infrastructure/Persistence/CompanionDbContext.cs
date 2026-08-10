@@ -27,6 +27,7 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<OpenLoop> OpenLoops => Set<OpenLoop>();
     public DbSet<FeedbackRecord> Feedback => Set<FeedbackRecord>();
     public DbSet<PendingClarification> PendingClarifications => Set<PendingClarification>();
+    public DbSet<EmotionalSignal> EmotionalSignals => Set<EmotionalSignal>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -61,6 +62,17 @@ public sealed class CompanionDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.UserId).HasMaxLength(200);
             e.HasIndex(x => x.UserId);
+        });
+
+        b.Entity<EmotionalSignal>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Sentiment).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Label).HasMaxLength(60);
+            e.Property(x => x.Evidence).HasMaxLength(200);
+            // The tracker reads a user's most recent signals in time order.
+            e.HasIndex(x => new { x.UserId, x.Timestamp });
         });
 
         b.Entity<PendingClarification>(e =>
