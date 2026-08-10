@@ -21,7 +21,7 @@ The companion logic (memory, retrieval, turn pipeline, curation, intents) is a *
 streaming service**; every UI is a thin client.
 
 ```
-FACES:      CLI  │  Web (WebRTC mic/cam + three.js avatar)  │  Unity/desktop
+FACES:      Web (WebRTC mic/cam + three.js avatar)  │  Unity/desktop
                        │  local HTTP + WebSocket (stream text · audio · visemes · emotion)
 BRAIN:      Companion API → IAgent (intents + persona) → ICompanion pipeline
 PROVIDERS:  chat · embeddings · vision · STT (whisper) · TTS   (all behind interfaces)
@@ -29,10 +29,8 @@ PROVIDERS:  chat · embeddings · vision · STT (whisper) · TTS   (all behind i
 
 **Built (this repo):** the split is real. `IAgent` / `Agent` in `Core` is the one brain surface
 — parse an utterance, then run a turn or carry out an intent, returning structured
-`AgentReply` data (no printing). Both faces drive it:
+`AgentReply` data (no printing). The face drives it:
 
-- **`Companion.Cli`** is now a thin face over `IAgent` (chat streams to the console; actions
-  print; "forget" prompts y/n via the confirmation handshake).
 - **`Companion.Api`** is a headless local HTTP + **WebSocket** service wrapping the same
   `IAgent`. Replies **stream** token-by-token over Server-Sent Events (`GET /chat/stream`) and
   over the bidirectional `/ws` channel (`token` → `reply` frames, plus a `confirm` frame for

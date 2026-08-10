@@ -33,7 +33,7 @@ Persisten_AI.sln
 ├── src/
 │   ├── Companion.Core/            # domain records, enums, interfaces, pure services
 │   ├── Companion.Infrastructure/  # EF Core store, vector index, model adapters
-│   └── Companion.Cli/             # chat REPL + memory commands + diagnostics
+│   └── Companion.Api/             # headless HTTP + WebSocket face (+ reference web client)
 └── tests/
     └── Companion.Tests/           # unit, integration, e2e scenarios, seed data
 ```
@@ -61,12 +61,14 @@ EF Core nor any LLM SDK.
 - `SqliteBlobVectorIndex` implementing `IVectorIndex` (cosine over stored embeddings).
 - Model adapters: `MockChatModel`/`MockEmbeddingModel`, `OllamaChatModel`, etc.
 
-### CLI
+### API (the face)
 
-- Chat REPL wiring the response pipeline.
-- Memory-control commands (`/remember`, `/memories`, `/project`, `/correct`, `/forget`,
-  `/merge`, `/split`, `/export`, `/wipe`, `/why`).
-- Diagnostics renderer for the per-turn `TurnTrace`.
+- `Companion.Api`: a local HTTP + SSE + WebSocket service wrapping `IAgent`; replies stream
+  token-by-token. A small `wwwroot/index.html` reference web client ships with it.
+- Conversational endpoints (`/chat`, `/chat/stream`, `/ws`, `/transcribe`) plus structured reads
+  (`/memories`, `/projects`, `/loops`, `/persona`, `/personality`, `/identity`, `/feedback`, `/greeting`).
+- Memory control (recall, correct, forget, consolidate) is driven by plain-language intents
+  through `/chat` — the same brain either way.
 
 ## Domain model
 
@@ -236,8 +238,8 @@ network or GPU.
 
 ```mermaid
 flowchart TD
-    U[User message] --> CLI[Companion CLI]
-    CLI --> P[Response pipeline]
+    U[User message] --> F[Companion API face]
+    F --> P[Response pipeline]
 
     P --> S1[1 Store message]
     S1 --> ER[2 Entity & project detection]

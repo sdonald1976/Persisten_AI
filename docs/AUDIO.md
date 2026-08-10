@@ -6,7 +6,7 @@ runs in a separate local container — [Speaches](https://github.com/speaches-ai
 
 | Endpoint | What | Used by |
 |----------|------|---------|
-| `/v1/audio/transcriptions` | speech → text (Whisper) | `/transcribe <file>` today |
+| `/v1/audio/transcriptions` | speech → text (Whisper) | `POST /transcribe` today |
 | `/v1/audio/speech` | text → speech (TTS) | the upcoming voice-output step |
 
 One container covers both, so this is the whole audio dependency.
@@ -32,8 +32,7 @@ curl http://localhost:8000/v1/models
 
 ## Point the companion at it
 
-Already present in `src/Companion.Cli/appsettings.json` and `src/Companion.Api/appsettings.json`
-under `Models`:
+Already present in `src/Companion.Api/appsettings.json` under `Models`:
 
 ```jsonc
 "Transcription": {
@@ -47,13 +46,16 @@ The model name is downloaded on first use. Bigger = more accurate but slower and
 
 ## Use it
 
-```
-/transcribe path/to/audio.wav
+Upload an audio file to the API's `POST /transcribe` endpoint; it returns the transcript, which a
+client then sends as a normal chat turn:
+
+```bash
+curl -F file=@path/to/audio.wav http://localhost:5266/transcribe
+# → { "text": "…" }
 ```
 
-It transcribes the file and feeds the text in as a normal turn. This is **file-based, not a live
-mic** yet — the push-to-talk mic loop is the next roadmap item (see
-[`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md)).
+This is **file-based, not a live mic** yet — the push-to-talk mic loop is the next roadmap item
+(see [`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md)).
 
 ## GPU (optional, NVIDIA)
 
@@ -63,7 +65,8 @@ the `deploy:` block.
 
 ## Troubleshooting
 
-- **`/transcribe` errors / connection refused** — the container isn't up. `docker compose ps`, then
+- **`/transcribe` returns 503** — transcription isn't configured (no `Models.Transcription`).
+- **`/transcribe` errors / connection refused to :8000** — the container isn't up. `docker compose ps`, then
   `docker compose logs speaches`.
 - **First transcription hangs for a while** — that's the model downloading; watch the logs. Later
   runs are fast (cached in the volume).

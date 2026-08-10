@@ -374,6 +374,24 @@ app.MapPost("/feedback", async (FeedbackRequest req, IUserContext user, IConvers
     return Results.Ok(ReplyDto.From(reply));
 });
 
+// Speech-to-text: upload an audio file (multipart 'file') and get its transcript back. Requires a
+// configured Whisper server (Models.Transcription — see docs/AUDIO.md). The client then sends the
+// text as a normal chat turn, so this stays a small, composable building block for the voice loop.
+app.MapPost("/transcribe", async (HttpContext ctx, IFormFile file, CancellationToken ct) =>
+{
+    var transcriber = ctx.RequestServices.GetService<ITranscriber>();
+    if (transcriber is null)
+        return Results.Json(
+            new ApiError("TranscriptionUnavailable", "Transcription isn't configured (set Models.Transcription).", ctx.TraceIdentifier),
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    if (file is null || file.Length == 0)
+        return ApiError.BadRequest("Upload an audio file as multipart form-data field 'file'.");
+
+    await using var stream = file.OpenReadStream();
+    var text = await transcriber.TranscribeAsync(stream, file.FileName, ct);
+    return Results.Ok(new { text });
+}).DisableAntiforgery();
+
 app.Run();
 
 /// <summary>
