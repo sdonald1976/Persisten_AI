@@ -14,11 +14,23 @@ full-body humanoid rig**:
 - Any other `.glb` works **as long as it has mouth blendshapes** — the viewer looks for
   `jawOpen` (ARKit), `mouthOpen`, or the `viseme_aa` / `aa` morph. Without one of those, the model
   loads but the mouth won't move (the panel says so).
-- Marketplaces (Sketchfab, CGTrader, …): filter for `glTF`/`glb` + "blendshapes"/"ARKit"/"visemes".
+- Marketplaces (Fab, Sketchfab, CGTrader, …): most character models are **not** rigged for lip-sync,
+  so filter/check for `glTF`/`glb` **with "blendshapes" / "ARKit" / "visemes" / "morph targets"**. A
+  gorgeous model with none of those will display but won't move its mouth.
 - Mixamo characters have great body rigs but **no facial blendshapes** — good for gestures later, not
   for lip-sync.
 
+**Not sure if your file has visemes?** Just load it: the panel tells you, and the viewer prints every
+blendshape name to the browser console (F12). If it has mouth shapes under an unusual name, send me the
+console list and I'll map them. The detector already recognizes ARKit (`jawOpen`), Oculus
+(`viseme_aa`), and Character-Creator/Daz (`Mouth_Open`, `V_Open`, `V_AA`) conventions.
+
 Keep it web-friendly: ~10k–80k triangles, baked PBR textures.
+
+The scene lights the model with **image-based lighting** (a neutral studio environment) plus a soft
+key light and ACES filmic tone mapping, so skin/eyes/hair render naturally rather than flat and dark.
+If it looks too bright or too dim for your model, adjust `renderer.toneMappingExposure` in the avatar
+module.
 
 ## Using it
 
