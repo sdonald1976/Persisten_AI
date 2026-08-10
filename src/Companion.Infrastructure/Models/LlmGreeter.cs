@@ -29,26 +29,35 @@ public sealed class LlmGreeter : IGreeter, IGreetingRephraser
     private readonly IGreeter _fallback;
     private readonly IChatModel _chat;
     private readonly ILogger<LlmGreeter> _logger;
+    // Optional: when both are supplied the opener is written in the user's identity + personality;
+    // without them (e.g. a bare unit test) the greeter falls back to a neutral voice.
+    private readonly IPersonalityService? _personality;
+    private readonly IProfileStore? _profiles;
 
-    public LlmGreeter(IGreeter fallback, IChatModel chat, ILogger<LlmGreeter> logger)
+    public LlmGreeter(
+        IGreeter fallback, IChatModel chat, ILogger<LlmGreeter> logger,
+        IPersonalityService? personality = null, IProfileStore? profiles = null)
     {
         _fallback = fallback;
         _chat = chat;
         _logger = logger;
+        _personality = personality;
+        _profiles = profiles;
     }
 
     public async Task<Greeting> GreetAsync(string userId, CancellationToken ct = default)
     {
         // The deterministic greeter is both the grounding (real threads → openers) and the safety net.
         var grounded = await _fallback.GreetAsync(userId, ct);
-        return await RephraseAsync(grounded, ct);
+        return await RephraseAsync(grounded, userId, ct);
     }
 
-    public async Task<Greeting> RephraseAsync(Greeting grounded, CancellationToken ct = default)
+    public async Task<Greeting> RephraseAsync(Greeting grounded, string? userId = null, CancellationToken ct = default)
     {
         try
         {
-            var reply = await _chat.CompleteAsync(SystemPrompt, BuildPrompt(grounded.Openers), jsonMode: false, ct: ct);
+            var system = await SystemPromptForAsync(userId, ct);
+            var reply = await _chat.CompleteAsync(system, BuildPrompt(grounded.Openers), jsonMode: false, ct: ct);
             // Small local models sometimes leak chat-template markers (e.g. a literal <|im_end|>)
             // into their text; they are never legitimate greeting content.
             var message = SpecialTokens.Replace(reply.Text ?? string.Empty, string.Empty).Trim();
@@ -72,6 +81,22 @@ public sealed class LlmGreeter : IGreeter, IGreetingRephraser
             _logger.LogWarning(ex, "LLM greeting failed; using the deterministic opener.");
             return grounded;
         }
+    }
+
+    /// <summary>
+    /// The greeting system prompt, prefixed with the user's identity + personality when known so the
+    /// opener is written in character. Falls back to the neutral prompt when no user is given.
+    /// </summary>
+    private async Task<string> SystemPromptForAsync(string? userId, CancellationToken ct)
+    {
+        if (userId is null || _profiles is null || _personality is null)
+            return SystemPrompt;
+
+        var profile = await _profiles.GetOrCreateAsync(userId, ct);
+        var persona = _personality.Compose(profile);
+        return string.IsNullOrWhiteSpace(persona)
+            ? SystemPrompt
+            : "Stay fully in character as described here:\n" + persona + "\n\n" + SystemPrompt;
     }
 
     private static string BuildPrompt(IReadOnlyList<string> openers)

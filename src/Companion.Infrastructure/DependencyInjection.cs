@@ -153,7 +153,9 @@ public static class DependencyInjection
             services.AddScoped<LlmGreeter>(sp => new LlmGreeter(
                 sp.GetRequiredService<Greeter>(),
                 sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation),
-                sp.GetRequiredService<ILogger<LlmGreeter>>()));
+                sp.GetRequiredService<ILogger<LlmGreeter>>(),
+                sp.GetRequiredService<IPersonalityService>(),
+                sp.GetRequiredService<IProfileStore>()));
             services.AddScoped<IGreeter>(sp => sp.GetRequiredService<LlmGreeter>());
             // Registered only alongside a real model: faces that want an instant opener show the
             // deterministic Greeter's message first and upgrade the wording when this completes.
