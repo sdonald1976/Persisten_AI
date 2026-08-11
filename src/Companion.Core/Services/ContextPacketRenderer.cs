@@ -66,6 +66,14 @@ public static class ContextPacketRenderer
             sb.AppendLine();
         }
 
+        if (!string.IsNullOrWhiteSpace(packet.FamiliarityNote))
+        {
+            // Calibration, not content: it sets how casual/teasing/shorthand she may be.
+            sb.AppendLine("## Where the relationship is (calibrate your closeness; never recite this)");
+            sb.AppendLine(packet.FamiliarityNote!.Trim());
+            sb.AppendLine();
+        }
+
         if (!string.IsNullOrWhiteSpace(packet.RelationshipNote))
         {
             // Tone guidance, not a fact. Rendered as prose (no "- " bullet) so it shapes delivery

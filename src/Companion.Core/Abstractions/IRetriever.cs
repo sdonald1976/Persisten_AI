@@ -18,4 +18,11 @@ public sealed record RetrievalOutcome
 {
     public required IReadOnlyList<RetrievalResult> Selected { get; init; }
     public required IReadOnlyList<RetrievalResult> Excluded { get; init; }
+
+    /// <summary>
+    /// The query's embedding, exposed so other similarity lookups this turn (e.g. resurfacing a
+    /// relevant past musing) reuse it instead of paying a second embedding call. Null when
+    /// retrieval bailed before embedding (no memories at all).
+    /// </summary>
+    public float[]? QueryEmbedding { get; init; }
 }

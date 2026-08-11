@@ -1,6 +1,25 @@
-# Her own inner state (and the reply-shape register)
+# Her own inner state, the reply-shape register, and the familiarity dial
 
-Two fixes for "she's always the same," both deterministic and honest.
+Fixes for "she's always the same," all deterministic and honest.
+
+## The familiarity dial
+
+`FamiliarityTracker` derives the relationship's stage from two real numbers — how long you've
+known each other (first message ever) and how much you've actually talked (user message count) —
+and takes the **lower** of the two reads: three months of silence isn't closeness, and neither
+is a hundred messages in one frantic day. Stages: `New → Acquainted → Familiar → Close`, each
+carrying prompt guidance from "you've only just met — don't presume closeness" up to "in-jokes,
+real teasing, comfortable directness." Rendered every turn under *"Where the relationship is"*
+(calibration only, never recited). Nothing is stored; the dial only ever moves forward as real
+history accumulates.
+
+## Musings resurface on their own
+
+The turn's retrieval exposes its query embedding, and the diary is searched with it: a
+weeks-old musing whose subject matches the current conversation re-enters the prompt — labeled
+with its age ("a thought from 4 weeks ago…"), so *"I'd been thinking about this a while back"*
+is literally true. Relevance outranks freshness; with nothing relevant, the freshest musing
+(≤7 days) still colors the turn as before. Old, unrelated thoughts stay in the diary.
 
 ## Inner state: spirits + energy
 
