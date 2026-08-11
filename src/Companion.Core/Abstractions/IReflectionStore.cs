@@ -35,6 +35,12 @@ public interface IReflectionStore
     Task MarkVoicedAsync(string userId, Guid curiosityId, DateTimeOffset now, CancellationToken ct = default);
 
     /// <summary>
+    /// Marks a curiosity satisfied — the conversation answered it. Valid from Open or Voiced
+    /// (a voiced question that then got its answer closes with satisfaction, not silence).
+    /// </summary>
+    Task MarkSatisfiedAsync(string userId, Guid curiosityId, CancellationToken ct = default);
+
+    /// <summary>
     /// Dismisses every open curiosity created before <paramref name="olderThan"/> and returns how
     /// many were let go. A wondering that never found its moment eventually stops being current —
     /// the companion drops it rather than asking about something weeks stale.

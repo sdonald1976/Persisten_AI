@@ -29,6 +29,13 @@ public class EpisodicMemory : IMemory
 
     public MemoryStatus Status { get; set; } = MemoryStatus.Active;
 
+    /// <summary>
+    /// Whose story this is. <see cref="MemoryOwner.Shared"/> marks a moment the user and the
+    /// companion had TOGETHER — shared history, presented as "remember when we…", never as a
+    /// bare fact about the user.
+    /// </summary>
+    public MemoryOwner Owner { get; set; } = MemoryOwner.User;
+
     public string? RelatedProject { get; set; }
 
     public float[]? Embedding { get; set; }

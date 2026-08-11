@@ -83,6 +83,16 @@ public static class ContextPacketRenderer
             sb.AppendLine();
         }
 
+        if (!string.IsNullOrWhiteSpace(packet.TemporalNote))
+        {
+            sb.AppendLine("## Temporal context");
+            sb.AppendLine(packet.TemporalNote!.Trim());
+            sb.AppendLine(
+                "Let the gap shape your opening naturally — a few minutes reads differently than a " +
+                "week — without making a ritual of it.");
+            sb.AppendLine();
+        }
+
         if (!string.IsNullOrWhiteSpace(packet.Musing))
         {
             // The companion's own between-session thought. Prose, not a bullet, for the same
@@ -150,9 +160,24 @@ public static class ContextPacketRenderer
             sb.AppendLine();
         }
 
-        var direct = packet.Memories.Where(i => i.Provenance == ContextProvenance.DirectStatement).ToList();
-        var inferred = packet.Memories.Where(i => i.Provenance == ContextProvenance.Inferred).ToList();
-        var outdated = packet.Memories.Where(i => i.Provenance == ContextProvenance.Outdated).ToList();
+        // Shared moments are their own section regardless of provenance: they're history you were
+        // both part of, told as "remember when we…", never as bare facts about the user.
+        var shared = packet.Memories.Where(i => i.Owner == MemoryOwner.Shared).ToList();
+        var rest = packet.Memories.Where(i => i.Owner != MemoryOwner.Shared).ToList();
+        var direct = rest.Where(i => i.Provenance == ContextProvenance.DirectStatement).ToList();
+        var inferred = rest.Where(i => i.Provenance == ContextProvenance.Inferred).ToList();
+        var outdated = rest.Where(i => i.Provenance == ContextProvenance.Outdated).ToList();
+
+        if (shared.Count > 0)
+        {
+            sb.AppendLine("## Moments you shared (you were both there — real shared history)");
+            foreach (var i in shared)
+                sb.AppendLine($"- {i.Text}");
+            sb.AppendLine(
+                "These are yours together — reference them warmly and naturally when they fit " +
+                "(\"remember when we…\"), never as facts you're reciting about the user.");
+            sb.AppendLine();
+        }
 
         if (direct.Count > 0)
         {
@@ -175,6 +200,19 @@ public static class ContextPacketRenderer
             sb.AppendLine("## Possibly outdated (do not assert as current)");
             foreach (var i in outdated)
                 sb.AppendLine($"- {i.Text}");
+            sb.AppendLine();
+        }
+
+        if (packet.PreferenceNotes.Count > 0)
+        {
+            sb.AppendLine("## Your own tastes (yours alone)");
+            foreach (var note in packet.PreferenceNotes)
+                sb.AppendLine($"- {note}");
+            sb.AppendLine(
+                "These are YOUR opinions, formed from your own experience. Knowing what the user " +
+                "likes never means you like it: agree honestly when you agree, disagree warmly when " +
+                "you don't, and say so when you're still undecided. Never abandon an established " +
+                "taste just to please them.");
             sb.AppendLine();
         }
 

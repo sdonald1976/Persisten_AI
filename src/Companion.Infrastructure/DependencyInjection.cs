@@ -42,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<IEmotionStore, EmotionStore>();
         services.AddScoped<IReflectionStore, ReflectionStore>();
         services.AddScoped<IAnticipationStore, AnticipationStore>();
+        services.AddScoped<IPreferenceStore, PreferenceStore>();
         // The vector index is a singleton in-memory cache (cold-loaded per user from the tables,
         // then kept in step via the write-through hook the memory store calls). Both faces of it —
         // search and maintenance — resolve to the same instance so writes reach the cache.

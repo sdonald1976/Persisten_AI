@@ -28,6 +28,9 @@ public class SemanticMemory : IMemory
     public Validity Validity { get; set; } = Validity.Current;
     public MemoryStatus Status { get; set; } = MemoryStatus.Active;
 
+    /// <summary>Whose story this fact belongs to. Extraction writes user biography by default.</summary>
+    public MemoryOwner Owner { get; set; } = MemoryOwner.User;
+
     /// <summary>Whether the user stated this, the system inferred it, or it was consolidated.</summary>
     public MemoryOrigin Origin { get; set; } = MemoryOrigin.Stated;
 

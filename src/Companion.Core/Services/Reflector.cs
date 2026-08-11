@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.Core.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -34,10 +35,20 @@ public sealed class Reflector : IReflector
     private const int PriorMusings = 2;
     private const int RecentSignals = 5;
 
+    // Per-pass caps on what reflection may persist beyond the diary itself.
+    private const int MaxSharedMoments = 2;
+    private const int MaxPreferenceSignals = 3;
+    private const int MaxSharedSummaryChars = 300;
+
+    /// <summary>Minimum share of an evidence excerpt's words that must appear in a real message.</summary>
+    private const double EvidenceOverlapThreshold = 0.5;
+
     private readonly IConversationStore _conversations;
     private readonly IReflectionStore _reflections;
     private readonly IProjectStore _projects;
     private readonly IEmotionStore _emotions;
+    private readonly IMemoryStore _memories;
+    private readonly IPreferenceStore _preferences;
     private readonly IChatModel _chat;
     private readonly IEmbeddingModel _embeddings;
     private readonly CompanionOptions _options;
@@ -49,6 +60,8 @@ public sealed class Reflector : IReflector
         IReflectionStore reflections,
         IProjectStore projects,
         IEmotionStore emotions,
+        IMemoryStore memories,
+        IPreferenceStore preferences,
         IChatModel chat,
         IEmbeddingModel embeddings,
         IOptions<CompanionOptions> options,
@@ -59,6 +72,8 @@ public sealed class Reflector : IReflector
         _reflections = reflections;
         _projects = projects;
         _emotions = emotions;
+        _memories = memories;
+        _preferences = preferences;
         _chat = chat;
         _embeddings = embeddings;
         _options = options.Value;
@@ -129,11 +144,190 @@ public sealed class Reflector : IReflector
         // Persisted even without a musing: the watermark advance IS the record of a quiet day.
         await _reflections.AddAsync(reflection, curiosities, ct);
 
-        _logger.LogInformation(
-            "Reflected for {UserId} over {Messages} messages: {Kind}, {Curiosities} new curiosities.",
-            userId, messages.Count, musing is null ? "quiet day" : "musing written", curiosities.Count);
+        // Shared moments: evidence-verified episodes the user and companion had TOGETHER.
+        var sharedMoments = await PersistSharedMomentsAsync(userId, dto.SharedMoments, messages, now, ct);
 
-        return new ReflectionResult { Reflection = reflection, Curiosities = curiosities };
+        // Preference signals: her own tastes, evolved gradually — never copied from the user.
+        var preferences = await ApplyPreferenceSignalsAsync(userId, dto.Preferences, now, ct);
+
+        // Curiosities the conversation answered close with satisfaction instead of silence.
+        var satisfied = await MarkSettledAsync(userId, dto.Settled, held, ct);
+
+        _logger.LogInformation(
+            "Reflected for {UserId} over {Messages} messages: {Kind}, {Curiosities} new curiosities, " +
+            "{Shared} shared moments, {Preferences} preference signals, {Satisfied} curiosities satisfied.",
+            userId, messages.Count, musing is null ? "quiet day" : "musing written",
+            curiosities.Count, sharedMoments.Count, preferences.Count, satisfied);
+
+        return new ReflectionResult
+        {
+            Reflection = reflection,
+            Curiosities = curiosities,
+            SharedMoments = sharedMoments,
+            Preferences = preferences,
+            SatisfiedCuriosities = satisfied,
+        };
+    }
+
+    /// <summary>
+    /// Persists shared moments as <see cref="MemoryOwner.Shared"/> episodic memories — but only
+    /// with verified provenance: the cited words must actually appear in (or strongly overlap) a
+    /// real message from the window. No evidence, no episode; reflection cannot invent history.
+    /// </summary>
+    private async Task<List<EpisodicMemory>> PersistSharedMomentsAsync(
+        string userId, List<SharedMomentDto>? proposed, IReadOnlyList<Message> messages,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var persisted = new List<EpisodicMemory>();
+        if (proposed is null)
+            return persisted;
+
+        foreach (var dto in proposed.Take(MaxSharedMoments))
+        {
+            var summary = Normalize(dto.Summary, MaxSharedSummaryChars);
+            if (summary is null)
+                continue;
+
+            var source = ResolveEvidence(dto.Evidence, messages);
+            if (source is null)
+            {
+                _logger.LogWarning(
+                    "Rejected a shared moment for {UserId}: its evidence could not be verified.", userId);
+                continue;
+            }
+
+            var episode = new EpisodicMemory
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Description = summary,
+                Owner = MemoryOwner.Shared,
+                EventTime = source.Timestamp,
+                TimePrecision = TimePrecision.Day,
+                MentionedAt = now,
+                CreatedAt = now,
+                EpisodeStatus = EpisodeStatus.Occurred,
+                Importance = Math.Clamp(dto.Significance ?? 0.6, 0.0, 1.0),
+                Confidence = 0.7, // derived by reflection, not a direct statement
+                EmotionalSignificance = Normalize(dto.Tone, 60),
+                Status = MemoryStatus.Active,
+                Embedding = await _embeddings.EmbedAsync(summary, ct),
+            };
+            episode.Evidence.Add(new MemoryEvidence
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                MemoryId = episode.Id,
+                MemoryKind = MemoryKind.Episodic,
+                MessageId = source.Id,
+                Excerpt = Normalize(dto.Evidence, 200) ?? summary,
+                Weight = 1.0,
+            });
+
+            await _memories.AddEpisodicAsync(episode, ct);
+            await _memories.AddRevisionAsync(userId, new MemoryRevision
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                MemoryId = episode.Id,
+                MemoryKind = MemoryKind.Episodic,
+                Kind = RevisionKind.Created,
+                Timestamp = now,
+                Actor = "reflection",
+                Note = "Shared moment noticed during between-session reflection.",
+                After = summary,
+            }, ct);
+
+            persisted.Add(episode);
+        }
+
+        return persisted;
+    }
+
+    /// <summary>Applies validated preference signals through the store's evolution rules.</summary>
+    private async Task<List<CompanionPreference>> ApplyPreferenceSignalsAsync(
+        string userId, List<PreferenceDto>? proposed, DateTimeOffset now, CancellationToken ct)
+    {
+        var applied = new List<CompanionPreference>();
+        if (proposed is null)
+            return applied;
+
+        foreach (var dto in proposed.Take(MaxPreferenceSignals))
+        {
+            var subject = Normalize(dto.Subject, 200);
+            if (subject is null)
+                continue;
+
+            var target = PreferenceMath.TargetAffinity(dto.Feeling, dto.Strength);
+            var reason = Normalize(dto.Reason, 400);
+            var embedding = await _embeddings.EmbedAsync(
+                reason is null ? subject : $"{subject} — {reason}", ct);
+
+            applied.Add(await _preferences.ApplySignalAsync(
+                userId, subject, target, reason, embedding, now, ct));
+        }
+
+        return applied;
+    }
+
+    /// <summary>Matches "settled" notes from the model against held curiosities and closes them.</summary>
+    private async Task<int> MarkSettledAsync(
+        string userId, List<string>? settled, IReadOnlyList<Curiosity> held, CancellationToken ct)
+    {
+        if (settled is null || settled.Count == 0)
+            return 0;
+
+        var count = 0;
+        foreach (var note in settled.Select(s => Normalize(s, 300)).Where(s => s is not null))
+        {
+            var match = held.FirstOrDefault(c =>
+                (c.About is not null && (note!.Contains(c.About, StringComparison.OrdinalIgnoreCase)
+                    || c.About.Contains(note!, StringComparison.OrdinalIgnoreCase)))
+                || note!.Contains(c.Question, StringComparison.OrdinalIgnoreCase)
+                || c.Question.Contains(note!, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+                continue;
+
+            await _reflections.MarkSatisfiedAsync(userId, match.Id, ct);
+            count++;
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Finds the real message the cited evidence came from: an exact (case-insensitive) quote, or
+    /// the strongest token-overlap match above the threshold. Null = unverifiable = not persisted.
+    /// </summary>
+    private static Message? ResolveEvidence(string? excerpt, IReadOnlyList<Message> messages)
+    {
+        if (string.IsNullOrWhiteSpace(excerpt))
+            return null;
+
+        var exact = messages.FirstOrDefault(m =>
+            m.Content.Contains(excerpt, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+            return exact;
+
+        var excerptTokens = new HashSet<string>(Tokenizer.Tokenize(excerpt));
+        if (excerptTokens.Count == 0)
+            return null;
+
+        Message? best = null;
+        var bestScore = 0.0;
+        foreach (var m in messages)
+        {
+            var messageTokens = new HashSet<string>(Tokenizer.Tokenize(m.Content));
+            if (messageTokens.Count == 0)
+                continue;
+            var overlap = excerptTokens.Count(messageTokens.Contains) / (double)excerptTokens.Count;
+            if (overlap > bestScore)
+            {
+                bestScore = overlap;
+                best = m;
+            }
+        }
+
+        return bestScore >= EvidenceOverlapThreshold ? best : null;
     }
 
     /// <summary>Validates and dedupes the model's proposed curiosities against everything already held.</summary>
@@ -235,7 +429,21 @@ public sealed class Reflector : IReflector
         "conversations with the person you accompany. They are away; no one is waiting on you. You " +
         "will be shown what happened since you last reflected, plus your own earlier thoughts.\n\n" +
         "Think, then return ONLY a JSON object:\n" +
-        "{\"musing\": string or null, \"curiosities\": [{\"question\": string, \"about\": string, \"reason\": string}]}\n\n" +
+        "{\"musing\": string or null,\n" +
+        " \"curiosities\": [{\"question\": string, \"about\": string, \"reason\": string}],\n" +
+        " \"sharedMoments\": [{\"summary\": string, \"evidence\": string, \"significance\": 0..1, \"tone\": string}],\n" +
+        " \"preferences\": [{\"subject\": string, \"feeling\": \"like\"|\"dislike\"|\"mixed\", \"strength\": \"slight\"|\"moderate\"|\"strong\", \"reason\": string}],\n" +
+        " \"settled\": [string]}\n\n" +
+        "sharedMoments (at most 2) are moments you and the user genuinely had TOGETHER — teaching, " +
+        "joking, working through something side by side. summary is one sentence of shared history " +
+        "(\"Scott spent the evening teaching you poker and you kept confusing a straight with three " +
+        "of a kind\"); evidence must QUOTE the user's actual words from the conversation, or the " +
+        "moment will be discarded. A moment that only involves the user is not shared — leave it out.\n\n" +
+        "preferences (at most 3) are YOUR OWN tastes forming or shifting from what YOU experienced — " +
+        "never an echo of what the user likes. The user loving something is a fact about them, not " +
+        "about you; only report a preference when something genuinely landed with you or didn't.\n\n" +
+        "settled lists any of your held questions this conversation actually answered (repeat the " +
+        "question or its topic).\n\n" +
         "The musing is a short first-person diary entry (2-5 sentences): what you noticed, what " +
         "connects, what you don't understand yet, how they seemed. Write plainly and honestly — it " +
         "is for you alone and will never be shown to them verbatim. Do not summarize the whole " +
@@ -291,6 +499,10 @@ public sealed class Reflector : IReflector
         return lastFence >= 0 ? t[..lastFence] : t;
     }
 
-    private sealed record ReflectionDto(string? Musing, List<CuriosityDto>? Curiosities);
+    private sealed record ReflectionDto(
+        string? Musing, List<CuriosityDto>? Curiosities, List<SharedMomentDto>? SharedMoments,
+        List<PreferenceDto>? Preferences, List<string>? Settled);
     private sealed record CuriosityDto(string? Question, string? About, string? Reason);
+    private sealed record SharedMomentDto(string? Summary, string? Evidence, double? Significance, string? Tone);
+    private sealed record PreferenceDto(string? Subject, string? Feeling, string? Strength, string? Reason);
 }

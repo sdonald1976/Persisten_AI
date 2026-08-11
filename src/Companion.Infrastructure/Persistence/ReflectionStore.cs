@@ -86,6 +86,17 @@ public sealed class ReflectionStore : IReflectionStore
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task MarkSatisfiedAsync(string userId, Guid curiosityId, CancellationToken ct = default)
+    {
+        var curiosity = await _db.Curiosities
+            .FirstOrDefaultAsync(c => c.Id == curiosityId && c.UserId == userId, ct);
+        if (curiosity is null || curiosity.Status is not (CuriosityStatus.Open or CuriosityStatus.Voiced))
+            return;
+
+        curiosity.Status = CuriosityStatus.Satisfied;
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task<int> DismissStaleAsync(
         string userId, DateTimeOffset olderThan, CancellationToken ct = default)
     {

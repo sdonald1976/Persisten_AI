@@ -11,6 +11,9 @@ public interface IMemory
     string UserId { get; }
     MemoryKind Kind { get; }
 
+    /// <summary>Whose story this is: the user's, the companion's own, or a shared moment.</summary>
+    MemoryOwner Owner { get; }
+
     /// <summary>Canonical text used for embedding and keyword matching.</summary>
     string Content { get; }
 

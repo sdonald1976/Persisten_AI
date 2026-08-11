@@ -15,5 +15,7 @@ public interface IContextAssembler
         string? musing = null,
         string? curiosity = null,
         string? companionMood = null,
-        string? familiarity = null);
+        string? familiarity = null,
+        string? temporal = null,
+        IReadOnlyList<string>? preferences = null);
 }

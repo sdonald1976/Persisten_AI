@@ -35,6 +35,7 @@ public sealed class Companion : ICompanion
     private readonly IAnticipationStore _anticipations;
     private readonly ICompanionStateTracker _innerState;
     private readonly IFamiliarityTracker _familiarity;
+    private readonly IPreferenceStore _preferences;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -57,6 +58,7 @@ public sealed class Companion : ICompanion
         IAnticipationStore anticipations,
         ICompanionStateTracker innerState,
         IFamiliarityTracker familiarity,
+        IPreferenceStore preferences,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -78,6 +80,7 @@ public sealed class Companion : ICompanion
         _anticipations = anticipations;
         _innerState = innerState;
         _familiarity = familiarity;
+        _preferences = preferences;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -99,6 +102,10 @@ public sealed class Companion : ICompanion
 
         var now = _clock.GetUtcNow();
 
+        // Temporal anchor: how long since they last spoke, read BEFORE this message is stored so
+        // the gap describes the actual absence, not this very turn.
+        var lastSeenBefore = await _conversations.GetLastMessageAtAsync(userId, ct);
+
         // 1–2. Store the raw user message. (Raw storage is unconditional — private turns skip
         // durable *derived* memory, see the extraction gate below, not conversation storage.)
         var userMsg = await StoreMessageAsync(userId, conversationId, MessageRole.User, userMessage, replyToId: null, now, ct);
@@ -107,7 +114,7 @@ public sealed class Companion : ICompanion
         // this message as a brand-new request.
         var pending = await _pending.GetActiveAsync(userId, conversationId, ct);
         if (pending is not null)
-            return await ResolvePendingAsync(userId, conversationId, pending, userMsg, tokenSink, now, ct);
+            return await ResolvePendingAsync(userId, conversationId, pending, userMsg, tokenSink, now, lastSeenBefore, ct);
 
         // 3. Resolve the project reference and build project-aware context.
         var projectContext = await _projectContext.BuildAsync(userId, userMessage, ct);
@@ -119,7 +126,7 @@ public sealed class Companion : ICompanion
         // Normal answered turn.
         return await CompleteTurnAsync(
             userId, conversationId, userMessage, projectContext,
-            extractionSource: userMsg, replyToId: userMsg.Id, TurnStatus.Answered, pendingId: null, tokenSink, now, ct);
+            extractionSource: userMsg, replyToId: userMsg.Id, TurnStatus.Answered, pendingId: null, tokenSink, now, lastSeenBefore, ct);
     }
 
     // ---- ambiguity: request ----
@@ -164,7 +171,7 @@ public sealed class Companion : ICompanion
 
     private async Task<TurnTrace> ResolvePendingAsync(
         string userId, Guid conversationId, PendingClarification pending, Message replyMsg,
-        IProgress<string>? tokenSink, DateTimeOffset now, CancellationToken ct)
+        IProgress<string>? tokenSink, DateTimeOffset now, DateTimeOffset? lastSeenBefore, CancellationToken ct)
     {
         var decision = ClarificationResolver.Resolve(replyMsg.Content, pending.Candidates());
 
@@ -206,7 +213,7 @@ public sealed class Companion : ICompanion
 
         return await CompleteTurnAsync(
             userId, conversationId, pending.OriginalText, forced,
-            extractionSource: originalMsg, replyToId: replyMsg.Id, TurnStatus.ClarificationResolved, pending.Id, tokenSink, now, ct);
+            extractionSource: originalMsg, replyToId: replyMsg.Id, TurnStatus.ClarificationResolved, pending.Id, tokenSink, now, lastSeenBefore, ct);
     }
 
     // ---- the normal turn tail (retrieve → generate → store → extract → update) ----
@@ -214,7 +221,7 @@ public sealed class Companion : ICompanion
     private async Task<TurnTrace> CompleteTurnAsync(
         string userId, Guid conversationId, string promptText, ProjectContext projectContext,
         Message extractionSource, Guid replyToId, TurnStatus status, Guid? pendingId,
-        IProgress<string>? tokenSink, DateTimeOffset now, CancellationToken ct)
+        IProgress<string>? tokenSink, DateTimeOffset now, DateTimeOffset? lastSeenBefore, CancellationToken ct)
     {
         // Privacy gate, computed up front: a "don't remember this conversation" turn produces a
         // reply but writes NO durable derived memory — no extraction, no project/open-loop updates,
@@ -269,10 +276,16 @@ public sealed class Companion : ICompanion
         var innerState = await _innerState.BuildAsync(userId, ct);
         var familiarity = await _familiarity.BuildAsync(userId, ct);
 
+        // 4e. Temporal grounding + her own relevant tastes for this turn (top few by similarity —
+        // never the whole preference table, and never raw numbers).
+        var temporal = TemporalNote(_clock.GetLocalNow(), now, lastSeenBefore);
+        var preferenceNotes = await RelevantPreferencesAsync(userId, outcome.QueryEmbedding, ct);
+
         // 5. Assemble a bounded, labeled context packet (with the user's persona/style + tone read).
         var packet = _assembler.Assemble(
             promptText, recent, outcome.Selected, projectContext, persona, relationship,
-            musing, curiosity?.Question, innerState.Describe(), familiarity.Describe());
+            musing, curiosity?.Question, innerState.Describe(), familiarity.Describe(),
+            temporal, preferenceNotes);
 
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
@@ -386,6 +399,50 @@ public sealed class Companion : ICompanion
         => now - reflection.CreatedAt <= MusingIsRecent
             ? reflection.Musing!
             : $"(a thought from {RelativeTime.Describe(now - reflection.CreatedAt)} ago) {reflection.Musing}";
+
+    /// <summary>Gaps shorter than this are just an ongoing conversation, not an absence.</summary>
+    private static readonly TimeSpan MinGapToMention = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// One compact line of temporal grounding: the day and time, and how long the user was
+    /// actually gone (measured before this turn's message landed). The model turns this into
+    /// "back already?" or "look who finally showed up" on its own — nothing is scripted.
+    /// </summary>
+    public static string TemporalNote(DateTimeOffset localNow, DateTimeOffset utcNow, DateTimeOffset? lastSeenBefore)
+    {
+        var line = $"It's {localNow:dddd}, {localNow:h:mm tt}.";
+        if (lastSeenBefore is null)
+            return line + " This is your first conversation.";
+
+        var gap = utcNow - lastSeenBefore.Value;
+        return gap < MinGapToMention
+            ? line + " You're mid-conversation."
+            : line + $" You last spoke {RelativeTime.Describe(gap)} ago.";
+    }
+
+    /// <summary>How many of her own tastes may accompany one turn.</summary>
+    private const int MaxPreferenceNotes = 2;
+
+    /// <summary>Minimum similarity for a taste to be relevant to this turn at all.</summary>
+    private const double PreferenceRelevanceFloor = 0.25;
+
+    /// <summary>Her tastes that are actually relevant to what's being discussed, in natural words.</summary>
+    private async Task<IReadOnlyList<string>> RelevantPreferencesAsync(
+        string userId, float[]? queryEmbedding, CancellationToken ct)
+    {
+        if (queryEmbedding is null)
+            return Array.Empty<string>();
+
+        var all = await _preferences.GetAllAsync(userId, ct);
+        return all
+            .Where(p => p.Embedding is not null)
+            .Select(p => (Preference: p, Score: ScoreMath.Cosine(queryEmbedding, p.Embedding!)))
+            .Where(x => x.Score >= PreferenceRelevanceFloor)
+            .OrderByDescending(x => x.Score)
+            .Take(MaxPreferenceNotes)
+            .Select(x => x.Preference.Describe())
+            .ToList();
+    }
 
     private async Task<Message> StoreMessageAsync(
         string userId, Guid conversationId, MessageRole role, string content, Guid? replyToId,
