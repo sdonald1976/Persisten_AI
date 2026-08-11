@@ -104,6 +104,13 @@ public sealed class CompanionOptions
     /// plain chat message to a read-only intent for phrasings the rules don't know.
     /// </summary>
     public bool UseLlmIntentParser { get; set; }
+
+    public int MaxAttentionItems { get; set; } = 5;
+    public int AttentionTtlDays { get; set; } = 7;
+    public int MaxAssociativeMemories { get; set; } = 2;
+    public double AssociativeMinStrength { get; set; } = 0.65;
+    public int MaxProceduresInContext { get; set; } = 2;
+    public int MaxSharedPerspectivesInContext { get; set; } = 3;
 }
 
 /// <summary>Weights applied to each retrieval signal before summation.</summary>

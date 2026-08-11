@@ -49,6 +49,10 @@ public sealed class Reflector : IReflector
     private readonly IEmotionStore _emotions;
     private readonly IMemoryStore _memories;
     private readonly IPreferenceStore _preferences;
+    private readonly IAttentionStore _attention;
+    private readonly IMemoryAssociationStore _associations;
+    private readonly IProcedureStore _procedures;
+    private readonly ISharedPerspectiveStore _sharedPerspectives;
     private readonly IChatModel _chat;
     private readonly IEmbeddingModel _embeddings;
     private readonly CompanionOptions _options;
@@ -62,6 +66,10 @@ public sealed class Reflector : IReflector
         IEmotionStore emotions,
         IMemoryStore memories,
         IPreferenceStore preferences,
+        IAttentionStore attention,
+        IMemoryAssociationStore associations,
+        IProcedureStore procedures,
+        ISharedPerspectiveStore sharedPerspectives,
         IChatModel chat,
         IEmbeddingModel embeddings,
         IOptions<CompanionOptions> options,
@@ -74,6 +82,10 @@ public sealed class Reflector : IReflector
         _emotions = emotions;
         _memories = memories;
         _preferences = preferences;
+        _attention = attention;
+        _associations = associations;
+        _procedures = procedures;
+        _sharedPerspectives = sharedPerspectives;
         _chat = chat;
         _embeddings = embeddings;
         _options = options.Value;
@@ -150,6 +162,12 @@ public sealed class Reflector : IReflector
         // Preference signals: her own tastes, evolved gradually — never copied from the user.
         var preferences = await ApplyPreferenceSignalsAsync(userId, dto.Preferences, messages, now, ct);
 
+        var attentionItems = await PersistAttentionCandidatesAsync(userId, dto.AttentionCandidates, messages, now, ct);
+        var associations = await PersistAssociationCandidatesAsync(userId, dto.AssociationCandidates, messages, now, ct);
+        var procedures = await PersistProcedureCandidatesAsync(userId, dto.ProcedureCandidates, messages, now, ct);
+        var sharedPerspectives = await PersistSharedPerspectiveCandidatesAsync(
+            userId, dto.SharedPerspectiveCandidates, messages, now, ct);
+
         // Curiosities the conversation answered close with satisfaction instead of silence.
         var satisfied = await MarkSettledAsync(userId, dto.Settled, held, ct);
 
@@ -165,6 +183,10 @@ public sealed class Reflector : IReflector
             Curiosities = curiosities,
             SharedMoments = sharedMoments,
             Preferences = preferences,
+            AttentionItems = attentionItems,
+            Associations = associations,
+            Procedures = procedures,
+            SharedPerspectives = sharedPerspectives,
             SatisfiedCuriosities = satisfied,
         };
     }
@@ -289,6 +311,151 @@ public sealed class Reflector : IReflector
     private static bool IsCompanionOwner(string? owner)
         => string.Equals(owner?.Trim(), "Companion", StringComparison.OrdinalIgnoreCase);
 
+    private async Task<List<AttentionItem>> PersistAttentionCandidatesAsync(
+        string userId, List<AttentionCandidateDto>? proposed, IReadOnlyList<Message> messages,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var persisted = new List<AttentionItem>();
+        if (proposed is null)
+            return persisted;
+
+        foreach (var dto in proposed.Take(_options.MaxAttentionItems))
+        {
+            var summary = Normalize(dto.Summary, 500);
+            var subject = Normalize(dto.Subject, 160);
+            var source = ResolveEvidence(dto.Evidence, messages);
+            if (summary is null || subject is null || source is null)
+                continue;
+
+            var item = new AttentionItem
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Subject = subject,
+                Summary = summary,
+                SourceType = AttentionSourceType.Reflection,
+                SourceId = source.Id.ToString(),
+                Owner = MemoryOwner.Shared,
+                Strength = Math.Clamp(dto.Strength ?? 0.45, 0, 1),
+                CreatedAt = now,
+                LastActivatedAt = now,
+                ExpiresAt = now.AddDays(_options.AttentionTtlDays),
+                Status = AttentionStatus.Active,
+            };
+            await _attention.UpsertAsync(item, ct);
+            persisted.Add(item);
+        }
+        return persisted;
+    }
+
+    private async Task<List<MemoryAssociation>> PersistAssociationCandidatesAsync(
+        string userId, List<AssociationCandidateDto>? proposed, IReadOnlyList<Message> messages,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var persisted = new List<MemoryAssociation>();
+        if (proposed is null)
+            return persisted;
+
+        var memories = await _memories.GetRetrievableMemoriesAsync(userId, ct);
+        foreach (var dto in proposed.Take(3))
+        {
+            if (ResolveEvidence(dto.Evidence, messages) is null)
+                continue;
+            var source = BestMemoryMatch(memories, dto.SourceMemory);
+            var target = BestMemoryMatch(memories, dto.TargetMemory);
+            if (source is null || target is null)
+                continue;
+            var association = await _associations.AddValidatedAsync(new MemoryAssociation
+            {
+                UserId = userId,
+                SourceMemoryId = source.Id,
+                TargetMemoryId = target.Id,
+                AssociationType = ParseAssociationType(dto.AssociationType),
+                Strength = Math.Clamp(dto.Strength ?? 0.65, 0, 1),
+                Evidence = Normalize(dto.Evidence, 500) ?? "reflection evidence",
+                CreatedAt = now,
+                LastReinforcedAt = now,
+            }, ct);
+            if (association is not null)
+                persisted.Add(association);
+        }
+        return persisted;
+    }
+
+    private async Task<List<Procedure>> PersistProcedureCandidatesAsync(
+        string userId, List<ProcedureCandidateDto>? proposed, IReadOnlyList<Message> messages,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var persisted = new List<Procedure>();
+        if (proposed is null)
+            return persisted;
+
+        foreach (var dto in proposed.Take(2))
+        {
+            var source = ResolveEvidence(dto.Evidence, messages);
+            if (source is null || source.Role != MessageRole.User)
+                continue;
+            var text = Normalize(dto.Text, 1000) ?? source.Content;
+            if (!LooksLikeExplicitProcedureTeaching(text))
+                continue;
+            var teachingMessage = new Message
+            {
+                Id = source.Id,
+                ConversationId = source.ConversationId,
+                UserId = source.UserId,
+                Role = source.Role,
+                Content = text,
+                Timestamp = source.Timestamp,
+                ReplyToId = source.ReplyToId,
+                TokenCount = source.TokenCount,
+            };
+            var procedure = await _procedures.AddOrUpdateFromTeachingAsync(userId, source.ConversationId, teachingMessage, now, ct);
+            if (procedure is not null)
+                persisted.Add(procedure);
+        }
+        return persisted;
+    }
+
+    private async Task<List<SharedExperiencePerspective>> PersistSharedPerspectiveCandidatesAsync(
+        string userId, List<SharedPerspectiveCandidateDto>? proposed, IReadOnlyList<Message> messages,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var persisted = new List<SharedExperiencePerspective>();
+        if (proposed is null)
+            return persisted;
+
+        var shared = (await _memories.GetRetrievableMemoriesAsync(userId, ct))
+            .OfType<EpisodicMemory>()
+            .Where(m => m.Owner == MemoryOwner.Shared)
+            .ToList();
+        foreach (var dto in proposed.Take(3))
+        {
+            var summary = Normalize(dto.Summary, 500);
+            if (summary is null || ResolveEvidence(dto.Evidence, messages) is null)
+                continue;
+            var experience = BestSharedExperienceMatch(shared, dto.Experience);
+            if (experience is null)
+                continue;
+            var owner = ParseOwner(dto.Owner);
+            if (owner is null || owner == MemoryOwner.Shared)
+                continue;
+
+            var perspective = await _sharedPerspectives.AddValidatedAsync(new SharedExperiencePerspective
+            {
+                UserId = userId,
+                ExperienceId = experience.Id,
+                Owner = owner.Value,
+                Summary = summary,
+                Confidence = Math.Clamp(dto.Confidence ?? 0.6, 0, 1),
+                Evidence = Normalize(dto.Evidence, 500) ?? summary,
+                CreatedAt = now,
+            }, ct);
+            if (perspective is not null)
+                persisted.Add(perspective);
+        }
+        return persisted;
+    }
+
     /// <summary>Matches "settled" notes from the model against held curiosities and closes them.</summary>
     private async Task<int> MarkSettledAsync(
         string userId, List<string>? settled, IReadOnlyList<Curiosity> held, CancellationToken ct)
@@ -348,6 +515,47 @@ public sealed class Reflector : IReflector
 
         return bestScore >= EvidenceOverlapThreshold ? best : null;
     }
+
+    private static IMemory? BestMemoryMatch(IReadOnlyList<IMemory> memories, string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        return memories
+            .Select(m => (Memory: m, Score: ScoreMath.KeywordOverlap(text, m.Content)))
+            .Where(x => x.Score >= 0.1 || x.Memory.Content.Contains(text, StringComparison.OrdinalIgnoreCase)
+                || text.Contains(x.Memory.Content, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.Score)
+            .Select(x => x.Memory)
+            .FirstOrDefault();
+    }
+
+    private static EpisodicMemory? BestSharedExperienceMatch(IReadOnlyList<EpisodicMemory> shared, string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        return shared
+            .Select(m => (Memory: m, Score: ScoreMath.KeywordOverlap(text, m.Description)))
+            .Where(x => x.Score >= 0.1 || x.Memory.Description.Contains(text, StringComparison.OrdinalIgnoreCase)
+                || text.Contains(x.Memory.Description, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.Score)
+            .Select(x => x.Memory)
+            .FirstOrDefault();
+    }
+
+    private static MemoryAssociationType ParseAssociationType(string? type)
+        => Enum.TryParse<MemoryAssociationType>(type, ignoreCase: true, out var parsed)
+            ? parsed
+            : MemoryAssociationType.TopicRelated;
+
+    private static MemoryOwner? ParseOwner(string? owner)
+        => Enum.TryParse<MemoryOwner>(owner, ignoreCase: true, out var parsed) ? parsed : null;
+
+    private static bool LooksLikeExplicitProcedureTeaching(string text)
+        => text.Contains("this is how i", StringComparison.OrdinalIgnoreCase)
+           || text.Contains("this is our", StringComparison.OrdinalIgnoreCase)
+           || text.Contains("remember this process", StringComparison.OrdinalIgnoreCase)
+           || text.Contains("learn this workflow", StringComparison.OrdinalIgnoreCase)
+           || text.Contains("whenever i ask for", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Validates and dedupes the model's proposed curiosities against everything already held.</summary>
     private List<Curiosity> SelectCuriosities(
@@ -487,9 +695,20 @@ public sealed class Reflector : IReflector
 
     private sealed record ReflectionDto(
         string? Musing, List<CuriosityDto>? Curiosities, List<SharedMomentDto>? SharedMoments,
-        List<PreferenceDto>? Preferences, List<string>? Settled);
+        List<PreferenceDto>? Preferences,
+        List<AttentionCandidateDto>? AttentionCandidates,
+        List<AssociationCandidateDto>? AssociationCandidates,
+        List<ProcedureCandidateDto>? ProcedureCandidates,
+        List<SharedPerspectiveCandidateDto>? SharedPerspectiveCandidates,
+        List<string>? Settled);
     private sealed record CuriosityDto(string? Question, string? About, string? Reason);
     private sealed record SharedMomentDto(string? Summary, string? Evidence, double? Significance, string? Tone);
     private sealed record PreferenceDto(
         string? Owner, string? Subject, string? Feeling, string? Strength, string? Reason, string? Evidence);
+    private sealed record AttentionCandidateDto(string? Subject, string? Summary, double? Strength, string? Evidence);
+    private sealed record AssociationCandidateDto(
+        string? SourceMemory, string? TargetMemory, string? AssociationType, double? Strength, string? Evidence);
+    private sealed record ProcedureCandidateDto(string? Text, string? Evidence);
+    private sealed record SharedPerspectiveCandidateDto(
+        string? Experience, string? Owner, string? Summary, double? Confidence, string? Evidence);
 }

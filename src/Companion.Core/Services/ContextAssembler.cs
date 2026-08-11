@@ -28,10 +28,15 @@ public sealed class ContextAssembler : IContextAssembler
         string? familiarity = null,
         string? temporal = null,
         IReadOnlyList<string>? preferences = null,
-        PromptIdentityContext? identities = null)
+        PromptIdentityContext? identities = null,
+        IReadOnlyList<string>? attention = null,
+        IReadOnlyList<string>? procedures = null,
+        string? capabilities = null,
+        IReadOnlyList<string>? sharedPerspectives = null)
     {
         var items = new List<ContextItem>();
         var notes = new List<string>();
+        var diagnostics = new List<string>();
         var budget = _options.MemoryTokenBudget;
         var usedTokens = 0;
 
@@ -55,7 +60,9 @@ public sealed class ContextAssembler : IContextAssembler
                 Provenance = provenance,
                 Note = provenance == ContextProvenance.Outdated ? "was true previously" : null,
                 Owner = result.Memory.Owner,
+                Source = result.Source,
             });
+            diagnostics.Add($"{result.Source}: {Truncate(text)} ({result.Reason})");
             usedTokens += cost;
 
             if (provenance == ContextProvenance.Outdated)
@@ -88,7 +95,15 @@ public sealed class ContextAssembler : IContextAssembler
             FamiliarityNote = familiarity,
             TemporalNote = temporal,
             PreferenceNotes = preferences ?? Array.Empty<string>(),
+            AttentionNotes = attention ?? Array.Empty<string>(),
+            ProcedureNotes = procedures ?? Array.Empty<string>(),
+            CapabilityNote = capabilities,
+            SharedPerspectiveNotes = sharedPerspectives ?? Array.Empty<string>(),
             UncertaintyNotes = notes,
+            Diagnostics = diagnostics
+                .Concat((attention ?? Array.Empty<string>()).Select(a => $"Attention: {Truncate(a)}"))
+                .Concat((procedures ?? Array.Empty<string>()).Select(p => $"Procedure: {Truncate(p)}"))
+                .ToList(),
             EstimatedTokens = usedTokens + recentCost + EstimateTokens(userMessage),
         };
     }

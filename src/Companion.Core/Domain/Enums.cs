@@ -285,3 +285,12 @@ public enum MemoryDecisionKind
     /// <summary>Accepted as the current fact, superseding a contradicting existing one.</summary>
     Superseded,
 }
+
+public enum AttentionStatus { Active, Resolved, Expired, Dismissed }
+public enum AttentionSourceType { Conversation, OpenLoop, Curiosity, Project, SharedExperience, Reflection, Correction, Capability }
+public enum MemoryAssociationType { SameEvent, SameProject, SamePerson, FollowUp, Correction, CauseEffect, TopicRelated, SharedExperience }
+public enum ProcedureOwner { UserTaught, CompanionLearned, SharedWorkflow }
+public enum ProcedureStatus { Candidate, Active, Superseded, Archived }
+public enum ProcedureAccess { Explainable, Executable }
+public enum CapabilityAvailability { Available, Unavailable, Degraded, Untested }
+public enum RetrievalSource { Direct, Associative }

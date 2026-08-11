@@ -43,6 +43,11 @@ public static class DependencyInjection
         services.AddScoped<IReflectionStore, ReflectionStore>();
         services.AddScoped<IAnticipationStore, AnticipationStore>();
         services.AddScoped<IPreferenceStore, PreferenceStore>();
+        services.AddScoped<IAttentionStore, AttentionStore>();
+        services.AddScoped<IMemoryAssociationStore, MemoryAssociationStore>();
+        services.AddScoped<ISharedPerspectiveStore, SharedPerspectiveStore>();
+        services.AddScoped<IProcedureStore, ProcedureStore>();
+        services.AddScoped<ICapabilityRegistry, CapabilityRegistry>();
         // The vector index is a singleton in-memory cache (cold-loaded per user from the tables,
         // then kept in step via the write-through hook the memory store calls). Both faces of it —
         // search and maintenance — resolve to the same instance so writes reach the cache.
@@ -219,6 +224,8 @@ public static class DependencyInjection
 
         // Core services.
         services.AddScoped<IRetriever, Retriever>();
+        services.AddScoped<IAttentionService, AttentionService>();
+        services.AddScoped<IAssociativeRecallService, AssociativeRecallService>();
         services.AddScoped<IContextAssembler, ContextAssembler>();
         services.AddScoped<ICompanion, Core.Services.Companion>();
 

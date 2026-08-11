@@ -18,5 +18,9 @@ public interface IContextAssembler
         string? familiarity = null,
         string? temporal = null,
         IReadOnlyList<string>? preferences = null,
-        PromptIdentityContext? identities = null);
+        PromptIdentityContext? identities = null,
+        IReadOnlyList<string>? attention = null,
+        IReadOnlyList<string>? procedures = null,
+        string? capabilities = null,
+        IReadOnlyList<string>? sharedPerspectives = null);
 }

@@ -83,6 +83,12 @@ public sealed record ContextPacket
     /// </summary>
     public IReadOnlyList<string> PreferenceNotes { get; init; } = Array.Empty<string>();
 
+    public IReadOnlyList<string> AttentionNotes { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> ProcedureNotes { get; init; } = Array.Empty<string>();
+    public string? CapabilityNote { get; init; }
+    public IReadOnlyList<string> SharedPerspectiveNotes { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> Diagnostics { get; init; } = Array.Empty<string>();
+
     /// <summary>Notes about uncertainty, conflicts, or superseded information.</summary>
     public IReadOnlyList<string> UncertaintyNotes { get; init; } = Array.Empty<string>();
 
@@ -102,6 +108,7 @@ public sealed record ContextItem
 
     /// <summary>Whose story the line is from — shared moments render as "remember when we…".</summary>
     public MemoryOwner Owner { get; init; } = MemoryOwner.User;
+    public RetrievalSource Source { get; init; } = RetrievalSource.Direct;
 }
 
 /// <summary>

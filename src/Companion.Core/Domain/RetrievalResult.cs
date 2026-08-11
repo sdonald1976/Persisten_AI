@@ -16,4 +16,6 @@ public sealed record RetrievalResult
 
     /// <summary>Short explanation of why this memory matched.</summary>
     public required string Reason { get; init; }
+
+    public RetrievalSource Source { get; init; } = RetrievalSource.Direct;
 }
