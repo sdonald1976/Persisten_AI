@@ -222,6 +222,18 @@ public sealed class Companion : ICompanion
         var conversation = await _conversations.GetConversationAsync(conversationId, userId, ct);
         var remember = _options.EnableExtraction && !(conversation?.DoNotRemember ?? false);
 
+        // Roleplay gate: an in-character turn (RP markup, or a relationship word the persona has
+        // claimed — if she IS "your sister", "my sister" means HER) gets a full reply but leaves
+        // no durable derived memory, exactly like a private turn. Enjoying the play without
+        // believing it is what keeps personas from leaking into the fact store.
+        var profile = await _profiles.GetOrCreateAsync(userId, ct);
+        var persona = _personality.Compose(profile);
+        var lexicon = PersonaLexicon.From(_personality.Identity(profile).Name, persona);
+        var inCharacter = InCharacterDetector.IsInCharacter(promptText, lexicon);
+        if (remember && inCharacter)
+            _logger.LogDebug("In-character turn for {UserId}: derived memory skipped.", userId);
+        var extractFacts = remember && !inCharacter;
+
         // 4. Retrieve relevant memories, boosted by the resolved project.
         var outcome = await _retriever.RetrieveAsync(userId, promptText, projectContext.ResolvedProjectName, ct);
 
@@ -234,7 +246,7 @@ public sealed class Companion : ICompanion
         // 4b. Relational/emotional layer: read this message's tone and append it to the signal log
         // (gated by privacy), then derive how things have been feeling so the reply can attune its
         // tone. The snapshot includes this turn, so it reflects the user's mood right now.
-        if (remember)
+        if (extractFacts)
         {
             await CaptureMoodAsync(userId, extractionSource, projectContext, now, ct);
 
@@ -258,8 +270,6 @@ public sealed class Companion : ICompanion
         var familiarity = await _familiarity.BuildAsync(userId, ct);
 
         // 5. Assemble a bounded, labeled context packet (with the user's persona/style + tone read).
-        var profile = await _profiles.GetOrCreateAsync(userId, ct);
-        var persona = _personality.Compose(profile);
         var packet = _assembler.Assemble(
             promptText, recent, outcome.Selected, projectContext, persona, relationship,
             musing, curiosity?.Question, innerState.Describe(), familiarity.Describe());
@@ -276,20 +286,21 @@ public sealed class Companion : ICompanion
             userId, conversationId, MessageRole.Assistant, response, replyToId, _clock.GetUtcNow(), ct, generated);
 
         // 8–9. Extract candidate memories from the exchange and validate/persist accepted ones.
+        // (Skipped for private AND in-character turns — fiction never reaches the fact store.)
         var exchange = new[] { extractionSource, assistantMsg };
-        var extraction = remember
+        var extraction = extractFacts
             ? await _pipeline.ProcessAsync(userId, exchange, ct)
             : MemoryExtractionResult.Empty;
 
         // 10. Reflect accepted memories into project/open-loop state.
-        var updates = remember
+        var updates = extractFacts
             ? await _projectUpdater.ApplyAsync(userId, exchange, extraction, projectContext, ct)
             : ProjectUpdateResult.Empty;
 
         // 10b. Capture a commitment the companion just made ("I'll check in tomorrow") as a
         // companion-owned open loop, so it can follow up next session instead of forgetting it said
-        // so. Skipped on private turns; deduped against existing open commitments.
-        if (remember)
+        // so. Skipped on private and in-character turns; deduped against existing open commitments.
+        if (extractFacts)
             await CaptureCommitmentAsync(userId, response, assistantMsg.Id, now, ct);
 
         // 10c. The offered curiosity is spent whether or not the model chose to raise it — asked

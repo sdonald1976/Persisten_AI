@@ -33,6 +33,8 @@ public class MemoryExtractionTests
         var curator = new MemoryCurator(store, embeddings, clock, NullLogger<MemoryCurator>.Instance);
         return new MemoryPipeline(
             extractor, store, curator, embeddings,
+            sp.GetRequiredService<IProfileStore>(),
+            sp.GetRequiredService<IPersonalityService>(),
             Options.Create(options ?? new CompanionOptions()), clock, NullLogger<MemoryPipeline>.Instance);
     }
 
