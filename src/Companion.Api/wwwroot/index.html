@@ -118,7 +118,7 @@
 
   <footer>
     <button id="hands" title="Hands-free listening (just talk; talk over me to interrupt)">🎙️</button>
-    <button id="mic" title="Hold to talk">🎤</button>
+    <button id="mic" title="Hold to talk (or hold Space when not typing)">🎤</button>
     <textarea id="input" rows="1" placeholder="Talk to your companion…  (Enter to send)"></textarea>
     <button id="send" disabled>Send</button>
   </footer>
@@ -396,6 +396,19 @@
     mic.addEventListener('pointerdown', (e) => { e.preventDefault(); startRecording(); });
     window.addEventListener('pointerup', () => { if (recording) stopRecording(); });
     mic.addEventListener('pointercancel', () => { if (recording) stopRecording(); });
+
+    // Desktop push-to-talk without aiming: hold Space to talk, release to send — but never while
+    // typing (the input keeps its spaces) and never in hands-free mode (the VAD owns the mic there).
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'Space' || e.repeat || handsFree) return;
+      const t = e.target;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
+      e.preventDefault(); // don't scroll the log or "click" a focused button
+      startRecording();
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space' && recording && !handsFree) stopRecording();
+    });
     if (!navigator.mediaDevices || !window.MediaRecorder) {
       mic.disabled = true; mic.title = 'Microphone not supported in this browser';
       handsBtn.disabled = true; handsBtn.title = 'Microphone not supported in this browser';

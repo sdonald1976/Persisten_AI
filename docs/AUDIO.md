@@ -84,9 +84,10 @@ curl -X POST http://localhost:5266/speak \
   --output reply.mp3
 ```
 
-`voice` is optional (falls back to the configured `Speech.Voice`). This is **file-based, not a live
-mic** yet — the push-to-talk mic loop and streaming playback are the next roadmap items (see
-[`FUTURE_UX_ROADMAP.md`](FUTURE_UX_ROADMAP.md)).
+`voice` is optional (falls back to the configured `Speech.Voice`). These curl calls are the raw
+building blocks; the web client wires them into a **live mic loop** — push-to-talk, hands-free
+listening with barge-in, and streaming sentence-by-sentence playback (see
+[Using it from the web client](#using-it-from-the-web-client-push-to-talk) below).
 
 ## GPU (optional, NVIDIA)
 
@@ -111,9 +112,10 @@ the `deploy:` block.
 
 The reference client (`wwwroot/index.html`, served at `/`) has the round trip wired up:
 
-- **🎤 Hold to talk** — press and hold the mic button, speak, release. It records from your mic,
-  posts to `/transcribe`, and sends the transcript as a normal turn. The companion's reply to a
-  spoken turn is **spoken back** automatically (voice in → voice out).
+- **🎤 Hold to talk** — press and hold the mic button (or hold **Space** anywhere outside the text
+  box), speak, release. It records from your mic, posts to `/transcribe`, and sends the transcript
+  as a normal turn. The companion's reply to a spoken turn is **spoken back** automatically
+  (voice in → voice out).
 - **🎙️ Hands-free** — toggle it on and just *talk*, no button: a lightweight voice-activity detector
   starts capturing when you speak and sends when you pause. **Talk over the companion to interrupt it**
   — speech onset cuts off playback mid-sentence (barge-in) and captures what you say. Echo
