@@ -254,25 +254,23 @@ public sealed class Agent : IAgent
 
         if (musings.Count == 0 && curiosity is null)
             return AgentReply.Act(IntentKind.ShareThoughts,
-                $"Right now? I'm {state.SelfReport()}. Beyond that, nothing's had time to settle " +
-                "yet — my thoughts form between our conversations, while you're away. Ask me again " +
-                "after I've had a quiet stretch.");
+                Prompts.Format("thoughts.empty", ("state", state.SelfReport())));
 
         var sb = new StringBuilder();
-        sb.AppendLine($"Right now I'm {state.SelfReport()}.");
+        sb.AppendLine(Prompts.Format("thoughts.state", ("state", state.SelfReport())));
         for (var i = 0; i < musings.Count; i++)
         {
             var age = RelativeTime.Describe(now - musings[i].CreatedAt);
             sb.AppendLine(i == 0
-                ? $"While you were away ({age} ago), I found myself thinking: {musings[i].Musing}"
-                : $"And a little before that: {musings[i].Musing}");
+                ? Prompts.Format("thoughts.musing.latest", ("age", age), ("musing", musings[i].Musing))
+                : Prompts.Format("thoughts.musing.earlier", ("musing", musings[i].Musing)));
         }
 
         if (curiosity is not null)
         {
             sb.AppendLine(musings.Count == 0
-                ? $"Mostly I've been wondering something: {curiosity.Question}"
-                : $"And since you're asking — something I've been wanting to know: {curiosity.Question}");
+                ? Prompts.Format("thoughts.curiosity.alone", ("question", curiosity.Question))
+                : Prompts.Format("thoughts.curiosity.with", ("question", curiosity.Question)));
             await _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct);
         }
 

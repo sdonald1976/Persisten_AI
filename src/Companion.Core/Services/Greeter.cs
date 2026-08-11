@@ -110,14 +110,15 @@ public sealed class Greeter : IGreeter
 
             if (a.EventAt.Date < today && a.IsOpen)
             {
-                openers.Add($"How did {a.Description} go?");
+                openers.Add(Prompts.Format("greeter.opener.anticipation.after", ("description", a.Description)));
                 await _anticipations.MarkFollowedUpAsync(userId, a.Id, now, ct);
             }
             else if (a.Status == AnticipationStatus.Pending
                 && (a.EventAt.Date == today || a.EventAt.Date == today.AddDays(1)))
             {
                 var when = a.EventAt.Date == today ? "today" : "tomorrow";
-                openers.Add($"Good luck with {a.Description} {when} — I'll be thinking of you.");
+                openers.Add(Prompts.Format("greeter.opener.anticipation.upcoming",
+                    ("description", a.Description), ("when", when)));
                 await _anticipations.MarkEncouragedAsync(userId, a.Id, now, ct);
             }
         }
@@ -127,7 +128,7 @@ public sealed class Greeter : IGreeter
         {
             if (openers.Count >= MaxOpeners)
                 break;
-            openers.Add($"Last time I said I'd {LowerFirst(c.Description.TrimEnd('.'))} — want to pick that up?");
+            openers.Add(Prompts.Format("greeter.opener.commitment", ("commitment", LowerFirst(c.Description.TrimEnd('.')))));
         }
 
         // A curiosity minted while the user was away — the between-session monologue reaching the
@@ -137,22 +138,22 @@ public sealed class Greeter : IGreeter
             userId, now, TimeSpan.FromHours(_options.CuriosityCooldownHours), ct);
         if (curiosity is not null && openers.Count < MaxOpeners)
         {
-            openers.Add($"Something I found myself wondering while you were away: {curiosity.Question}");
+            openers.Add(Prompts.Format("greeter.opener.curiosity", ("question", curiosity.Question)));
             await _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct);
         }
 
         // Then the user's own unfinished business.
         foreach (var loop in userLoops.Take(MaxOpeners - openers.Count))
-            openers.Add($"Pick up where we left off — {LowerFirst(loop.Description.TrimEnd('.'))}?");
+            openers.Add(Prompts.Format("greeter.opener.loop", ("description", LowerFirst(loop.Description.TrimEnd('.')))));
 
         // Then recent projects that aren't already covered by a user loop above.
         var loopProjectIds = userLoops.Select(l => l.ProjectId).ToHashSet();
         foreach (var project in projects.Where(p => !loopProjectIds.Contains(p.Id)).Take(MaxOpeners - openers.Count))
-            openers.Add($"How's {project.Name} going?");
+            openers.Add(Prompts.Format("greeter.opener.project", ("project", project.Name)));
 
         // A gentle catch-all when there's some history but nothing actionable surfaced.
         if (openers.Count == 0 && memories.Count > 0)
-            openers.Add("Ask me what I remember about you.");
+            openers.Add(Prompts.Get("greeter.opener.recall"));
 
         // A prior message means we've talked before, even if nothing durable was remembered.
         var hasHistory = lastSeen is not null || openLoops.Count > 0 || projects.Count > 0 || memories.Count > 0;
@@ -160,14 +161,14 @@ public sealed class Greeter : IGreeter
         string message;
         if (hasHistory)
         {
-            var lead = timeContext is null ? "Hey — good to see you." : $"It's been {timeContext}. Good to see you back.";
-            message = lead + " Here's where we left things; " +
-                      "pick whatever you feel like, or ignore them all and just say what's on your mind.";
+            var lead = timeContext is null
+                ? Prompts.Get("greeter.lead.nogap")
+                : Prompts.Format("greeter.lead.gap", ("gap", timeContext));
+            message = lead + " " + Prompts.Get("greeter.menu");
         }
         else
         {
-            message = "Hey — we haven't talked before, so there's nothing to catch up on yet. " +
-                      "Tell me anything — what you're working on, something on your mind — or ask \"what can you do?\"";
+            message = Prompts.Get("greeter.first-time");
         }
 
         return new Greeting { Message = message, TimeContext = timeContext, Openers = openers };
@@ -192,21 +193,21 @@ public sealed class Greeter : IGreeter
             if (topic is not null)
             {
                 var how = emotion is null ? "concerned" : emotion;
-                return ($"Last time you seemed {how} about {topic} — how's that going?", topic);
+                return (Prompts.Format("greeter.opener.mood.concern-topic", ("emotion", how), ("topic", topic)), topic);
             }
 
             var vibe = emotion is null ? "a bit low" : emotion;
-            return ($"You seemed {vibe} last time — I'm here if you want to talk about it.", null);
+            return (Prompts.Format("greeter.opener.mood.concern", ("vibe", vibe)), null);
         }
 
         if (mood.Trend == MoodTrend.Improving && mood.AverageValence < 0.2)
-            return ("Last stretch felt rough — hope things have been looking up.", null);
+            return (Prompts.Get("greeter.opener.mood.improving"), null);
 
         if (mood.RecentMood is Sentiment.Positive or Sentiment.VeryPositive)
         {
             if (topic is not null)
-                return ($"How's {topic}? You seemed {emotion ?? "upbeat"} about it last time.", topic);
-            return ("You were in good spirits last time — hope that's still going.", null);
+                return (Prompts.Format("greeter.opener.mood.positive-topic", ("topic", topic), ("emotion", emotion ?? "upbeat")), topic);
+            return (Prompts.Get("greeter.opener.mood.positive"), null);
         }
 
         return (null, null);
