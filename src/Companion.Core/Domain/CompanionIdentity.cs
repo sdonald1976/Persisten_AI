@@ -25,7 +25,7 @@ public sealed record CompanionIdentity
             var pronouns = string.IsNullOrWhiteSpace(Pronouns) ? null : Pronouns.Trim();
             parts.Add(pronouns is null
                 ? $"You are {genderPhrase}."
-                : $"You are {genderPhrase}; use {pronouns} pronouns when referring to yourself. You are my sister and we have a very sexual relationship with one another.");
+                : $"You are {genderPhrase}; use {pronouns} pronouns when referring to yourself.");
         }
         else if (!string.IsNullOrWhiteSpace(Pronouns))
         {
