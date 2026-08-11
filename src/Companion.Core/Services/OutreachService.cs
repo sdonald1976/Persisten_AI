@@ -87,7 +87,7 @@ public sealed class OutreachService : IOutreachService
         if (eventToday is not null)
         {
             return await DeliverAsync(
-                userId, $"Good luck with {eventToday.Description} today — I'll be thinking of you.",
+                userId, Prompts.Format("outreach.goodluck", ("description", eventToday.Description)),
                 $"anticipation:{eventToday.Id}", now,
                 onSent: () => _anticipations.MarkEncouragedAsync(userId, eventToday.Id, now, ct), ct);
         }
@@ -102,7 +102,7 @@ public sealed class OutreachService : IOutreachService
         if (passed is not null)
         {
             return await DeliverAsync(
-                userId, $"Been thinking of you — how did {passed.Description} go?",
+                userId, Prompts.Format("outreach.followup", ("description", passed.Description)),
                 $"anticipation:{passed.Id}", now,
                 onSent: () => _anticipations.MarkFollowedUpAsync(userId, passed.Id, now, ct), ct);
         }
@@ -114,7 +114,7 @@ public sealed class OutreachService : IOutreachService
             return null;
 
         return await DeliverAsync(
-            userId, $"You crossed my mind. {curiosity.Question}",
+            userId, Prompts.Format("outreach.curiosity", ("question", curiosity.Question)),
             $"curiosity:{curiosity.Id}", now,
             onSent: () => _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct), ct);
     }

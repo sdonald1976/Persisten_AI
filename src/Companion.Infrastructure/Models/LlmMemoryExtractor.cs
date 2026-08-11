@@ -251,41 +251,7 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
     private static double Clamp(double? value, double fallback)
         => value is null ? fallback : Math.Clamp(value.Value, 0.0, 1.0);
 
-    private const string SystemPrompt =
-        "You read a short conversation and extract durable MEMORIES about the user as a JSON array.\n\n" +
-        "There are two kinds, and choosing correctly matters:\n" +
-        "- \"semantic\" — a STABLE fact, preference, trait, relationship, or identity detail that will still " +
-        "be true next week (the user's name, where they live, their job, their pets, what they like or dislike, " +
-        "lasting interests). Fill subject/predicate/value.\n" +
-        "- \"episodic\" — a specific EVENT or action at a point in time (something they did, decided, or that " +
-        "happened).\n\n" +
-        "Rule of thumb: if it will still be true next week, it is SEMANTIC. A stated fact or preference is " +
-        "semantic, NOT episodic — do not log lasting facts as events.\n\n" +
-        "Return ONLY a JSON array. Each item: {\"kind\":\"semantic\"|\"episodic\", \"subject\":string?, " +
-        "\"predicate\":string?, \"value\":string?, \"content\":string, " +
-        "\"validity\":\"Current\"|\"Temporary\"|\"Historical\"?, " +
-        "\"episodeStatus\":\"Occurred\"|\"Planned\"|\"InProgress\"|\"Resolved\"?, \"relatedProject\":string?, " +
-        "\"importance\":0..1, \"confidence\":0..1, \"excerpt\":\"the user's own words that support this\"}.\n\n" +
-        "Examples:\n" +
-        "User: \"My name is Ava and I have a corgi named Kanga.\"\n" +
-        "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"name\",\"value\":\"Ava\"," +
-        "\"content\":\"The user's name is Ava.\",\"importance\":0.9,\"confidence\":0.95,\"excerpt\":\"My name is Ava\"}," +
-        "{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"has_pet\",\"value\":\"a corgi named Kanga\"," +
-        "\"content\":\"The user has a corgi named Kanga.\",\"importance\":0.7,\"confidence\":0.9," +
-        "\"excerpt\":\"I have a corgi named Kanga\"}]\n" +
-        "User: \"I prefer tea over coffee these days.\"\n" +
-        "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"prefers\",\"value\":\"tea over coffee\"," +
-        "\"content\":\"The user prefers tea over coffee.\",\"importance\":0.5,\"confidence\":0.8," +
-        "\"excerpt\":\"I prefer tea over coffee\"}]\n" +
-        "User: \"I finally deployed the service to the Jetson yesterday.\"\n" +
-        "[{\"kind\":\"episodic\",\"content\":\"The user deployed the service to the Jetson.\"," +
-        "\"episodeStatus\":\"Occurred\",\"importance\":0.5,\"confidence\":0.8," +
-        "\"excerpt\":\"I finally deployed the service to the Jetson yesterday\"}]\n\n" +
-        "Only include things the user actually stated. Do not invent. If nothing is worth remembering, return [].\n\n" +
-        "The user is talking WITH an AI companion and may speak in-character or playfully roleplay with it. " +
-        "Statements addressed to the companion, about the companion, or about the user's relationship with the " +
-        "companion are NOT durable facts about the user's real life — skip them entirely. Extract only facts " +
-        "about the user's own life outside this conversation.";
+    private static string SystemPrompt => Companion.Core.Services.Prompts.Get("extraction.system");
 
     private sealed record CandidateDto(
         string? Kind, string? Subject, string? Predicate, string? Value, string Content,

@@ -55,6 +55,11 @@ catch (InvalidOperationException ex)
 var logger = app.Logger;
 var expectedToken = ApiToken.Resolve(apiOptions, dbPath, logger);
 
+// Prompt overrides: defaults live in code (Prompts catalog); a prompts/ directory of text files
+// overrides wording at runtime — hand-editable, and written through by PUT /prompts below.
+var promptsDir = builder.Configuration["Prompts:Path"] ?? "prompts";
+PromptOverrideFiles.LoadAll(promptsDir, logger);
+
 // Outermost: turn any unhandled exception into a sanitized {error,message,correlationId} response.
 // The detailed exception is logged server-side only, keyed by the same correlation id.
 app.Use(async (ctx, next) =>
@@ -348,6 +353,42 @@ app.MapGet("/curiosities", async (IUserContext user, IReflectionStore store, Can
         reason = c.Reason,
         createdAt = c.CreatedAt,
     }));
+});
+
+// ---- the prompt catalog (every editable piece of her language) ----
+
+app.MapGet("/prompts", () => Results.Ok(Companion.Core.Services.Prompts.All
+    .OrderBy(d => d.Key, StringComparer.Ordinal)
+    .Select(d => new
+    {
+        d.Key,
+        d.Description,
+        @default = d.Default,
+        @override = Companion.Core.Services.Prompts.OverrideFor(d.Key),
+    })));
+
+app.MapPut("/prompts/{key}", (string key, PromptEditRequest req) =>
+{
+    if (!Companion.Core.Services.Prompts.Exists(key))
+        return Results.NotFound(new { error = $"No prompt named \"{key}\"." });
+    if (string.IsNullOrWhiteSpace(req.Text))
+        return ApiError.BadRequest("Provide non-empty text (or DELETE to reset to the default).");
+    if (req.Text.Length > 16_000)
+        return ApiError.BadRequest("Prompt text is limited to 16000 characters.");
+
+    Companion.Core.Services.Prompts.SetOverride(key, req.Text);
+    PromptOverrideFiles.Save(promptsDir, key, req.Text);
+    return Results.Ok(new { key, @override = req.Text });
+});
+
+app.MapDelete("/prompts/{key}", (string key) =>
+{
+    if (!Companion.Core.Services.Prompts.Exists(key))
+        return Results.NotFound(new { error = $"No prompt named \"{key}\"." });
+
+    Companion.Core.Services.Prompts.SetOverride(key, null);
+    PromptOverrideFiles.Delete(promptsDir, key);
+    return Results.Ok(new { key, @override = (string?)null });
 });
 
 // Her own tastes — inspectable: subject, natural description, how established, why, how often reinforced.

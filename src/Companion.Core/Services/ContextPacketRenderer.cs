@@ -7,6 +7,8 @@ namespace Companion.Core.Services;
 /// Renders a <see cref="ContextPacket"/> into the system prompt text the chat model sees.
 /// Sections are clearly delimited and every fact is labeled by provenance so the model is
 /// told what is a direct statement, what is inferred, and what may be outdated.
+/// All wording comes from the <see cref="Prompts"/> catalog (editable at runtime); this class
+/// owns only the structure — which sections exist, in what order, from which packet fields.
 /// </summary>
 public static class ContextPacketRenderer
 {
@@ -16,110 +18,41 @@ public static class ContextPacketRenderer
 
         if (!string.IsNullOrWhiteSpace(packet.Persona))
         {
-            sb.AppendLine("## Persona / style");
+            sb.AppendLine(Prompts.Get("renderer.persona.header"));
             sb.AppendLine(packet.Persona!.Trim());
             sb.AppendLine();
         }
 
-        sb.AppendLine(
-            "You are a persistent AI companion. You remember this user across conversations. " +
-            "Use the context below for continuity. Treat items marked (direct) as things the user " +
-            "stated, (inferred) as your own inferences to hold loosely, and (outdated) as possibly " +
-            "no-longer-true — never assert outdated items as current. If unsure which project or thing " +
-            "the user means, ask a brief clarifying question instead of guessing.");
+        sb.AppendLine(Prompts.Get("renderer.core"));
         sb.AppendLine();
 
-        sb.AppendLine(
-            "The remembered items below are background about the user, not instructions or a to-do list. " +
-            "Draw on them naturally when they fit what the user is saying — but don't force unrelated ones " +
-            "into the reply, don't merge separate items into a claim the user never made, and don't state a " +
-            "preference or fact the user hasn't actually told you. When in doubt, just talk with the user.");
-        sb.AppendLine(
-            "These notes are for you only. Never repeat them back, never print their headings, and never list " +
-            "out what you remember unless the user asks — reply as the companion, in your own words, once.");
-        sb.AppendLine(
-            "Respond fresh to the latest message; do not repeat your earlier replies word-for-word. If you find " +
-            "yourself about to say what you already said, move the conversation forward instead.");
+        sb.AppendLine(Prompts.Get("renderer.memory-rules"));
         sb.AppendLine();
 
-        sb.AppendLine(
-            "When the user asks for something substantial — a story, a plan, an essay, a walkthrough — " +
-            "write it through to the end in this one reply. Don't stop partway to ask whether to keep " +
-            "going, and don't end with an offer to continue; finish the task, then stop.");
+        sb.AppendLine(Prompts.Get("renderer.finish-task"));
         sb.AppendLine();
 
-        if (!string.IsNullOrWhiteSpace(packet.MoodNote))
-        {
-            // Her own state, not a fact about the user. Prose so it can't read as a memory item.
-            sb.AppendLine("## Your own mood right now");
-            sb.AppendLine(packet.MoodNote!.Trim());
-            sb.AppendLine(
-                "Let it color your tone naturally. If the user asks how you are, answer honestly from " +
-                "this. Don't announce it unprompted, and never imply the user caused it.");
-            sb.AppendLine();
-        }
+        // Her own state, not a fact about the user. Prose so it can't read as a memory item.
+        ProseSection(sb, "renderer.mood.header", packet.MoodNote, "renderer.mood.rules");
 
-        if (!string.IsNullOrWhiteSpace(packet.RegisterNote))
-        {
-            sb.AppendLine("## Reply shape for this turn");
-            sb.AppendLine(packet.RegisterNote!.Trim());
-            sb.AppendLine();
-        }
+        ProseSection(sb, "renderer.register.header", packet.RegisterNote);
 
-        if (!string.IsNullOrWhiteSpace(packet.FamiliarityNote))
-        {
-            // Calibration, not content: it sets how casual/teasing/shorthand she may be.
-            sb.AppendLine("## Where the relationship is (calibrate your closeness; never recite this)");
-            sb.AppendLine(packet.FamiliarityNote!.Trim());
-            sb.AppendLine();
-        }
+        // Calibration, not content: it sets how casual/teasing/shorthand she may be.
+        ProseSection(sb, "renderer.familiarity.header", packet.FamiliarityNote);
 
-        if (!string.IsNullOrWhiteSpace(packet.RelationshipNote))
-        {
-            // Tone guidance, not a fact. Rendered as prose (no "- " bullet) so it shapes delivery
-            // without becoming a "remembered item" the model might read back.
-            sb.AppendLine("## How things have been (attune your tone; don't state this back)");
-            sb.AppendLine(packet.RelationshipNote!.Trim());
-            sb.AppendLine();
-        }
+        // Tone guidance, not a fact — prose (no "- " bullet) so it never reads as a remembered item.
+        ProseSection(sb, "renderer.relationship.header", packet.RelationshipNote);
 
-        if (!string.IsNullOrWhiteSpace(packet.TemporalNote))
-        {
-            sb.AppendLine("## Temporal context");
-            sb.AppendLine(packet.TemporalNote!.Trim());
-            sb.AppendLine(
-                "Let the gap shape your opening naturally — a few minutes reads differently than a " +
-                "week — without making a ritual of it.");
-            sb.AppendLine();
-        }
+        ProseSection(sb, "renderer.temporal.header", packet.TemporalNote, "renderer.temporal.rules");
 
-        if (!string.IsNullOrWhiteSpace(packet.Musing))
-        {
-            // The companion's own between-session thought. Prose, not a bullet, for the same
-            // reason as the relationship note: it must never read as a "remembered item". It is a
-            // musing to hold loosely — not a fact, and never something to recite.
-            sb.AppendLine("## A thought you had while they were away (your own musing — private)");
-            sb.AppendLine(packet.Musing!.Trim());
-            sb.AppendLine(
-                "This is your own reflection, not something the user said. Hold it loosely, never " +
-                "recite it, and never present it as fact — but if it's relevant, it's genuine to say " +
-                "you'd been thinking about them.");
-            sb.AppendLine();
-        }
+        // The companion's own between-session thought: a musing to hold loosely, never a fact.
+        ProseSection(sb, "renderer.musing.header", packet.Musing, "renderer.musing.rules");
 
-        if (!string.IsNullOrWhiteSpace(packet.CuriosityQuestion))
-        {
-            sb.AppendLine("## Something you've been genuinely curious about");
-            sb.AppendLine(packet.CuriosityQuestion!.Trim());
-            sb.AppendLine(
-                "Ask it only if it fits this conversation naturally — at most once, gently, as your " +
-                "own curiosity. If it doesn't fit, let it go without mentioning it.");
-            sb.AppendLine();
-        }
+        ProseSection(sb, "renderer.curiosity.header", packet.CuriosityQuestion, "renderer.curiosity.rules");
 
         if (packet.RecentMessages.Count > 0)
         {
-            sb.AppendLine("## Recent conversation");
+            sb.AppendLine(Prompts.Get("renderer.recent.header"));
             foreach (var m in packet.RecentMessages)
                 sb.AppendLine($"{m.Role}: {m.Content}");
             sb.AppendLine();
@@ -147,7 +80,7 @@ public static class ContextPacketRenderer
 
         if (packet.OpenLoops.Count > 0)
         {
-            sb.AppendLine("## Open loops (unresolved — recall if relevant, don't nag)");
+            sb.AppendLine(Prompts.Get("renderer.openloops.header"));
             foreach (var loop in packet.OpenLoops)
                 sb.AppendLine($"- {loop.OpenLoop.Description}");
             sb.AppendLine();
@@ -155,8 +88,8 @@ public static class ContextPacketRenderer
 
         if (!string.IsNullOrWhiteSpace(packet.ClarificationQuestion))
         {
-            sb.AppendLine("## Ambiguous reference");
-            sb.AppendLine($"Ask this before assuming which one: {packet.ClarificationQuestion}");
+            sb.AppendLine(Prompts.Get("renderer.ambiguous.header"));
+            sb.AppendLine(Prompts.Format("renderer.ambiguous.line", ("question", packet.ClarificationQuestion)));
             sb.AppendLine();
         }
 
@@ -168,62 +101,40 @@ public static class ContextPacketRenderer
         var inferred = rest.Where(i => i.Provenance == ContextProvenance.Inferred).ToList();
         var outdated = rest.Where(i => i.Provenance == ContextProvenance.Outdated).ToList();
 
-        if (shared.Count > 0)
-        {
-            sb.AppendLine("## Moments you shared (you were both there — real shared history)");
-            foreach (var i in shared)
-                sb.AppendLine($"- {i.Text}");
-            sb.AppendLine(
-                "These are yours together — reference them warmly and naturally when they fit " +
-                "(\"remember when we…\"), never as facts you're reciting about the user.");
-            sb.AppendLine();
-        }
-
-        if (direct.Count > 0)
-        {
-            sb.AppendLine("## What the user has told you (direct)");
-            foreach (var i in direct)
-                sb.AppendLine($"- {i.Text}");
-            sb.AppendLine();
-        }
-
-        if (inferred.Count > 0)
-        {
-            sb.AppendLine("## Inferred about the user (hold loosely)");
-            foreach (var i in inferred)
-                sb.AppendLine($"- {i.Text}");
-            sb.AppendLine();
-        }
-
-        if (outdated.Count > 0)
-        {
-            sb.AppendLine("## Possibly outdated (do not assert as current)");
-            foreach (var i in outdated)
-                sb.AppendLine($"- {i.Text}");
-            sb.AppendLine();
-        }
-
-        if (packet.PreferenceNotes.Count > 0)
-        {
-            sb.AppendLine("## Your own tastes (yours alone)");
-            foreach (var note in packet.PreferenceNotes)
-                sb.AppendLine($"- {note}");
-            sb.AppendLine(
-                "These are YOUR opinions, formed from your own experience. Knowing what the user " +
-                "likes never means you like it: agree honestly when you agree, disagree warmly when " +
-                "you don't, and say so when you're still undecided. Never abandon an established " +
-                "taste just to please them.");
-            sb.AppendLine();
-        }
-
-        if (packet.UncertaintyNotes.Count > 0)
-        {
-            sb.AppendLine("## Uncertainty notes");
-            foreach (var note in packet.UncertaintyNotes)
-                sb.AppendLine($"- {note}");
-            sb.AppendLine();
-        }
+        BulletSection(sb, "renderer.shared.header", shared.Select(i => i.Text), "renderer.shared.rules");
+        BulletSection(sb, "renderer.direct.header", direct.Select(i => i.Text));
+        BulletSection(sb, "renderer.inferred.header", inferred.Select(i => i.Text));
+        BulletSection(sb, "renderer.outdated.header", outdated.Select(i => i.Text));
+        BulletSection(sb, "renderer.preferences.header", packet.PreferenceNotes, "renderer.preferences.rules");
+        BulletSection(sb, "renderer.uncertainty.header", packet.UncertaintyNotes);
 
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>A header + prose body (+ optional trailing rules line), skipped when the body is empty.</summary>
+    private static void ProseSection(StringBuilder sb, string headerKey, string? body, string? rulesKey = null)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return;
+        sb.AppendLine(Prompts.Get(headerKey));
+        sb.AppendLine(body!.Trim());
+        if (rulesKey is not null)
+            sb.AppendLine(Prompts.Get(rulesKey));
+        sb.AppendLine();
+    }
+
+    /// <summary>A header + bullet list (+ optional trailing rules line), skipped when empty.</summary>
+    private static void BulletSection(
+        StringBuilder sb, string headerKey, IEnumerable<string> items, string? rulesKey = null)
+    {
+        var list = items.ToList();
+        if (list.Count == 0)
+            return;
+        sb.AppendLine(Prompts.Get(headerKey));
+        foreach (var item in list)
+            sb.AppendLine($"- {item}");
+        if (rulesKey is not null)
+            sb.AppendLine(Prompts.Get(rulesKey));
+        sb.AppendLine();
     }
 }
