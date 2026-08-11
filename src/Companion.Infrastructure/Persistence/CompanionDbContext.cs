@@ -32,6 +32,7 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<Curiosity> Curiosities => Set<Curiosity>();
     public DbSet<OutboundMessage> OutboundMessages => Set<OutboundMessage>();
     public DbSet<Anticipation> Anticipations => Set<Anticipation>();
+    public DbSet<CompanionPreference> CompanionPreferences => Set<CompanionPreference>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -104,6 +105,16 @@ public sealed class CompanionDbContext : DbContext
             e.HasIndex(x => x.ReflectionId);
         });
 
+        b.Entity<CompanionPreference>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Subject).HasMaxLength(200);
+            e.Property(x => x.Reason).HasMaxLength(400);
+            e.HasIndex(x => x.UserId);
+            ConfigureEmbedding(e.Property(x => x.Embedding));
+        });
+
         b.Entity<Anticipation>(e =>
         {
             e.HasKey(x => x.Id);
@@ -161,6 +172,7 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Validity).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Origin).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Owner).HasConversion<string>().HasMaxLength(20);
             e.HasIndex(x => x.UserId);
             e.HasIndex(x => new { x.UserId, x.Status });
             ConfigureEmbedding(e.Property(x => x.Embedding));
@@ -175,6 +187,7 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.EpisodeStatus).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.TimePrecision).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Owner).HasConversion<string>().HasMaxLength(20);
             e.HasIndex(x => x.UserId);
             e.HasIndex(x => new { x.UserId, x.Status });
             e.Ignore(x => x.IsOpenLoop);

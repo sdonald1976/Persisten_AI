@@ -350,6 +350,23 @@ app.MapGet("/curiosities", async (IUserContext user, IReflectionStore store, Can
     }));
 });
 
+// Her own tastes — inspectable: subject, natural description, how established, why, how often reinforced.
+app.MapGet("/preferences", async (IUserContext user, IPreferenceStore store, CancellationToken ct) =>
+{
+    var prefs = await store.GetAllAsync(user.UserId, ct);
+    return Results.Ok(prefs.Select(p => new
+    {
+        p.Id,
+        p.Subject,
+        description = p.Describe(),
+        affinity = Math.Round(p.Affinity, 2),
+        confidence = Math.Round(p.Confidence, 2),
+        p.Reason,
+        p.Observations,
+        p.UpdatedAt,
+    }));
+});
+
 // The dated events she's holding (open anticipations): encouragement due, follow-ups owed.
 app.MapGet("/anticipations", async (IUserContext user, IAnticipationStore store, CancellationToken ct) =>
 {

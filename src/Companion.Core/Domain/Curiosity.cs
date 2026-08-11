@@ -42,4 +42,7 @@ public enum CuriosityStatus
 
     /// <summary>Dropped without being raised (e.g. superseded or stale).</summary>
     Dismissed,
+
+    /// <summary>The conversation answered it (noticed by reflection) — closed with satisfaction.</summary>
+    Satisfied,
 }

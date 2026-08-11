@@ -25,7 +25,9 @@ public sealed class ContextAssembler : IContextAssembler
         string? musing = null,
         string? curiosity = null,
         string? companionMood = null,
-        string? familiarity = null)
+        string? familiarity = null,
+        string? temporal = null,
+        IReadOnlyList<string>? preferences = null)
     {
         var items = new List<ContextItem>();
         var notes = new List<string>();
@@ -45,6 +47,7 @@ public sealed class ContextAssembler : IContextAssembler
                 Text = text,
                 Provenance = provenance,
                 Note = provenance == ContextProvenance.Outdated ? "was true previously" : null,
+                Owner = result.Memory.Owner,
             });
             usedTokens += cost;
 
@@ -75,6 +78,8 @@ public sealed class ContextAssembler : IContextAssembler
             MoodNote = companionMood,
             RegisterNote = RegisterAdvisor.Advise(userMessage),
             FamiliarityNote = familiarity,
+            TemporalNote = temporal,
+            PreferenceNotes = preferences ?? Array.Empty<string>(),
             UncertaintyNotes = notes,
             EstimatedTokens = usedTokens + recentCost + EstimateTokens(userMessage),
         };

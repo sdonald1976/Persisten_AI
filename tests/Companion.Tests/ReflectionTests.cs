@@ -32,6 +32,8 @@ public class ReflectionTests
             sp.GetRequiredService<IReflectionStore>(),
             sp.GetRequiredService<IProjectStore>(),
             sp.GetRequiredService<IEmotionStore>(),
+            sp.GetRequiredService<IMemoryStore>(),
+            sp.GetRequiredService<IPreferenceStore>(),
             new CannedChatModel(cannedResponse),
             sp.GetRequiredService<IEmbeddingModel>(),
             sp.GetRequiredService<IOptions<CompanionOptions>>(),

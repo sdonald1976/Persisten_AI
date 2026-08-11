@@ -68,6 +68,18 @@ public sealed record ContextPacket
     /// </summary>
     public string? FamiliarityNote { get; init; }
 
+    /// <summary>
+    /// Compact temporal grounding — what day/time it is and how long since you last spoke — so
+    /// "back already?" vs "look who finally showed up" emerges from context, never a script.
+    /// </summary>
+    public string? TemporalNote { get; init; }
+
+    /// <summary>
+    /// The companion's OWN relevant tastes for this turn (natural language, never raw numbers) —
+    /// hers alone, so honest agreement and honest disagreement are both possible.
+    /// </summary>
+    public IReadOnlyList<string> PreferenceNotes { get; init; } = Array.Empty<string>();
+
     /// <summary>Notes about uncertainty, conflicts, or superseded information.</summary>
     public IReadOnlyList<string> UncertaintyNotes { get; init; } = Array.Empty<string>();
 
@@ -84,6 +96,9 @@ public sealed record ContextItem
     public required string Text { get; init; }
     public required ContextProvenance Provenance { get; init; }
     public string? Note { get; init; }
+
+    /// <summary>Whose story the line is from — shared moments render as "remember when we…".</summary>
+    public MemoryOwner Owner { get; init; } = MemoryOwner.User;
 }
 
 /// <summary>How a context item should be trusted by the reader.</summary>

@@ -59,11 +59,12 @@ public sealed record TraceDto(
 
 public sealed record RetrievedDto(string Content, double Score);
 
-public sealed record MemoryDto(string Id, string Kind, string Content, string Status, string? Validity, double Confidence)
+public sealed record MemoryDto(string Id, string Kind, string Owner, string Content, string Status, string? Validity, double Confidence)
 {
     public static MemoryDto From(IMemory m) => new(
         m.Id.ToString(),
         m.Kind.ToString(),
+        m.Owner.ToString(),
         m.Content,
         m.Status.ToString(),
         m is SemanticMemory sm ? sm.Validity.ToString() : null,

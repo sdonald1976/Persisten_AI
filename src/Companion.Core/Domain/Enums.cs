@@ -7,6 +7,19 @@ public enum MemoryKind
     Episodic,
 }
 
+/// <summary>
+/// Whose story a memory belongs to. User memories are biography ("Scott likes ribeye");
+/// Companion memories are about the companion herself; Shared memories are moments both were
+/// part of ("the evening Scott tried teaching her poker") — not merely user facts, but history
+/// they have together. Ownership shapes how a memory is presented, never whether it's true.
+/// </summary>
+public enum MemoryOwner
+{
+    User,
+    Companion,
+    Shared,
+}
+
 /// <summary>The outcome of a turn — whether it answered or paused for a control-flow reason.</summary>
 public enum TurnStatus
 {
