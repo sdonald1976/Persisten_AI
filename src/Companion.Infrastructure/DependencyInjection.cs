@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.Configure<CompanionOptions>(configuration.GetSection(CompanionOptions.SectionName));
         services.Configure<PersonalityOptions>(configuration.GetSection(PersonalityOptions.SectionName));
         services.Configure<IdentityOptions>(configuration.GetSection(IdentityOptions.SectionName));
+        services.Configure<OutreachOptions>(configuration.GetSection(OutreachOptions.SectionName));
         services.AddSingleton<IPersonalityService, PersonalityService>();
 
         services.AddSingleton(TimeProvider.System);
@@ -167,6 +168,14 @@ public static class DependencyInjection
         // the background worker actually runs, so consolidation finally has a life of its own
         // instead of waiting for an explicit command.
         services.AddScoped<ISleepCycle, SleepCycle>();
+
+        // Reaching out on her own: a push notification (ntfy) when the user's been away and she
+        // holds a real curiosity to voice. The channel reports itself unconfigured until
+        // Outreach.NtfyUrl is set, which keeps the whole feature silently off.
+        services.AddHttpClient(NtfyChannel.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(15));
+        services.AddSingleton<IOutboundChannel, NtfyChannel>();
+        services.AddScoped<IOutreachStore, OutreachStore>();
+        services.AddScoped<IOutreachService, OutreachService>();
 
         // Core services.
         services.AddScoped<IRetriever, Retriever>();

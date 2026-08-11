@@ -12,8 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 var dbPath = builder.Configuration["Database:Path"] ?? "companion.db";
 builder.Services.AddCompanion(builder.Configuration, $"Data Source={dbPath}");
 
-// The companion's own clock: reflect (inner monologue) while the user is away.
+// The companion's own clock: reflect (inner monologue) while the user is away, and — when a
+// push channel is configured — reach out on her own when she has something real to say.
 builder.Services.AddHostedService<ReflectionWorker>();
+builder.Services.AddHostedService<OutreachWorker>();
 
 var apiOptions = builder.Configuration.GetSection(ApiOptions.SectionName).Get<ApiOptions>() ?? new ApiOptions();
 
@@ -346,6 +348,31 @@ app.MapGet("/curiosities", async (IUserContext user, IReflectionStore store, Can
         reason = c.Reason,
         createdAt = c.CreatedAt,
     }));
+});
+
+// ---- outreach (she reaches out on her own; needs Outreach.NtfyUrl configured) ----
+
+// The log of messages she sent on her own initiative, newest first.
+app.MapGet("/outreach", async (IUserContext user, IOutreachStore store, CancellationToken ct) =>
+{
+    var recent = await store.GetRecentAsync(user.UserId, 20, ct);
+    return Results.Ok(recent.Select(m => new { m.Id, m.Text, m.Source, m.SentAt }));
+});
+
+// Send a test push so the ntfy setup can be verified without waiting for a real outreach.
+app.MapPost("/outreach/test", async (HttpContext ctx, IOutboundChannel channel, CancellationToken ct) =>
+{
+    if (!channel.Configured)
+        return Results.Json(
+            new ApiError("OutreachUnavailable", "Outreach isn't configured (set Outreach.NtfyUrl — see docs/OUTREACH.md).", ctx.TraceIdentifier),
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    var ok = await channel.SendAsync("Companion", "Test message — outreach is wired up. She can reach you here.", ct);
+    return ok
+        ? Results.Ok(new { sent = true })
+        : Results.Json(
+            new ApiError("OutreachDeliveryFailed", "The push could not be delivered — check the ntfy URL/token and server logs.", ctx.TraceIdentifier),
+            statusCode: StatusCodes.Status502BadGateway);
 });
 
 // Run a reflection pass right now (demo/debug; the worker normally does this while you're away).
