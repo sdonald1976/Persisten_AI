@@ -246,7 +246,10 @@ public sealed class Reflector : IReflector
         "\"reason\" (why you wonder). At most 2. Only real wonderings — an empty list is a fine " +
         "answer. Never pry into anything they deflected, avoided, or asked you not to keep.\n\n" +
         "If nothing since last time is worth a thought, return {\"musing\": null, \"curiosities\": []}. " +
-        "A quiet stretch is a valid diary day.";
+        "A quiet stretch is a valid diary day.\n\n" +
+        "Parts of the conversation may be playful, in-character roleplay between you and them. Treat that as " +
+        "play: never turn in-character events or relationships into beliefs about their real life, and never " +
+        "wonder about people or relationships that only exist inside the play.";
 
     // ---- output parsing (the model's output is untrusted; unparseable means \"no thought today\") ----
 

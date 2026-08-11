@@ -17,6 +17,8 @@ public sealed class MemoryPipeline : IMemoryPipeline
     private readonly IMemoryStore _store;
     private readonly IMemoryCurator _curator;
     private readonly IEmbeddingModel _embeddings;
+    private readonly IProfileStore _profiles;
+    private readonly IPersonalityService _personality;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<MemoryPipeline> _logger;
@@ -26,6 +28,8 @@ public sealed class MemoryPipeline : IMemoryPipeline
         IMemoryStore store,
         IMemoryCurator curator,
         IEmbeddingModel embeddings,
+        IProfileStore profiles,
+        IPersonalityService personality,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<MemoryPipeline> logger)
@@ -34,6 +38,8 @@ public sealed class MemoryPipeline : IMemoryPipeline
         _store = store;
         _curator = curator;
         _embeddings = embeddings;
+        _profiles = profiles;
+        _personality = personality;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -61,6 +67,13 @@ public sealed class MemoryPipeline : IMemoryPipeline
         var userMessageIds = exchange.Where(m => m.Role == MessageRole.User).Select(m => m.Id).ToHashSet();
         var validMessageIds = exchange.Select(m => m.Id).ToHashSet();
 
+        // Persona guard, layered under the turn-level in-character gate: a candidate that
+        // references the companion herself (her name, or a relationship the persona claims) is a
+        // fact about the CHARACTER, not the user's life — the fact store never learns fiction.
+        var profile = await _profiles.GetOrCreateAsync(userId, ct);
+        var lexicon = PersonaLexicon.From(
+            _personality.Identity(profile).Name, _personality.Compose(profile));
+
         var decisions = new List<MemoryDecision>(batch.Count);
         foreach (var candidate in batch)
         {
@@ -69,6 +82,14 @@ public sealed class MemoryPipeline : IMemoryPipeline
             {
                 _logger.LogWarning("Rejected a candidate memory for {UserId} that looks like a credential.", userId);
                 decisions.Add(Reject(candidate, "looks like a credential — not stored"));
+                continue;
+            }
+
+            if (lexicon.MentionsCompanion(candidate.Content) || lexicon.MentionsCompanion(candidate.Value))
+            {
+                _logger.LogInformation(
+                    "Rejected a candidate memory for {UserId} that references the companion's persona.", userId);
+                decisions.Add(Reject(candidate, "references the companion's persona — in-character, not biography"));
                 continue;
             }
 

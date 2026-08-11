@@ -129,6 +129,8 @@ public class PrivacyTests
                 sp.GetRequiredService<IMemoryStore>(),
                 sp.GetRequiredService<IMemoryCurator>(),
                 sp.GetRequiredService<IEmbeddingModel>(),
+                sp.GetRequiredService<IProfileStore>(),
+                sp.GetRequiredService<IPersonalityService>(),
                 sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Companion.Core.CompanionOptions>>(),
                 sp.GetRequiredService<TimeProvider>(),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<MemoryPipeline>.Instance);

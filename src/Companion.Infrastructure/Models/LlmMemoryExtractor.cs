@@ -281,7 +281,11 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
         "[{\"kind\":\"episodic\",\"content\":\"The user deployed the service to the Jetson.\"," +
         "\"episodeStatus\":\"Occurred\",\"importance\":0.5,\"confidence\":0.8," +
         "\"excerpt\":\"I finally deployed the service to the Jetson yesterday\"}]\n\n" +
-        "Only include things the user actually stated. Do not invent. If nothing is worth remembering, return [].";
+        "Only include things the user actually stated. Do not invent. If nothing is worth remembering, return [].\n\n" +
+        "The user is talking WITH an AI companion and may speak in-character or playfully roleplay with it. " +
+        "Statements addressed to the companion, about the companion, or about the user's relationship with the " +
+        "companion are NOT durable facts about the user's real life — skip them entirely. Extract only facts " +
+        "about the user's own life outside this conversation.";
 
     private sealed record CandidateDto(
         string? Kind, string? Subject, string? Predicate, string? Value, string Content,
