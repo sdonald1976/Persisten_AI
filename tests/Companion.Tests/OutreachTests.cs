@@ -57,6 +57,7 @@ public class OutreachTests
             sp.GetRequiredService<IConversationStore>(),
             sp.GetRequiredService<IOutreachStore>(),
             sp.GetRequiredService<IReflectionStore>(),
+            sp.GetRequiredService<IAnticipationStore>(),
             sp.GetRequiredService<IProfileStore>(),
             sp.GetRequiredService<IPersonalityService>(),
             Options.Create(options),
@@ -80,6 +81,13 @@ public class OutreachTests
         => await sp.GetRequiredService<IReflectionStore>().AddAsync(
             new Reflection { UserId = User, CreatedAt = at, CoveredThrough = at },
             new[] { new Curiosity { UserId = User, Question = question, Status = CuriosityStatus.Open, CreatedAt = at } });
+
+    private static async Task HoldsAnticipationAsync(IServiceProvider sp, string description, DateTimeOffset eventAt)
+        => await sp.GetRequiredService<IAnticipationStore>().AddAsync(new Anticipation
+        {
+            UserId = User, Description = description, EventAt = eventAt,
+            Status = AnticipationStatus.Pending, CreatedAt = eventAt.AddDays(-1),
+        });
 
     [Fact]
     public async Task AwayWithACuriosity_SendsOnce_SpendsIt_AndLogsIt()
@@ -209,6 +217,47 @@ public class OutreachTests
 
         Assert.Null(await Build(sp, channel, Noon).RunOnceAsync(User));
         Assert.Empty(channel.Sent);
+    }
+
+    [Fact]
+    public async Task EventDayEncouragement_ArrivesEvenIfTheyChattedLastNight()
+    {
+        await using var host = new TestHost(Noon);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        await SeenAtAsync(sp, Noon.AddHours(-14)); // chatted last night — NOT "away"
+        await HoldsAnticipationAsync(sp, "your interview", new DateTimeOffset(Noon.Date, TimeSpan.Zero));
+        var channel = new RecordingChannel();
+
+        var sent = await Build(sp, channel, Noon).RunOnceAsync(User);
+
+        // "Good luck today" must land on the morning — the away-gate deliberately doesn't apply.
+        Assert.NotNull(sent);
+        Assert.Contains("Good luck with your interview today", Assert.Single(channel.Sent).Body);
+
+        // Encouraged once; a later check has nothing new to say about it.
+        Assert.Null(await Build(sp, channel, Noon.AddHours(3), o => o.MinHoursBetween = 1).RunOnceAsync(User));
+    }
+
+    [Fact]
+    public async Task APassedEvent_GetsTheFollowUp_BeforeAnyCuriosity()
+    {
+        await using var host = new TestHost(Noon);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        await SeenAtAsync(sp, Noon.AddDays(-2));
+        await HoldsAnticipationAsync(sp, "your interview", new DateTimeOffset(Noon.Date.AddDays(-1), TimeSpan.Zero));
+        await HoldsCuriosityAsync(sp, "Unrelated wondering?", Noon.AddDays(-1));
+        var channel = new RecordingChannel();
+
+        var sent = await Build(sp, channel, Noon).RunOnceAsync(User);
+
+        Assert.NotNull(sent);
+        Assert.Contains("how did your interview go?", Assert.Single(channel.Sent).Body);
+
+        // The arc closed; the curiosity was saved for another day.
+        Assert.Empty(await sp.GetRequiredService<IAnticipationStore>().GetOpenAsync(User));
+        Assert.Single(await sp.GetRequiredService<IReflectionStore>().GetOpenCuriositiesAsync(User));
     }
 
     [Theory]

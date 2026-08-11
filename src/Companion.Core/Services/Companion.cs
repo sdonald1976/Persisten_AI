@@ -32,6 +32,7 @@ public sealed class Companion : ICompanion
     private readonly IEmotionStore _emotions;
     private readonly IRelationshipTracker _relationship;
     private readonly IReflectionStore _reflections;
+    private readonly IAnticipationStore _anticipations;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -51,6 +52,7 @@ public sealed class Companion : ICompanion
         IEmotionStore emotions,
         IRelationshipTracker relationship,
         IReflectionStore reflections,
+        IAnticipationStore anticipations,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -69,6 +71,7 @@ public sealed class Companion : ICompanion
         _emotions = emotions;
         _relationship = relationship;
         _reflections = reflections;
+        _anticipations = anticipations;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -226,7 +229,13 @@ public sealed class Companion : ICompanion
         // (gated by privacy), then derive how things have been feeling so the reply can attune its
         // tone. The snapshot includes this turn, so it reflects the user's mood right now.
         if (remember)
+        {
             await CaptureMoodAsync(userId, extractionSource, projectContext, now, ct);
+
+            // A dated plan in the user's words ("interview on Thursday") becomes an anticipation:
+            // encouragement on the day, a follow-up after — the caring-at-the-right-moment layer.
+            await CaptureAnticipationAsync(userId, extractionSource, ct);
+        }
         var relationship = await _relationship.BuildAsync(userId, ct);
 
         // 4c. The inner monologue reaches the turn here: a fresh private musing colors the reply's
@@ -389,6 +398,38 @@ public sealed class Companion : ICompanion
         _logger.LogDebug(
             "Captured mood for {UserId}: {Sentiment} ({Valence:+0.00;-0.00}) about \"{Topic}\" from \"{Evidence}\"",
             userId, mood.Sentiment, mood.Valence, topic ?? "(untied)", mood.Evidence);
+    }
+
+    /// <summary>
+    /// Holds a dated event the user just mentioned as an anticipation, so the companion can wish
+    /// them luck on the day and ask how it went after. Deduped against open anticipations by
+    /// description; no-op when the message names no dated plan.
+    /// </summary>
+    private async Task CaptureAnticipationAsync(string userId, Message userMessage, CancellationToken ct)
+    {
+        var detected = AnticipationDetector.Detect(userMessage.Content, _clock.GetLocalNow());
+        if (detected is null)
+            return;
+
+        var open = await _anticipations.GetOpenAsync(userId, ct);
+        if (open.Any(a => string.Equals(a.Description, detected.Description, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        await _anticipations.AddAsync(new Anticipation
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Description = detected.Description,
+            EventAt = detected.EventAt,
+            Evidence = detected.Evidence,
+            SourceMessageId = userMessage.Id,
+            Status = AnticipationStatus.Pending,
+            CreatedAt = _clock.GetUtcNow(),
+        }, ct);
+
+        _logger.LogInformation(
+            "Captured an anticipation for {UserId}: \"{Description}\" on {Day:yyyy-MM-dd}",
+            userId, detected.Description, detected.EventAt);
     }
 
     /// <summary>
