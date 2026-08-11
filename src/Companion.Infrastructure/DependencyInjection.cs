@@ -99,6 +99,9 @@ public static class DependencyInjection
             services.AddKeyedSingleton<IChatModel>(ChatRoles.Conversation, (sp, _) => BuildChat(sp, modelOptions.Chat, ProviderHttpClients.Conversation));
             services.AddKeyedSingleton<IChatModel>(ChatRoles.Extraction, (sp, _) => BuildChat(sp, modelOptions.ExtractionOrChat, ProviderHttpClients.Extraction));
             services.AddKeyedSingleton<IChatModel>(ChatRoles.Summarizer, (sp, _) => BuildChat(sp, modelOptions.SummarizerOrChat, ProviderHttpClients.Summarizer));
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.Reranker, (sp, _) => BuildChat(sp, modelOptions.RerankerOrSummarizer, ProviderHttpClients.Reranker));
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.Safety, (sp, _) => BuildChat(sp, modelOptions.SafetyOrExtraction, ProviderHttpClients.Safety));
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.TaskAuditor, (sp, _) => BuildChat(sp, modelOptions.TaskAuditorOrSummarizer, ProviderHttpClients.TaskAuditor));
 
             // The default IChatModel (the assistant's reply) is the conversational one.
             services.AddSingleton<IChatModel>(sp => sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation));
@@ -116,9 +119,18 @@ public static class DependencyInjection
                     sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Extraction),
                     sp.GetRequiredService<ILogger<LlmMemoryExtractor>>()));
 
-            // The semantic completion check runs on the cheap summarizer-role model, never the big one.
+            services.AddSingleton<IMemoryReranker>(sp => new LlmMemoryReranker(
+                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Reranker),
+                new RuleBasedMemoryReranker(),
+                sp.GetRequiredService<ILogger<LlmMemoryReranker>>()));
+            services.AddSingleton<IPrivacyClassifier>(sp => new LlmPrivacyClassifier(
+                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Safety),
+                new RuleBasedPrivacyClassifier(),
+                sp.GetRequiredService<ILogger<LlmPrivacyClassifier>>()));
+
+            // The semantic completion check runs on a cheap task-auditor role, never the big one.
             services.AddSingleton<ICompletionJudge>(sp => new LlmCompletionJudge(
-                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Summarizer),
+                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.TaskAuditor),
                 sp.GetRequiredService<ILogger<LlmCompletionJudge>>()));
         }
         else
@@ -130,6 +142,8 @@ public static class DependencyInjection
 
             // Offline replies are deterministic and self-contained — nothing to continue.
             services.AddSingleton<ICompletionJudge, AlwaysCompleteJudge>();
+            services.AddSingleton<IMemoryReranker, RuleBasedMemoryReranker>();
+            services.AddSingleton<IPrivacyClassifier, RuleBasedPrivacyClassifier>();
         }
 
         // The reply generator owns "when to keep going": it continues a cut-off reply (finish_reason
@@ -251,6 +265,9 @@ public static class DependencyInjection
         Require("Chat", options.Chat);
         Require("Extraction", options.ExtractionOrChat);
         Require("Summarizer", options.SummarizerOrChat);
+        Require("Reranker", options.RerankerOrSummarizer);
+        Require("Safety", options.SafetyOrExtraction);
+        Require("TaskAuditor", options.TaskAuditorOrSummarizer);
         Require("Embeddings", options.Embeddings);
         if (options.Vision is { } v) Require("Vision", v);
         if (options.Transcription is { } t) Require("Transcription", t);

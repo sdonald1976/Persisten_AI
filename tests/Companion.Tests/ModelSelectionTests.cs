@@ -1,4 +1,5 @@
 using Companion.Core.Abstractions;
+using Companion.Core.Services;
 using Companion.Infrastructure;
 using Companion.Infrastructure.Models;
 using Microsoft.Extensions.Configuration;
@@ -46,6 +47,9 @@ public class ModelSelectionTests
         Assert.Equal("big-conversational", ChatModelFor(sp, "conversation"));
         Assert.Equal("small-extractor", ChatModelFor(sp, "extraction"));
         Assert.Equal("fast-summarizer", ChatModelFor(sp, "summarizer"));
+        Assert.Equal("fast-summarizer", ChatModelFor(sp, "reranker"));
+        Assert.Equal("small-extractor", ChatModelFor(sp, "safety"));
+        Assert.Equal("fast-summarizer", ChatModelFor(sp, "task-auditor"));
 
         var embed = (OpenAiCompatibleEmbeddingModel)sp.GetRequiredService<IEmbeddingModel>();
         Assert.Equal("dedicated-embedder", embed.ModelName);
@@ -84,6 +88,9 @@ public class ModelSelectionTests
         // No Extraction/Summarizer sections → they reuse the conversational model.
         Assert.Equal("only-model", ChatModelFor(sp, "extraction"));
         Assert.Equal("only-model", ChatModelFor(sp, "summarizer"));
+        Assert.Equal("only-model", ChatModelFor(sp, "reranker"));
+        Assert.Equal("only-model", ChatModelFor(sp, "safety"));
+        Assert.Equal("only-model", ChatModelFor(sp, "task-auditor"));
     }
 
     [Fact]
@@ -93,6 +100,8 @@ public class ModelSelectionTests
         // Default provider is Mock, so the real adapter is not registered.
         Assert.IsNotType<OpenAiCompatibleChatModel>(sp.GetRequiredService<IChatModel>());
         Assert.IsType<RuleBasedMemoryExtractor>(sp.GetRequiredService<IMemoryExtractor>());
+        Assert.IsType<RuleBasedMemoryReranker>(sp.GetRequiredService<IMemoryReranker>());
+        Assert.IsType<RuleBasedPrivacyClassifier>(sp.GetRequiredService<IPrivacyClassifier>());
         // Optional multimodal models are off by default.
         Assert.Null(sp.GetService<IVisionModel>());
         Assert.Null(sp.GetService<ITranscriber>());
