@@ -62,6 +62,12 @@ public sealed record ContextPacket
     /// </summary>
     public string? RegisterNote { get; init; }
 
+    /// <summary>
+    /// Where the relationship actually is (tenure + real interaction depth) — calibrates how
+    /// casual, teasing, and shorthand she's allowed to be. Never recited back.
+    /// </summary>
+    public string? FamiliarityNote { get; init; }
+
     /// <summary>Notes about uncertainty, conflicts, or superseded information.</summary>
     public IReadOnlyList<string> UncertaintyNotes { get; init; } = Array.Empty<string>();
 

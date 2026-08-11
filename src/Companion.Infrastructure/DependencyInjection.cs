@@ -164,6 +164,9 @@ public static class DependencyInjection
         // and answers "how are you?" honestly.
         services.AddScoped<ICompanionStateTracker, CompanionStateTracker>();
 
+        // The familiarity dial: tenure + real interaction depth calibrate how casual she may be.
+        services.AddScoped<IFamiliarityTracker, FamiliarityTracker>();
+
         // The between-session reflection pass (inner monologue): musings + curiosities, written
         // while the user is away and surfaced through the greeter and the context packet. Thinks
         // with the conversational model — reflection is the companion's own voice, not a

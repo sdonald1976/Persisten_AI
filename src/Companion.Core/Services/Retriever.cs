@@ -39,6 +39,11 @@ public sealed class Retriever : IRetriever
     public async Task<RetrievalOutcome> RetrieveAsync(
         string userId, string query, string? detectedProject = null, CancellationToken ct = default)
     {
+        // The query embedding is computed unconditionally: even with no memories yet, the turn
+        // still exposes it (RetrievalOutcome.QueryEmbedding) for other similarity lookups
+        // (e.g. resurfacing a relevant past musing).
+        var queryEmbedding = await _embeddings.EmbedAsync(query, ct);
+
         var candidates = await _memories.GetRetrievableMemoriesAsync(userId, ct);
         if (candidates.Count == 0)
         {
@@ -46,12 +51,12 @@ public sealed class Retriever : IRetriever
             {
                 Selected = Array.Empty<RetrievalResult>(),
                 Excluded = Array.Empty<RetrievalResult>(),
+                QueryEmbedding = queryEmbedding,
             };
         }
 
         // Similarity comes through the vector-index seam. Ask for all candidates so every
         // memory gets a similarity value; missing ids fall back to 0.
-        var queryEmbedding = await _embeddings.EmbedAsync(query, ct);
         var hits = await _vectorIndex.SearchAsync(userId, queryEmbedding, candidates.Count, ct);
         var similarity = hits.ToDictionary(h => h.MemoryId, h => h.Similarity);
 
@@ -119,6 +124,7 @@ public sealed class Retriever : IRetriever
         {
             Selected = selected,
             Excluded = excluded,
+            QueryEmbedding = queryEmbedding,
         };
     }
 

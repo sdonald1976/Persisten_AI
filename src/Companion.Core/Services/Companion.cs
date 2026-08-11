@@ -34,6 +34,7 @@ public sealed class Companion : ICompanion
     private readonly IReflectionStore _reflections;
     private readonly IAnticipationStore _anticipations;
     private readonly ICompanionStateTracker _innerState;
+    private readonly IFamiliarityTracker _familiarity;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -55,6 +56,7 @@ public sealed class Companion : ICompanion
         IReflectionStore reflections,
         IAnticipationStore anticipations,
         ICompanionStateTracker innerState,
+        IFamiliarityTracker familiarity,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -75,6 +77,7 @@ public sealed class Companion : ICompanion
         _reflections = reflections;
         _anticipations = anticipations;
         _innerState = innerState;
+        _familiarity = familiarity;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -244,21 +247,22 @@ public sealed class Companion : ICompanion
         // 4c. The inner monologue reaches the turn here: a fresh private musing colors the reply's
         // attention, and at most one held curiosity is offered for the model to raise IF it fits.
         // Offering consumes it (marked voiced below), so a question is asked once, never nagged.
-        var musing = await FreshMusingAsync(userId, now, ct);
+        var musing = await RelevantMusingAsync(userId, outcome.QueryEmbedding, now, ct);
         var curiosity = await _reflections.GetNextToVoiceAsync(
             userId, now, TimeSpan.FromHours(_options.CuriosityCooldownHours), ct);
 
         // 4d. Her own inner state — spirits + energy — colors the reply's tone (and answers
         // "how are you?" honestly). Read AFTER the mood capture above, so this turn's emotional
-        // signal has already rubbed off on her.
+        // signal has already rubbed off on her. Familiarity calibrates how casual she may be.
         var innerState = await _innerState.BuildAsync(userId, ct);
+        var familiarity = await _familiarity.BuildAsync(userId, ct);
 
         // 5. Assemble a bounded, labeled context packet (with the user's persona/style + tone read).
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var persona = _personality.Compose(profile);
         var packet = _assembler.Assemble(
             promptText, recent, outcome.Selected, projectContext, persona, relationship,
-            musing, curiosity?.Question, innerState.Describe());
+            musing, curiosity?.Question, innerState.Describe(), familiarity.Describe());
 
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
@@ -321,24 +325,56 @@ public sealed class Companion : ICompanion
 
     // ---- helpers ----
 
-    /// <summary>A musing is only current for so long — after this it stops shaping replies.</summary>
+    /// <summary>A musing is only current for so long — after this it stops shaping turns by default.</summary>
     private static readonly TimeSpan MusingSurfaceWindow = TimeSpan.FromDays(7);
 
-    /// <summary>How many diary entries back to look for the newest actual musing (recent passes may
-    /// be watermark-only quiet days).</summary>
-    private const int MusingLookback = 5;
+    /// <summary>How far back the diary is searched for a relevant past thought.</summary>
+    private const int MusingSearchLookback = 50;
+
+    /// <summary>Minimum cosine for an old musing to resurface on relevance alone.</summary>
+    private const double MusingRelevanceFloor = 0.3;
+
+    /// <summary>Below this age a musing reads as current; older ones get an age prefix.</summary>
+    private static readonly TimeSpan MusingIsRecent = TimeSpan.FromHours(36);
 
     /// <summary>
-    /// The newest between-session musing that is still fresh enough to color this turn, or null.
-    /// Reading the diary is side-effect free — a musing can accompany many turns; it is a mood the
-    /// companion carries, unlike a curiosity, which is consumed the one time it is offered.
+    /// The musing that should color THIS turn: the most relevant past thought (by similarity to
+    /// the turn's query — an old thought resurfaces on its own when the conversation comes back
+    /// to it), falling back to the freshest one while it's still current. Reading the diary is
+    /// side-effect free — a musing can accompany many turns; it is a mood the companion carries,
+    /// unlike a curiosity, which is consumed the one time it is offered.
     /// </summary>
-    private async Task<string?> FreshMusingAsync(string userId, DateTimeOffset now, CancellationToken ct)
+    private async Task<string?> RelevantMusingAsync(
+        string userId, float[]? queryEmbedding, DateTimeOffset now, CancellationToken ct)
     {
-        var recent = await _reflections.GetRecentAsync(userId, MusingLookback, ct);
-        var newest = recent.FirstOrDefault(r => r.HasMusing);
-        return newest is not null && now - newest.CreatedAt <= MusingSurfaceWindow ? newest.Musing : null;
+        var musings = (await _reflections.GetRecentAsync(userId, MusingSearchLookback, ct))
+            .Where(r => r.HasMusing)
+            .ToList();
+        if (musings.Count == 0)
+            return null;
+
+        // Relevance first: "I remember thinking about this a while back" — and it's literally true.
+        if (queryEmbedding is not null)
+        {
+            var best = musings
+                .Where(r => r.Embedding is not null)
+                .Select(r => (Reflection: r, Score: ScoreMath.Cosine(queryEmbedding, r.Embedding!)))
+                .OrderByDescending(x => x.Score)
+                .FirstOrDefault();
+            if (best.Reflection is not null && best.Score >= MusingRelevanceFloor)
+                return WithAge(best.Reflection, now);
+        }
+
+        // Otherwise the freshest thought still colors the turn — but only while it's current.
+        var newest = musings[0];
+        return now - newest.CreatedAt <= MusingSurfaceWindow ? WithAge(newest, now) : null;
     }
+
+    /// <summary>An older thought carries its age, so "I'd been thinking…" can be timed honestly.</summary>
+    private static string WithAge(Reflection reflection, DateTimeOffset now)
+        => now - reflection.CreatedAt <= MusingIsRecent
+            ? reflection.Musing!
+            : $"(a thought from {RelativeTime.Describe(now - reflection.CreatedAt)} ago) {reflection.Musing}";
 
     private async Task<Message> StoreMessageAsync(
         string userId, Guid conversationId, MessageRole role, string content, Guid? replyToId,

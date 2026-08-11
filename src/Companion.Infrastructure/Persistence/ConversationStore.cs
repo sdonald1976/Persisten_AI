@@ -92,6 +92,16 @@ public sealed class ConversationStore : IConversationStore
         return any;
     }
 
+    public async Task<DateTimeOffset?> GetFirstMessageAtAsync(string userId, CancellationToken ct = default)
+        => await _db.Messages
+            .Where(m => m.UserId == userId && m.Role == MessageRole.User)
+            .OrderBy(m => m.Timestamp)
+            .Select(m => (DateTimeOffset?)m.Timestamp)
+            .FirstOrDefaultAsync(ct);
+
+    public async Task<int> CountUserMessagesAsync(string userId, CancellationToken ct = default)
+        => await _db.Messages.CountAsync(m => m.UserId == userId && m.Role == MessageRole.User, ct);
+
     public async Task<IReadOnlyList<Message>> GetRememberableMessagesSinceAsync(
         string userId, DateTimeOffset? after, int max, CancellationToken ct = default)
     {

@@ -28,6 +28,12 @@ public interface IConversationStore
     /// </summary>
     Task<DateTimeOffset?> GetLastMessageAtAsync(string userId, CancellationToken ct = default);
 
+    /// <summary>Timestamp of the user's FIRST message ever (tenure anchor), or null.</summary>
+    Task<DateTimeOffset?> GetFirstMessageAtAsync(string userId, CancellationToken ct = default);
+
+    /// <summary>How many messages the user has ever sent (interaction depth for familiarity).</summary>
+    Task<int> CountUserMessagesAsync(string userId, CancellationToken ct = default);
+
     /// <summary>
     /// Messages across all the user's conversations strictly newer than <paramref name="after"/>
     /// (or all of them when null), oldest first, capped at <paramref name="max"/>. Excludes every

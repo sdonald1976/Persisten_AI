@@ -14,5 +14,6 @@ public interface IContextAssembler
         RelationshipSnapshot? relationship = null,
         string? musing = null,
         string? curiosity = null,
-        string? companionMood = null);
+        string? companionMood = null,
+        string? familiarity = null);
 }
