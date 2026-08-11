@@ -214,6 +214,23 @@ public static class Prompts
         Define("thoughts.curiosity.with", "A held question after musings. {question}",
             "And since you're asking — something I've been wanting to know: {question}");
 
+        Define("intent.system", "How a chat message may be promoted to a recognized intent.",
+            "You classify ONE user message sent to an AI companion. Decide whether it is really one " +
+            "of these intents, or just conversation:\n" +
+            "- Recall: asking what the companion remembers/knows about them or a topic (argument: the topic, or null)\n" +
+            "- ListProjects: asking what they're working on / their projects\n" +
+            "- ListOpenLoops: asking what's unfinished / loose ends\n" +
+            "- ShareThoughts: asking what the COMPANION is thinking/has on her mind (NOT asking her opinion of something)\n" +
+            "- Greeting: a bare greeting with no content\n" +
+            "- Chat: anything else — questions, statements, requests, opinions. When unsure, Chat.\n\n" +
+            "Return ONLY JSON: {\"intent\": \"Recall\"|\"ListProjects\"|\"ListOpenLoops\"|\"ShareThoughts\"|\"Greeting\"|\"Chat\", \"argument\": string or null}");
+
+        Define("rephrase.system", "How a deterministic draft is restyled into her voice. {situation}",
+            "Rewrite the message below in your own voice, as yourself. The situation: {situation}.\n" +
+            "Rules: keep every fact, name, and question exactly as given; add NOTHING new — no extra " +
+            "information, no new promises, no new questions; keep roughly the same length; return " +
+            "ONLY the rewritten message, nothing else.");
+
         // ---- system prompts for the model-facing jobs ----
 
         Define("reflection.system", "The between-session reflection (inner monologue) instructions.",
