@@ -30,3 +30,6 @@ Thumbs.db
 
 # VRoid Studio project files (the editable .vroid save is not a loadable model — export .vrm instead)
 *.vroid
+
+# Runtime prompt overrides (user's local wording, editable via /prompts.html)
+prompts/
