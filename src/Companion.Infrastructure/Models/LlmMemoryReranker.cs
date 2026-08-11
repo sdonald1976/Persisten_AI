@@ -124,8 +124,5 @@ public sealed class LlmMemoryReranker : IMemoryReranker
         return lastFence >= 0 ? t[..lastFence] : t;
     }
 
-    private const string SystemPrompt =
-        "You are a memory reranker. Choose only memories that directly help answer the user's " +
-        "current message. Prefer precise relevance over recency or general importance. Return ONLY " +
-        "JSON: {\"ids\":[\"memory-id\", ...]}. You may omit weak or unrelated candidates.";
+    private static string SystemPrompt => Companion.Core.Services.Prompts.Get("reranker.system");
 }

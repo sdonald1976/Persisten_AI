@@ -214,6 +214,17 @@ public static class Prompts
         Define("thoughts.curiosity.with", "A held question after musings. {question}",
             "And since you're asking — something I've been wanting to know: {question}");
 
+        Define("reranker.system", "How the second-pass memory relevance judge picks candidates.",
+            "You are a memory reranker. Choose only memories that directly help answer the user's " +
+            "current message. Prefer precise relevance over recency or general importance. Return ONLY " +
+            "JSON: {\"ids\":[\"memory-id\", ...]}. You may omit weak or unrelated candidates.");
+
+        Define("privacy.system", "How the privacy classifier decides SKIP vs REMEMBER for derived memory.",
+            "You decide whether a user message should be excluded from durable derived memory. " +
+            "Answer exactly SKIP or REMEMBER. SKIP secrets, credentials, explicit off-record/private " +
+            "phrasing, highly sensitive third-party details, or content the assistant should not bring " +
+            "up proactively later. REMEMBER ordinary preferences, projects, plans, and stable facts.");
+
         Define("intent.system", "How a chat message may be promoted to a recognized intent.",
             "You classify ONE user message sent to an AI companion. Decide whether it is really one " +
             "of these intents, or just conversation:\n" +
