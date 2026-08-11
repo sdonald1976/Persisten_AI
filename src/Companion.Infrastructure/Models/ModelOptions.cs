@@ -21,6 +21,15 @@ public sealed class ModelOptions
     /// <summary>Model for consolidation summaries (cheap and fast). Falls back to <see cref="Chat"/>.</summary>
     public EndpointOptions? Summarizer { get; set; }
 
+    /// <summary>Optional memory reranker. Falls back to <see cref="Summarizer"/> then <see cref="Chat"/>.</summary>
+    public EndpointOptions? Reranker { get; set; }
+
+    /// <summary>Optional safety/privacy classifier. Falls back to <see cref="Extraction"/> then <see cref="Chat"/>.</summary>
+    public EndpointOptions? Safety { get; set; }
+
+    /// <summary>Optional task-completion auditor. Falls back to <see cref="Summarizer"/> then <see cref="Chat"/>.</summary>
+    public EndpointOptions? TaskAuditor { get; set; }
+
     /// <summary>Dedicated embedding model.</summary>
     public EndpointOptions Embeddings { get; set; } = new();
 
@@ -48,6 +57,15 @@ public sealed class ModelOptions
 
     /// <summary>Summarizer endpoint, or the conversational one if not separately configured.</summary>
     public EndpointOptions SummarizerOrChat => Summarizer ?? Chat;
+
+    /// <summary>Reranker endpoint, or the cheap summarizer fallback.</summary>
+    public EndpointOptions RerankerOrSummarizer => Reranker ?? SummarizerOrChat;
+
+    /// <summary>Safety endpoint, or the structured extraction fallback.</summary>
+    public EndpointOptions SafetyOrExtraction => Safety ?? ExtractionOrChat;
+
+    /// <summary>Task auditor endpoint, or the cheap summarizer fallback.</summary>
+    public EndpointOptions TaskAuditorOrSummarizer => TaskAuditor ?? SummarizerOrChat;
 }
 
 /// <summary>Connection details for one OpenAI-compatible endpoint (chat or embeddings).</summary>

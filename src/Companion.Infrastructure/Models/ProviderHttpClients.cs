@@ -21,6 +21,9 @@ internal static class ProviderHttpClients
     public const string Conversation = "conversation";
     public const string Extraction = "extraction";
     public const string Summarizer = "summarizer";
+    public const string Reranker = "reranker";
+    public const string Safety = "safety";
+    public const string TaskAuditor = "task-auditor";
     public const string Embeddings = "embeddings";
     public const string Vision = "vision";
     public const string Transcription = "transcription";
@@ -34,6 +37,9 @@ internal static class ProviderHttpClients
         Register(services, Conversation, options.Chat);
         Register(services, Extraction, options.ExtractionOrChat);
         Register(services, Summarizer, options.SummarizerOrChat);
+        Register(services, Reranker, options.RerankerOrSummarizer);
+        Register(services, Safety, options.SafetyOrExtraction);
+        Register(services, TaskAuditor, options.TaskAuditorOrSummarizer);
         Register(services, Embeddings, options.Embeddings);
         if (options.Vision is { } vision) Register(services, Vision, vision);
         if (options.Transcription is { } transcription) Register(services, Transcription, transcription);

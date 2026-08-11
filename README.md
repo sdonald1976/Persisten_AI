@@ -102,8 +102,9 @@ in `src/Companion.Api/appsettings.json` (or override with env vars, e.g.
 the same adapter works for both — just change the base URL and model names.
 
 Each job can use its **own** model — a big conversational model, a small structured-output
-extraction model, a cheap/fast summarizer, and a dedicated embedder. `Extraction` and
-`Summarizer` are optional; omit them to reuse the `Chat` model.
+extraction model, a cheap/fast summarizer, specialist judges, and a dedicated embedder.
+`Extraction` and `Summarizer` are optional; omit them to reuse the `Chat` model.
+`Reranker` and `TaskAuditor` fall back to `Summarizer`; `Safety` falls back to `Extraction`.
 
 **Ollama** (default port 11434):
 ```jsonc
@@ -112,6 +113,9 @@ extraction model, a cheap/fast summarizer, and a dedicated embedder. `Extraction
   "Chat":       { "BaseUrl": "http://localhost:11434/v1", "Model": "dolphin-mixtral:8x7b" }, // conversation: larger/better
   "Extraction": { "BaseUrl": "http://localhost:11434/v1", "Model": "llama3.1:8b" },          // structured-output-friendly
   "Summarizer": { "BaseUrl": "http://localhost:11434/v1", "Model": "llama3.2:3b" },          // cheap/fast
+  "Reranker":   { "BaseUrl": "http://localhost:11434/v1", "Model": "llama3.2:3b" },          // optional memory relevance judge
+  "Safety":     { "BaseUrl": "http://localhost:11434/v1", "Model": "llama3.1:8b" },          // optional privacy classifier
+  "TaskAuditor":{ "BaseUrl": "http://localhost:11434/v1", "Model": "llama3.2:3b" },          // optional long-task completion judge
   "Embeddings": { "BaseUrl": "http://localhost:11434/v1", "Model": "nomic-embed-text" }      // dedicated embedder
 }
 ```

@@ -16,6 +16,7 @@ public sealed class Retriever : IRetriever
     private readonly IMemoryStore _memories;
     private readonly IEmbeddingModel _embeddings;
     private readonly IVectorIndex _vectorIndex;
+    private readonly IMemoryReranker _reranker;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Retriever> _logger;
@@ -24,6 +25,7 @@ public sealed class Retriever : IRetriever
         IMemoryStore memories,
         IEmbeddingModel embeddings,
         IVectorIndex vectorIndex,
+        IMemoryReranker reranker,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Retriever> logger)
@@ -31,6 +33,7 @@ public sealed class Retriever : IRetriever
         _memories = memories;
         _embeddings = embeddings;
         _vectorIndex = vectorIndex;
+        _reranker = reranker;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -109,11 +112,11 @@ public sealed class Retriever : IRetriever
         }
 
         var ranked = scored.OrderByDescending(r => r.Score).ToList();
-        var selected = ranked
+        var eligible = ranked
             .Where(r => r.Score >= _options.MinScore
                 && relevance.GetValueOrDefault(r.Memory.Id) >= _options.RelevanceFloor)
-            .Take(_options.TopK)
             .ToList();
+        var selected = (await _reranker.RerankAsync(query, eligible, _options.TopK, ct)).ToList();
         var excluded = ranked.Except(selected).ToList();
 
         _logger.LogDebug(

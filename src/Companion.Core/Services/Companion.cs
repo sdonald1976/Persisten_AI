@@ -36,6 +36,7 @@ public sealed class Companion : ICompanion
     private readonly ICompanionStateTracker _innerState;
     private readonly IFamiliarityTracker _familiarity;
     private readonly IPreferenceStore _preferences;
+    private readonly IPrivacyClassifier _privacy;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -59,6 +60,7 @@ public sealed class Companion : ICompanion
         ICompanionStateTracker innerState,
         IFamiliarityTracker familiarity,
         IPreferenceStore preferences,
+        IPrivacyClassifier privacy,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -81,6 +83,7 @@ public sealed class Companion : ICompanion
         _innerState = innerState;
         _familiarity = familiarity;
         _preferences = preferences;
+        _privacy = privacy;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -227,7 +230,10 @@ public sealed class Companion : ICompanion
         // reply but writes NO durable derived memory — no extraction, no project/open-loop updates,
         // and no emotional signal. Raw messages are still stored for in-session context.
         var conversation = await _conversations.GetConversationAsync(conversationId, userId, ct);
-        var remember = _options.EnableExtraction && !(conversation?.DoNotRemember ?? false);
+        var sensitive = await _privacy.ShouldSkipDerivedMemoryAsync(promptText, ct);
+        var remember = _options.EnableExtraction && !(conversation?.DoNotRemember ?? false) && !sensitive;
+        if (sensitive)
+            _logger.LogInformation("Derived memory skipped for {UserId}: privacy classifier marked the turn sensitive.", userId);
 
         // Roleplay gate: an in-character turn (RP markup, or a relationship word the persona has
         // claimed — if she IS "your sister", "my sister" means HER) gets a full reply but leaves
