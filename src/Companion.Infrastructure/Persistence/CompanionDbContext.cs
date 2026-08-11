@@ -30,6 +30,7 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<EmotionalSignal> EmotionalSignals => Set<EmotionalSignal>();
     public DbSet<Reflection> Reflections => Set<Reflection>();
     public DbSet<Curiosity> Curiosities => Set<Curiosity>();
+    public DbSet<OutboundMessage> OutboundMessages => Set<OutboundMessage>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -100,6 +101,16 @@ public sealed class CompanionDbContext : DbContext
             // Voicing queries (UserId, Status); provenance points back at the reflection.
             e.HasIndex(x => new { x.UserId, x.Status });
             e.HasIndex(x => x.ReflectionId);
+        });
+
+        b.Entity<OutboundMessage>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Text).HasMaxLength(500);
+            e.Property(x => x.Source).HasMaxLength(100);
+            // The budget check reads a user's most recent send.
+            e.HasIndex(x => new { x.UserId, x.SentAt });
         });
 
         b.Entity<PendingClarification>(e =>

@@ -59,9 +59,14 @@ each configured model once; they persist in the `speaches-models` volume:
 
 ```bash
 curl -X POST "http://localhost:8000/v1/models/Systran/faster-whisper-small"
-curl -X POST "http://localhost:8000/v1/models/speaches-ai/piper-en_US-amy-low"
+curl -X POST "http://localhost:8000/v1/models/speaches-ai/Kokoro-82M-v1.0-ONNX"
 curl http://localhost:8000/v1/models   # confirm both are listed
 ```
+
+The default TTS is **Kokoro** (`speaches-ai/Kokoro-82M-v1.0-ONNX`, voice `af_heart`) — much more
+natural prosody than the Piper voices. Other voices to try in `Speech.Voice`: `af_bella`,
+`af_nicole`, `af_sky`, `bf_emma` (or pass `voice` per `/speak` call). Piper still works if you
+prefer it: `speaches-ai/piper-en_US-amy-low` with voice `amy` is the lightweight option.
 
 No companion restart needed afterwards — the next call simply finds the model.
 
