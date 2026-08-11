@@ -48,8 +48,22 @@ Already present in `src/Companion.Api/appsettings.json` under `Models`:
 }
 ```
 
-The model name is downloaded on first use. Bigger = more accurate but slower and heavier. Remove a
-block entirely to disable that half: no `Transcription` → no `/transcribe`; no `Speech` → no `/speak`.
+Bigger = more accurate but slower and heavier. Remove a block entirely to disable that half:
+no `Transcription` → no `/transcribe`; no `Speech` → no `/speak`.
+
+## Pull the models once
+
+Current Speaches versions do **not** download a model on first use — a `/transcribe` or `/speak`
+call against a model that isn't installed fails with HTTP 404 ("not installed locally"). Pull
+each configured model once; they persist in the `speaches-models` volume:
+
+```bash
+curl -X POST "http://localhost:8000/v1/models/Systran/faster-whisper-small"
+curl -X POST "http://localhost:8000/v1/models/speaches-ai/piper-en_US-amy-low"
+curl http://localhost:8000/v1/models   # confirm both are listed
+```
+
+No companion restart needed afterwards — the next call simply finds the model.
 
 ## Use it
 
