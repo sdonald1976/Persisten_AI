@@ -42,6 +42,7 @@ public class SleepCycleTests
             new FakeReflector(reflection),
             consolidator,
             sp.GetRequiredService<IReflectionStore>(),
+            sp.GetRequiredService<IAnticipationStore>(),
             sp.GetRequiredService<TimeProvider>(),
             NullLogger<SleepCycle>.Instance);
 
