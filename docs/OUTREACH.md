@@ -43,13 +43,27 @@ Leave `NtfyUrl` empty and the whole feature is off — no worker, no checks, not
 Every gate must pass, in order:
 
 1. **You've met.** She never messages a user who has never talked to her.
-2. **You're actually away** — no activity for `AwayHours`.
-3. **The budget is clear** — at least `MinHoursBetween` since her last outreach. Rare is what
+2. **The budget is clear** — at least `MinHoursBetween` since her last outreach. Rare is what
    keeps an unprompted message special instead of needy.
-4. **It's a decent hour** — quiet hours are respected (window may cross midnight).
-5. **She has something real to say** — an open curiosity minted by her reflection pass. The
-   notification *is* the question. No curiosity → no message; she never sends an empty "hey"
-   because a timer fired.
+3. **It's a decent hour** — quiet hours are respected (window may cross midnight).
+4. **She has something real to say**, in priority order:
+   - **Event-day encouragement** — you mentioned a dated plan ("I have an interview on
+     Thursday"); on the morning of the day she sends *"Good luck with your interview today —
+     I'll be thinking of you."* This is the one message that does **not** wait for you to be
+     away: arriving before the event is the point.
+   - **Post-event follow-up** *(requires you've been away `AwayHours`)* — the event passed and
+     was never asked about in-app: *"Been thinking of you — how did your interview go?"*
+   - **A held curiosity** *(requires away)* — a question minted by her reflection pass:
+     *"You crossed my mind. What's your sister's name?"*
+
+   Nothing to say → no message; she never sends an empty "hey" because a timer fired.
+
+Dated plans are captured by a conservative deterministic detector during normal conversation
+("I have X tomorrow / on Friday", "my X is on Saturday") and follow a once-each arc:
+encouragement on the day, follow-up after, then closed — whether voiced by push or by the
+greeting, whichever moment comes first. Events more than a week past expire silently (the sleep
+cycle) — she doesn't dredge up an interview from three weeks ago. `GET /anticipations` shows
+what she's currently holding.
 
 Sending **spends** the curiosity (voiced-on-send, the same rule as greeting openers and in-chat
 offers), so she'll never re-ask it in-app — the next session just picks up from it naturally. A

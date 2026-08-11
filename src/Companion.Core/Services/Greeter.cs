@@ -25,6 +25,7 @@ public sealed class Greeter : IGreeter
     private readonly IRelationshipTracker _relationship;
     private readonly IEmotionStore _emotions;
     private readonly IReflectionStore _reflections;
+    private readonly IAnticipationStore _anticipations;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
 
@@ -35,6 +36,7 @@ public sealed class Greeter : IGreeter
         IRelationshipTracker relationship,
         IEmotionStore emotions,
         IReflectionStore reflections,
+        IAnticipationStore anticipations,
         IOptions<CompanionOptions> options,
         TimeProvider clock)
     {
@@ -44,6 +46,7 @@ public sealed class Greeter : IGreeter
         _relationship = relationship;
         _emotions = emotions;
         _reflections = reflections;
+        _anticipations = anticipations;
         _options = options.Value;
         _clock = clock;
     }
@@ -96,9 +99,36 @@ public sealed class Greeter : IGreeter
         if (surfacedTopic is not null)
             await _emotions.MarkTopicFollowedUpAsync(userId, surfacedTopic, ct);
 
+        // Dated events she's holding: encouragement on/just before the day, a follow-up once it's
+        // passed. Each voiced at most once — surfacing marks the arc forward, same rule as the
+        // mood follow-up above.
+        var today = _clock.GetLocalNow().Date;
+        foreach (var a in await _anticipations.GetOpenAsync(userId, ct))
+        {
+            if (openers.Count >= MaxOpeners)
+                break;
+
+            if (a.EventAt.Date < today && a.IsOpen)
+            {
+                openers.Add($"How did {a.Description} go?");
+                await _anticipations.MarkFollowedUpAsync(userId, a.Id, now, ct);
+            }
+            else if (a.Status == AnticipationStatus.Pending
+                && (a.EventAt.Date == today || a.EventAt.Date == today.AddDays(1)))
+            {
+                var when = a.EventAt.Date == today ? "today" : "tomorrow";
+                openers.Add($"Good luck with {a.Description} {when} — I'll be thinking of you.");
+                await _anticipations.MarkEncouragedAsync(userId, a.Id, now, ct);
+            }
+        }
+
         // Follow up on what the companion itself promised (its own initiative).
         foreach (var c in commitments.Take(1))
+        {
+            if (openers.Count >= MaxOpeners)
+                break;
             openers.Add($"Last time I said I'd {LowerFirst(c.Description.TrimEnd('.'))} — want to pick that up?");
+        }
 
         // A curiosity minted while the user was away — the between-session monologue reaching the
         // greeting. Voicing it here consumes it: raised once, then let go, exactly like the mood
