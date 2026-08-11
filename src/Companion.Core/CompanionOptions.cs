@@ -97,6 +97,13 @@ public sealed class CompanionOptions
     /// breathe — this is what keeps proactive curiosity from feeling like an interview.
     /// </summary>
     public double CuriosityCooldownHours { get; set; } = 1.0;
+
+    /// <summary>
+    /// Layer the LLM intent classifier on top of the deterministic rules (requires a real model).
+    /// The rules always run first and always win when they match; the model may only promote a
+    /// plain chat message to a read-only intent for phrasings the rules don't know.
+    /// </summary>
+    public bool UseLlmIntentParser { get; set; }
 }
 
 /// <summary>Weights applied to each retrieval signal before summation.</summary>
