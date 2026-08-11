@@ -33,6 +33,13 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<OutboundMessage> OutboundMessages => Set<OutboundMessage>();
     public DbSet<Anticipation> Anticipations => Set<Anticipation>();
     public DbSet<CompanionPreference> CompanionPreferences => Set<CompanionPreference>();
+    public DbSet<AttentionItem> AttentionItems => Set<AttentionItem>();
+    public DbSet<MemoryAssociation> MemoryAssociations => Set<MemoryAssociation>();
+    public DbSet<SharedExperiencePerspective> SharedExperiencePerspectives => Set<SharedExperiencePerspective>();
+    public DbSet<Procedure> Procedures => Set<Procedure>();
+    public DbSet<ProcedureStep> ProcedureSteps => Set<ProcedureStep>();
+    public DbSet<ProcedureRevision> ProcedureRevisions => Set<ProcedureRevision>();
+    public DbSet<CapabilityDescriptor> Capabilities => Set<CapabilityDescriptor>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -90,6 +97,85 @@ public sealed class CompanionDbContext : DbContext
             e.HasIndex(x => new { x.UserId, x.CreatedAt });
             ConfigureEmbedding(e.Property(x => x.Embedding));
             e.Ignore(x => x.HasMusing);
+        });
+
+        b.Entity<AttentionItem>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Subject).HasMaxLength(160);
+            e.Property(x => x.Summary).HasMaxLength(500);
+            e.Property(x => x.SourceType).HasConversion<string>().HasMaxLength(40);
+            e.Property(x => x.SourceId).HasMaxLength(80);
+            e.Property(x => x.Owner).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(x => new { x.UserId, x.Status, x.LastActivatedAt });
+        });
+
+        b.Entity<MemoryAssociation>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.AssociationType).HasConversion<string>().HasMaxLength(40);
+            e.Property(x => x.Evidence).HasMaxLength(500);
+            e.HasIndex(x => new { x.UserId, x.SourceMemoryId });
+            e.HasIndex(x => new { x.UserId, x.TargetMemoryId });
+        });
+
+        b.Entity<SharedExperiencePerspective>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Owner).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Summary).HasMaxLength(500);
+            e.Property(x => x.Evidence).HasMaxLength(500);
+            e.HasIndex(x => new { x.UserId, x.ExperienceId });
+        });
+
+        b.Entity<Procedure>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Name).HasMaxLength(160);
+            e.Property(x => x.Description).HasMaxLength(1000);
+            e.Property(x => x.Owner).HasConversion<string>().HasMaxLength(40);
+            e.Property(x => x.Access).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Evidence).HasMaxLength(1000);
+            e.HasIndex(x => new { x.UserId, x.Status });
+            e.HasMany(x => x.Steps).WithOne().HasForeignKey(x => x.ProcedureId).OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.Revisions).WithOne().HasForeignKey(x => x.ProcedureId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ProcedureStep>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Instruction).HasMaxLength(1000);
+            e.Property(x => x.Notes).HasMaxLength(500);
+            e.HasIndex(x => new { x.UserId, x.ProcedureId, x.Order });
+        });
+
+        b.Entity<ProcedureRevision>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Kind).HasMaxLength(40);
+            e.Property(x => x.Note).HasMaxLength(1000);
+            e.HasIndex(x => new { x.UserId, x.ProcedureId, x.Timestamp });
+        });
+
+        b.Entity<CapabilityDescriptor>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(100);
+            e.Property(x => x.Name).HasMaxLength(120);
+            e.Property(x => x.Description).HasMaxLength(500);
+            e.Property(x => x.InputTypes).HasMaxLength(200);
+            e.Property(x => x.OutputTypes).HasMaxLength(200);
+            e.Property(x => x.Provider).HasMaxLength(120);
+            e.Property(x => x.Model).HasMaxLength(200);
+            e.Property(x => x.Availability).HasConversion<string>().HasMaxLength(20);
         });
 
         b.Entity<Curiosity>(e =>

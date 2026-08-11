@@ -253,6 +253,10 @@ public static class Prompts
             " \"curiosities\": [{\"question\": string, \"about\": string, \"reason\": string}],\n" +
             " \"sharedMoments\": [{\"summary\": string, \"evidence\": string, \"significance\": 0..1, \"tone\": string}],\n" +
             " \"preferences\": [{\"owner\":\"Companion\", \"subject\": string, \"feeling\": \"like\"|\"dislike\"|\"mixed\", \"strength\": \"slight\"|\"moderate\"|\"strong\", \"reason\": string, \"evidence\": string}],\n" +
+            " \"attentionCandidates\": [{\"subject\": string, \"summary\": string, \"strength\": 0..1, \"evidence\": string}],\n" +
+            " \"associationCandidates\": [{\"sourceMemory\": string, \"targetMemory\": string, \"associationType\": string, \"strength\": 0..1, \"evidence\": string}],\n" +
+            " \"procedureCandidates\": [{\"text\": string, \"evidence\": string}],\n" +
+            " \"sharedPerspectiveCandidates\": [{\"experience\": string, \"owner\":\"User\"|\"Companion\", \"summary\": string, \"confidence\": 0..1, \"evidence\": string}],\n" +
             " \"settled\": [string]}\n\n" +
             "sharedMoments (at most 2) are moments you and the user genuinely had TOGETHER — teaching, " +
             "joking, working through something side by side. summary is one sentence of shared history " +
@@ -264,6 +268,12 @@ public static class Prompts
             "words from the conversation. Never echo what the user likes. The user loving something is a " +
             "fact about them, not about you; only report a preference when something genuinely landed with " +
             "you or didn't.\n\n" +
+            "attentionCandidates are short-lived things currently on your mind. Include at most 3, and each " +
+            "must cite evidence from the conversation. associationCandidates link existing remembered topics " +
+            "only when the conversation clearly connects them. procedureCandidates are only for explicit " +
+            "teaching language like \"this is how I...\" or \"remember this process\". sharedPerspectiveCandidates " +
+            "are interpretations of an existing shared moment; User perspectives require user evidence, " +
+            "Companion perspectives require your own reflection/evidence. Empty arrays are good when unsure.\n\n" +
             "settled lists any of your held questions this conversation actually answered (repeat the " +
             "question or its topic).\n\n" +
             "The musing is a short first-person diary entry (2-5 sentences): what you noticed, what " +

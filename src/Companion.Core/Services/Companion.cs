@@ -37,6 +37,11 @@ public sealed class Companion : ICompanion
     private readonly IFamiliarityTracker _familiarity;
     private readonly IPreferenceStore _preferences;
     private readonly IPrivacyClassifier _privacy;
+    private readonly IAttentionService _attention;
+    private readonly IAssociativeRecallService _associativeRecall;
+    private readonly IProcedureStore _procedures;
+    private readonly ICapabilityRegistry _capabilities;
+    private readonly ISharedPerspectiveStore _sharedPerspectives;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -61,6 +66,11 @@ public sealed class Companion : ICompanion
         IFamiliarityTracker familiarity,
         IPreferenceStore preferences,
         IPrivacyClassifier privacy,
+        IAttentionService attention,
+        IAssociativeRecallService associativeRecall,
+        IProcedureStore procedures,
+        ICapabilityRegistry capabilities,
+        ISharedPerspectiveStore sharedPerspectives,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -84,6 +94,11 @@ public sealed class Companion : ICompanion
         _familiarity = familiarity;
         _preferences = preferences;
         _privacy = privacy;
+        _attention = attention;
+        _associativeRecall = associativeRecall;
+        _procedures = procedures;
+        _capabilities = capabilities;
+        _sharedPerspectives = sharedPerspectives;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -251,6 +266,9 @@ public sealed class Companion : ICompanion
 
         // 4. Retrieve relevant memories, boosted by the resolved project.
         var outcome = await _retriever.RetrieveAsync(userId, promptText, projectContext.ResolvedProjectName, ct);
+        var associative = await _associativeRecall.ExpandAsync(
+            userId, promptText, outcome.Selected, _options.MaxAssociativeMemories, ct);
+        var selectedMemories = outcome.Selected.Concat(associative).ToList();
 
         // Recent prior turns (exclude the extraction source we just handled).
         var recent = (await _conversations.GetRecentMessagesAsync(
@@ -289,12 +307,17 @@ public sealed class Companion : ICompanion
         var temporal = TemporalNote(_clock.GetLocalNow(), now, lastSeenBefore);
         var preferenceNotes = await RelevantPreferencesAsync(
             userId, outcome.QueryEmbedding, identityProjection.CompanionRef, ct);
+        var attentionNotes = await _attention.SelectForContextAsync(userId, promptText, _options.MaxAttentionItems, ct);
+        var procedureNotes = await RelevantProceduresAsync(userId, promptText, identityProjection.UserRef, ct);
+        var capabilityNote = await _capabilities.RenderSummaryAsync(promptText, ct);
+        var perspectiveNotes = await SharedPerspectiveNotesAsync(userId, selectedMemories, identityProjection, ct);
 
         // 5. Assemble a bounded, labeled context packet (with the user's persona/style + tone read).
         var packet = _assembler.Assemble(
-            promptText, recent, outcome.Selected, projectContext, persona, relationship,
+            promptText, recent, selectedMemories, projectContext, persona, relationship,
             musing, curiosity?.Question, innerState.Describe(), familiarity.Describe(),
-            temporal, preferenceNotes, identityProjection);
+            temporal, preferenceNotes, identityProjection, attentionNotes, procedureNotes,
+            capabilityNote, perspectiveNotes);
 
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
@@ -323,7 +346,12 @@ public sealed class Companion : ICompanion
         // companion-owned open loop, so it can follow up next session instead of forgetting it said
         // so. Skipped on private and in-character turns; deduped against existing open commitments.
         if (extractFacts)
+        {
+            await _attention.CaptureTurnAsync(userId, extractionSource, remember: true, ct);
+            await _procedures.ApplyRevisionAsync(userId, extractionSource, now, ct);
+            await _procedures.AddOrUpdateFromTeachingAsync(userId, conversationId, extractionSource, now, ct);
             await CaptureCommitmentAsync(userId, response, assistantMsg.Id, now, ct);
+        }
 
         // 10c. The offered curiosity is spent whether or not the model chose to raise it — asked
         // once (or passed over once) is the whole budget, so proactive wondering never nags.
@@ -450,6 +478,38 @@ public sealed class Companion : ICompanion
             .OrderByDescending(x => x.Score)
             .Take(MaxPreferenceNotes)
             .Select(x => x.Preference.Describe(companionName))
+            .ToList();
+    }
+
+    private async Task<IReadOnlyList<string>> RelevantProceduresAsync(
+        string userId, string query, string userName, CancellationToken ct)
+    {
+        var procedures = await _procedures.SearchAsync(userId, query, _options.MaxProceduresInContext, ct);
+        return procedures.Select(p =>
+        {
+            var activeSteps = p.Steps.Where(s => s.IsActive).OrderBy(s => s.Order).Take(8).ToList();
+            var steps = string.Join(" ", activeSteps.Select(s => $"{s.Order}. {s.Instruction}"));
+            return $"{userName}'s {p.Name} ({p.Access}; authoritative user-taught workflow): {steps}";
+        }).ToList();
+    }
+
+    private async Task<IReadOnlyList<string>> SharedPerspectiveNotesAsync(
+        string userId, IReadOnlyList<RetrievalResult> selected, PromptIdentityContext identities, CancellationToken ct)
+    {
+        var sharedIds = selected
+            .Select(r => r.Memory)
+            .OfType<EpisodicMemory>()
+            .Where(m => m.Owner == MemoryOwner.Shared)
+            .Select(m => m.Id)
+            .ToList();
+        var perspectives = await _sharedPerspectives.GetForExperiencesAsync(userId, sharedIds, ct);
+        return perspectives
+            .Take(_options.MaxSharedPerspectivesInContext)
+            .Select(p =>
+            {
+                var owner = p.Owner == MemoryOwner.Companion ? identities.CompanionRef : identities.UserRef;
+                return $"{owner} perspective: {p.Summary} (interpretation; confidence {Math.Round(p.Confidence, 2)})";
+            })
             .ToList();
     }
 

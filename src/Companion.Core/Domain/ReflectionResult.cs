@@ -14,6 +14,11 @@ public sealed record ReflectionResult
     /// <summary>The companion's own preferences this pass created or evolved.</summary>
     public IReadOnlyList<CompanionPreference> Preferences { get; init; } = Array.Empty<CompanionPreference>();
 
+    public IReadOnlyList<AttentionItem> AttentionItems { get; init; } = Array.Empty<AttentionItem>();
+    public IReadOnlyList<MemoryAssociation> Associations { get; init; } = Array.Empty<MemoryAssociation>();
+    public IReadOnlyList<Procedure> Procedures { get; init; } = Array.Empty<Procedure>();
+    public IReadOnlyList<SharedExperiencePerspective> SharedPerspectives { get; init; } = Array.Empty<SharedExperiencePerspective>();
+
     /// <summary>How many held curiosities the conversation turned out to have answered.</summary>
     public int SatisfiedCuriosities { get; init; }
 }

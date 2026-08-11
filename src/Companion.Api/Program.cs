@@ -182,6 +182,25 @@ app.MapPost("/chat", async (ChatRequest req, IUserContext user, IConversationSto
     return Results.Ok(ReplyDto.From(reply));
 });
 
+app.MapGet("/capabilities", async (ICapabilityRegistry registry, CancellationToken ct) =>
+{
+    var capabilities = await registry.GetAllAsync(ct);
+    return Results.Ok(capabilities.Select(c => new
+    {
+        c.Id,
+        c.Name,
+        c.Description,
+        c.InputTypes,
+        c.OutputTypes,
+        c.Provider,
+        c.Model,
+        c.Availability,
+        c.LocalOnly,
+        confidence = Math.Round(c.Confidence, 2),
+        c.LastVerifiedAt,
+    }));
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.MapPost("/debug/chat", async (ChatRequest req, IUserContext user, IConversationStore conversations, IAgent agent, CancellationToken ct) =>

@@ -52,6 +52,10 @@ public static class ContextPacketRenderer
 
         ProseSection(sb, "renderer.temporal.header", packet.TemporalNote, "renderer.temporal.rules");
 
+        BulletSection(sb, "CURRENT ATTENTION", packet.AttentionNotes);
+
+        ProseSection(sb, "CURRENT CAPABILITIES", packet.CapabilityNote);
+
         // The companion's own between-session thought: a musing to hold loosely, never a fact.
         ProseSection(sb, "renderer.musing.header", packet.Musing, "renderer.musing.rules");
 
@@ -118,11 +122,14 @@ public static class ContextPacketRenderer
         var outdated = rest.Where(i => i.Provenance == ContextProvenance.Outdated).ToList();
 
         BulletSection(sb, "renderer.shared.header", shared.Select(i => FormatMemory(i, packet.Identities)), "renderer.shared.rules");
+        BulletSection(sb, "SHARED EXPERIENCE PERSPECTIVES (interpretations, not objective facts)", packet.SharedPerspectiveNotes);
         BulletSection(sb, "renderer.direct.header", direct.Select(i => FormatMemory(i, packet.Identities)));
         BulletSection(sb, "renderer.inferred.header", inferred.Select(i => FormatMemory(i, packet.Identities)));
         BulletSection(sb, "renderer.outdated.header", outdated.Select(i => FormatMemory(i, packet.Identities)));
+        BulletSection(sb, "USER-TAUGHT PROCEDURES", packet.ProcedureNotes);
         BulletSection(sb, "renderer.preferences.header", packet.PreferenceNotes, "renderer.preferences.rules");
         BulletSection(sb, "renderer.uncertainty.header", packet.UncertaintyNotes);
+        BulletSection(sb, "DEBUG CONTEXT SELECTION", packet.Diagnostics);
 
         return sb.ToString().TrimEnd();
     }
@@ -224,7 +231,7 @@ public static class ContextPacketRenderer
     {
         if (string.IsNullOrWhiteSpace(body))
             return;
-        sb.AppendLine(Prompts.Get(headerKey));
+        sb.AppendLine(Prompts.Exists(headerKey) ? Prompts.Get(headerKey) : $"## {headerKey}");
         sb.AppendLine(body!.Trim());
         if (rulesKey is not null)
             sb.AppendLine(Prompts.Get(rulesKey));
@@ -238,7 +245,7 @@ public static class ContextPacketRenderer
         var list = items.ToList();
         if (list.Count == 0)
             return;
-        sb.AppendLine(Prompts.Get(headerKey));
+        sb.AppendLine(Prompts.Exists(headerKey) ? Prompts.Get(headerKey) : $"## {headerKey}");
         foreach (var item in list)
             sb.AppendLine($"- {item}");
         if (rulesKey is not null)
