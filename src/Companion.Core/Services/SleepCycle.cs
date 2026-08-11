@@ -19,9 +19,13 @@ public sealed class SleepCycle : ISleepCycle
     /// <summary>An open wondering older than this has missed its moment — let it go.</summary>
     internal static readonly TimeSpan StaleCuriosityAge = TimeSpan.FromDays(14);
 
+    /// <summary>An event this long past that never got its follow-up isn't asked about anymore.</summary>
+    public static readonly TimeSpan StaleAnticipationAge = TimeSpan.FromDays(7);
+
     private readonly IReflector _reflector;
     private readonly IMemoryConsolidator _consolidator;
     private readonly IReflectionStore _reflections;
+    private readonly IAnticipationStore _anticipations;
     private readonly TimeProvider _clock;
     private readonly ILogger<SleepCycle> _logger;
 
@@ -29,12 +33,14 @@ public sealed class SleepCycle : ISleepCycle
         IReflector reflector,
         IMemoryConsolidator consolidator,
         IReflectionStore reflections,
+        IAnticipationStore anticipations,
         TimeProvider clock,
         ILogger<SleepCycle> logger)
     {
         _reflector = reflector;
         _consolidator = consolidator;
         _reflections = reflections;
+        _anticipations = anticipations;
         _clock = clock;
         _logger = logger;
     }
@@ -50,25 +56,30 @@ public sealed class SleepCycle : ISleepCycle
         if (reflection is not null)
             consolidated = (await _consolidator.ConsolidateAsync(userId, ct)).Created.Count;
 
-        // 3. Let stale wonderings go, regardless — staleness is about time, not new material.
+        // 3. Let stale things go, regardless — staleness is about time, not new material:
+        // wonderings that never found their moment, and passed events that never got followed up.
         var dismissed = await _reflections.DismissStaleAsync(
             userId, _clock.GetUtcNow() - StaleCuriosityAge, ct);
+        var expired = await _anticipations.ExpireStaleAsync(
+            userId, _clock.GetLocalNow().Date - StaleAnticipationAge, ct);
 
         var result = new SleepCycleResult
         {
             Reflection = reflection,
             ConsolidatedGroups = consolidated,
             StaleCuriositiesDismissed = dismissed,
+            StaleAnticipationsExpired = expired,
         };
 
         if (result.DidAnything)
         {
             _logger.LogInformation(
                 "Sleep cycle for {UserId}: {Kind}, {Curiosities} curiosities minted, " +
-                "{Consolidated} groups consolidated, {Dismissed} stale curiosities dismissed.",
+                "{Consolidated} groups consolidated, {Dismissed} stale curiosities dismissed, " +
+                "{Expired} stale anticipations expired.",
                 userId,
                 reflection is null ? "no reflection" : reflection.Reflection.HasMusing ? "musing written" : "quiet day",
-                reflection?.Curiosities.Count ?? 0, consolidated, dismissed);
+                reflection?.Curiosities.Count ?? 0, consolidated, dismissed, expired);
         }
 
         return result;

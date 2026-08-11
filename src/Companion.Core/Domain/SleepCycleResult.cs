@@ -12,5 +12,9 @@ public sealed record SleepCycleResult
     /// <summary>How many stale open curiosities were let go.</summary>
     public int StaleCuriositiesDismissed { get; init; }
 
-    public bool DidAnything => Reflection is not null || ConsolidatedGroups > 0 || StaleCuriositiesDismissed > 0;
+    /// <summary>How many long-passed events were let go without their follow-up.</summary>
+    public int StaleAnticipationsExpired { get; init; }
+
+    public bool DidAnything => Reflection is not null || ConsolidatedGroups > 0
+        || StaleCuriositiesDismissed > 0 || StaleAnticipationsExpired > 0;
 }

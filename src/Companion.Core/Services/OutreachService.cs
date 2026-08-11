@@ -17,10 +17,14 @@ namespace Companion.Core.Services;
 /// </summary>
 public sealed class OutreachService : IOutreachService
 {
+    /// <summary>A passed event stays worth a "how did it go?" for this long; older is let go.</summary>
+    internal static readonly TimeSpan FollowUpWindow = TimeSpan.FromDays(7);
+
     private readonly IOutboundChannel _channel;
     private readonly IConversationStore _conversations;
     private readonly IOutreachStore _outreach;
     private readonly IReflectionStore _reflections;
+    private readonly IAnticipationStore _anticipations;
     private readonly IProfileStore _profiles;
     private readonly IPersonalityService _personality;
     private readonly OutreachOptions _options;
@@ -32,6 +36,7 @@ public sealed class OutreachService : IOutreachService
         IConversationStore conversations,
         IOutreachStore outreach,
         IReflectionStore reflections,
+        IAnticipationStore anticipations,
         IProfileStore profiles,
         IPersonalityService personality,
         IOptions<OutreachOptions> options,
@@ -42,6 +47,7 @@ public sealed class OutreachService : IOutreachService
         _conversations = conversations;
         _outreach = outreach;
         _reflections = reflections;
+        _anticipations = anticipations;
         _profiles = profiles;
         _personality = personality;
         _options = options.Value;
@@ -56,10 +62,9 @@ public sealed class OutreachService : IOutreachService
 
         var now = _clock.GetUtcNow();
 
-        // Gate 1: the user must actually be away — and must have talked to her at least once,
-        // ever. She never cold-messages someone she hasn't met.
+        // Gate 1: she must have met the user — never a cold message to someone who's never talked.
         var lastSeen = await _conversations.GetLastMessageAtAsync(userId, ct);
-        if (lastSeen is null || now - lastSeen < TimeSpan.FromHours(_options.AwayHours))
+        if (lastSeen is null)
             return null;
 
         // Gate 2: the budget. Rare is what keeps it special (and not creepy).
@@ -71,21 +76,61 @@ public sealed class OutreachService : IOutreachService
         if (IsQuietHour(_clock.GetLocalNow().Hour, _options.QuietStartHour, _options.QuietEndHour))
             return null;
 
-        // Gate 4: something real to say — the freshest curiosity from her between-session
-        // reflection. Its question is already phrased to the user, which is exactly the tone an
-        // unprompted message should have.
+        var today = _clock.GetLocalNow().Date;
+        var anticipations = await _anticipations.GetOpenAsync(userId, ct);
+
+        // Something to say, in priority order. Event-day encouragement deliberately skips the
+        // away-gate: "good luck today" has to land on the morning even if you chatted last night —
+        // arriving before the event IS the feature.
+        var eventToday = anticipations.FirstOrDefault(
+            a => a.Status == AnticipationStatus.Pending && a.EventAt.Date == today);
+        if (eventToday is not null)
+        {
+            return await DeliverAsync(
+                userId, $"Good luck with {eventToday.Description} today — I'll be thinking of you.",
+                $"anticipation:{eventToday.Id}", now,
+                onSent: () => _anticipations.MarkEncouragedAsync(userId, eventToday.Id, now, ct), ct);
+        }
+
+        // Everything below is "you've been gone a while" contact — the away-gate applies.
+        if (now - lastSeen < TimeSpan.FromHours(_options.AwayHours))
+            return null;
+
+        // A passed event that never got its follow-up (recent enough to still be current).
+        var passed = anticipations.FirstOrDefault(
+            a => a.IsOpen && a.EventAt.Date < today && today - a.EventAt.Date <= FollowUpWindow);
+        if (passed is not null)
+        {
+            return await DeliverAsync(
+                userId, $"Been thinking of you — how did {passed.Description} go?",
+                $"anticipation:{passed.Id}", now,
+                onSent: () => _anticipations.MarkFollowedUpAsync(userId, passed.Id, now, ct), ct);
+        }
+
+        // Otherwise: the freshest curiosity from her between-session reflection. Its question is
+        // already phrased to the user, which is exactly the tone an unprompted message should have.
         var curiosity = (await _reflections.GetOpenCuriositiesAsync(userId, ct)).FirstOrDefault();
         if (curiosity is null)
             return null;
 
+        return await DeliverAsync(
+            userId, $"You crossed my mind. {curiosity.Question}",
+            $"curiosity:{curiosity.Id}", now,
+            onSent: () => _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct), ct);
+    }
+
+    /// <summary>
+    /// Delivery first; state changes only after the message actually reached the outside world. A
+    /// failed send burns nothing — the source stays open and the budget untouched, so a later
+    /// check simply retries.
+    /// </summary>
+    private async Task<OutboundMessage?> DeliverAsync(
+        string userId, string text, string source, DateTimeOffset now, Func<Task> onSent, CancellationToken ct)
+    {
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var name = _personality.Identity(profile).Name;
         var title = string.IsNullOrWhiteSpace(name) ? "Your companion" : name.Trim();
-        var text = $"You crossed my mind. {curiosity.Question}";
 
-        // Delivery first; state changes only after it actually reached the outside world. A failed
-        // send burns nothing — the curiosity stays open and the budget untouched, so it simply
-        // tries again on a later check.
         if (!await _channel.SendAsync(title, text, ct))
         {
             _logger.LogWarning("Outreach delivery failed for {UserId}; will retry on a later check.", userId);
@@ -97,11 +142,11 @@ public sealed class OutreachService : IOutreachService
             Id = Guid.NewGuid(),
             UserId = userId,
             Text = text,
-            Source = $"curiosity:{curiosity.Id}",
+            Source = source,
             SentAt = now,
         };
         await _outreach.AddAsync(message, ct);
-        await _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct);
+        await onSent();
 
         _logger.LogInformation("Reached out to {UserId}: \"{Text}\"", userId, text);
         return message;

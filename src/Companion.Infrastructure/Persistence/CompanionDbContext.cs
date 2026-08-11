@@ -31,6 +31,7 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<Reflection> Reflections => Set<Reflection>();
     public DbSet<Curiosity> Curiosities => Set<Curiosity>();
     public DbSet<OutboundMessage> OutboundMessages => Set<OutboundMessage>();
+    public DbSet<Anticipation> Anticipations => Set<Anticipation>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -101,6 +102,18 @@ public sealed class CompanionDbContext : DbContext
             // Voicing queries (UserId, Status); provenance points back at the reflection.
             e.HasIndex(x => new { x.UserId, x.Status });
             e.HasIndex(x => x.ReflectionId);
+        });
+
+        b.Entity<Anticipation>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Description).HasMaxLength(200);
+            e.Property(x => x.Evidence).HasMaxLength(200);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            // Surfacing reads a user's open anticipations by event day.
+            e.HasIndex(x => new { x.UserId, x.Status });
+            e.Ignore(x => x.IsOpen);
         });
 
         b.Entity<OutboundMessage>(e =>

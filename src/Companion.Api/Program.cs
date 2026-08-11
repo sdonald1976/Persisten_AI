@@ -350,6 +350,13 @@ app.MapGet("/curiosities", async (IUserContext user, IReflectionStore store, Can
     }));
 });
 
+// The dated events she's holding (open anticipations): encouragement due, follow-ups owed.
+app.MapGet("/anticipations", async (IUserContext user, IAnticipationStore store, CancellationToken ct) =>
+{
+    var open = await store.GetOpenAsync(user.UserId, ct);
+    return Results.Ok(open.Select(a => new { a.Id, a.Description, a.EventAt, a.Status, a.Evidence }));
+});
+
 // ---- outreach (she reaches out on her own; needs Outreach.NtfyUrl configured) ----
 
 // The log of messages she sent on her own initiative, newest first.
