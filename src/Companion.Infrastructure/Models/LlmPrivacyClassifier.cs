@@ -50,9 +50,5 @@ public sealed class LlmPrivacyClassifier : IPrivacyClassifier
         }
     }
 
-    private const string SystemPrompt =
-        "You decide whether a user message should be excluded from durable derived memory. " +
-        "Answer exactly SKIP or REMEMBER. SKIP secrets, credentials, explicit off-record/private " +
-        "phrasing, highly sensitive third-party details, or content the assistant should not bring " +
-        "up proactively later. REMEMBER ordinary preferences, projects, plans, and stable facts.";
+    private static string SystemPrompt => Companion.Core.Services.Prompts.Get("privacy.system");
 }
