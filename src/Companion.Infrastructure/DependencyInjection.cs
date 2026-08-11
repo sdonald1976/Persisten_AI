@@ -50,8 +50,24 @@ public static class DependencyInjection
         services.AddSingleton<IVectorIndex>(sp => sp.GetRequiredService<InMemoryVectorIndex>());
         services.AddSingleton<IVectorIndexMaintenance>(sp => sp.GetRequiredService<InMemoryVectorIndex>());
 
-        // Natural-language intent parsing (so slash commands aren't required).
-        services.AddSingleton<IIntentParser, RuleBasedIntentParser>();
+        // Natural-language intent parsing (so slash commands aren't required). The deterministic
+        // rules are always registered (and always run first); with a real model plus the opt-in
+        // flag, the LLM classifier layers on top for phrasings the rules don't know — it can only
+        // ever promote plain chat to a read-only intent, never override a rule hit.
+        services.AddSingleton<RuleBasedIntentParser>();
+        var useLlmIntents = configuration.GetSection(CompanionOptions.SectionName)
+            .GetValue<bool>("UseLlmIntentParser");
+        if (useLlmIntents)
+        {
+            services.AddSingleton<IIntentParser>(sp => new LlmIntentParser(
+                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Extraction),
+                sp.GetRequiredService<RuleBasedIntentParser>(),
+                sp.GetRequiredService<ILogger<LlmIntentParser>>()));
+        }
+        else
+        {
+            services.AddSingleton<IIntentParser>(sp => sp.GetRequiredService<RuleBasedIntentParser>());
+        }
 
         // Model providers, selected by configuration ("Models" section). Default is the
         // deterministic offline mocks; "OpenAiCompatible" (or "Ollama"/"LMStudio") uses a real
@@ -226,6 +242,22 @@ public static class DependencyInjection
         else
         {
             services.AddScoped<IGreeter>(sp => sp.GetRequiredService<Greeter>());
+        }
+
+        // Deterministic drafts restyled into her voice when a real model is available; otherwise
+        // the draft IS the message. Any rephrase failure falls back to the draft, so this seam can
+        // never break a feature — it only ever improves wording.
+        if (modelOptions.UsesRealModel)
+        {
+            services.AddScoped<IVoiceRephraser>(sp => new LlmVoiceRephraser(
+                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation),
+                sp.GetRequiredService<IPersonalityService>(),
+                sp.GetRequiredService<IProfileStore>(),
+                sp.GetRequiredService<ILogger<LlmVoiceRephraser>>()));
+        }
+        else
+        {
+            services.AddSingleton<IVoiceRephraser, PassthroughRephraser>();
         }
 
         // The brain facade every face (CLI, HTTP, voice, avatar) drives the companion through.

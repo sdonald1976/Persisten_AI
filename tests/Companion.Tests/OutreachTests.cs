@@ -60,6 +60,7 @@ public class OutreachTests
             sp.GetRequiredService<IAnticipationStore>(),
             sp.GetRequiredService<IProfileStore>(),
             sp.GetRequiredService<IPersonalityService>(),
+            new PassthroughRephraser(),
             Options.Create(options),
             new UtcTimeProvider(now),
             NullLogger<OutreachService>.Instance);

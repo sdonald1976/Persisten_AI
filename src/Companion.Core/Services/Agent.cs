@@ -27,6 +27,7 @@ public sealed class Agent : IAgent
     private readonly IPersonalityService _personality;
     private readonly IReflectionStore _reflections;
     private readonly ICompanionStateTracker _innerState;
+    private readonly IVoiceRephraser _voice;
     private readonly TimeProvider _clock;
 
     public Agent(
@@ -43,6 +44,7 @@ public sealed class Agent : IAgent
         IPersonalityService personality,
         IReflectionStore reflections,
         ICompanionStateTracker innerState,
+        IVoiceRephraser voice,
         TimeProvider clock)
     {
         _intents = intents;
@@ -58,6 +60,7 @@ public sealed class Agent : IAgent
         _personality = personality;
         _reflections = reflections;
         _innerState = innerState;
+        _voice = voice;
         _clock = clock;
     }
 
@@ -68,7 +71,7 @@ public sealed class Agent : IAgent
         if (string.IsNullOrWhiteSpace(input))
             return AgentReply.Act(IntentKind.Chat, "");
 
-        var intent = _intents.Parse(input);
+        var intent = await _intents.ParseAsync(input, ct);
         return intent.Kind switch
         {
             IntentKind.Chat => await ChatAsync(userId, conversationId, input, tokenSink, ct),
@@ -253,30 +256,33 @@ public sealed class Agent : IAgent
         var state = await _innerState.BuildAsync(userId, ct);
 
         if (musings.Count == 0 && curiosity is null)
-            return AgentReply.Act(IntentKind.ShareThoughts,
-                $"Right now? I'm {state.SelfReport()}. Beyond that, nothing's had time to settle " +
-                "yet — my thoughts form between our conversations, while you're away. Ask me again " +
-                "after I've had a quiet stretch.");
+            return AgentReply.Act(IntentKind.ShareThoughts, await _voice.RephraseAsync(
+                userId, Prompts.Format("thoughts.empty", ("state", state.SelfReport())),
+                "answering \"what's on your mind?\" honestly, from your own diary", ct));
 
         var sb = new StringBuilder();
-        sb.AppendLine($"Right now I'm {state.SelfReport()}.");
+        sb.AppendLine(Prompts.Format("thoughts.state", ("state", state.SelfReport())));
         for (var i = 0; i < musings.Count; i++)
         {
             var age = RelativeTime.Describe(now - musings[i].CreatedAt);
             sb.AppendLine(i == 0
-                ? $"While you were away ({age} ago), I found myself thinking: {musings[i].Musing}"
-                : $"And a little before that: {musings[i].Musing}");
+                ? Prompts.Format("thoughts.musing.latest", ("age", age), ("musing", musings[i].Musing))
+                : Prompts.Format("thoughts.musing.earlier", ("musing", musings[i].Musing)));
         }
 
         if (curiosity is not null)
         {
             sb.AppendLine(musings.Count == 0
-                ? $"Mostly I've been wondering something: {curiosity.Question}"
-                : $"And since you're asking — something I've been wanting to know: {curiosity.Question}");
+                ? Prompts.Format("thoughts.curiosity.alone", ("question", curiosity.Question))
+                : Prompts.Format("thoughts.curiosity.with", ("question", curiosity.Question)));
             await _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct);
         }
 
-        return AgentReply.Act(IntentKind.ShareThoughts, sb.ToString().TrimEnd());
+        // Restyled into her voice when a model is available; the draft stands otherwise.
+        var spoken = await _voice.RephraseAsync(
+            userId, sb.ToString().TrimEnd(),
+            "answering \"what's on your mind?\" honestly, from your own diary", ct);
+        return AgentReply.Act(IntentKind.ShareThoughts, spoken);
     }
 
     private async Task<AgentReply> SetPrivacyAsync(string userId, Guid conversationId, CancellationToken ct)

@@ -27,6 +27,7 @@ public sealed class OutreachService : IOutreachService
     private readonly IAnticipationStore _anticipations;
     private readonly IProfileStore _profiles;
     private readonly IPersonalityService _personality;
+    private readonly IVoiceRephraser _voice;
     private readonly OutreachOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<OutreachService> _logger;
@@ -39,6 +40,7 @@ public sealed class OutreachService : IOutreachService
         IAnticipationStore anticipations,
         IProfileStore profiles,
         IPersonalityService personality,
+        IVoiceRephraser voice,
         IOptions<OutreachOptions> options,
         TimeProvider clock,
         ILogger<OutreachService> logger)
@@ -50,6 +52,7 @@ public sealed class OutreachService : IOutreachService
         _anticipations = anticipations;
         _profiles = profiles;
         _personality = personality;
+        _voice = voice;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -87,7 +90,7 @@ public sealed class OutreachService : IOutreachService
         if (eventToday is not null)
         {
             return await DeliverAsync(
-                userId, $"Good luck with {eventToday.Description} today — I'll be thinking of you.",
+                userId, Prompts.Format("outreach.goodluck", ("description", eventToday.Description)),
                 $"anticipation:{eventToday.Id}", now,
                 onSent: () => _anticipations.MarkEncouragedAsync(userId, eventToday.Id, now, ct), ct);
         }
@@ -102,7 +105,7 @@ public sealed class OutreachService : IOutreachService
         if (passed is not null)
         {
             return await DeliverAsync(
-                userId, $"Been thinking of you — how did {passed.Description} go?",
+                userId, Prompts.Format("outreach.followup", ("description", passed.Description)),
                 $"anticipation:{passed.Id}", now,
                 onSent: () => _anticipations.MarkFollowedUpAsync(userId, passed.Id, now, ct), ct);
         }
@@ -114,7 +117,7 @@ public sealed class OutreachService : IOutreachService
             return null;
 
         return await DeliverAsync(
-            userId, $"You crossed my mind. {curiosity.Question}",
+            userId, Prompts.Format("outreach.curiosity", ("question", curiosity.Question)),
             $"curiosity:{curiosity.Id}", now,
             onSent: () => _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct), ct);
     }
@@ -130,6 +133,11 @@ public sealed class OutreachService : IOutreachService
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var name = _personality.Identity(profile).Name;
         var title = string.IsNullOrWhiteSpace(name) ? "Your companion" : name.Trim();
+
+        // Restyled into her voice when a model is available (draft on any failure) — the push on
+        // the user's phone should sound like her, not like a template.
+        text = await _voice.RephraseAsync(
+            userId, text, "a short, warm push notification you're sending unprompted", ct);
 
         if (!await _channel.SendAsync(title, text, ct))
         {
