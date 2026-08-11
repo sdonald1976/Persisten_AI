@@ -26,6 +26,7 @@ public sealed class Agent : IAgent
     private readonly IGreeter _greeter;
     private readonly IPersonalityService _personality;
     private readonly IReflectionStore _reflections;
+    private readonly ICompanionStateTracker _innerState;
     private readonly TimeProvider _clock;
 
     public Agent(
@@ -41,6 +42,7 @@ public sealed class Agent : IAgent
         IGreeter greeter,
         IPersonalityService personality,
         IReflectionStore reflections,
+        ICompanionStateTracker innerState,
         TimeProvider clock)
     {
         _intents = intents;
@@ -55,6 +57,7 @@ public sealed class Agent : IAgent
         _greeter = greeter;
         _personality = personality;
         _reflections = reflections;
+        _innerState = innerState;
         _clock = clock;
     }
 
@@ -246,12 +249,17 @@ public sealed class Agent : IAgent
             .ToList();
         var curiosity = (await _reflections.GetOpenCuriositiesAsync(userId, ct)).FirstOrDefault();
 
+        // Her own state leads — "what's on your mind" naturally includes how she's doing.
+        var state = await _innerState.BuildAsync(userId, ct);
+
         if (musings.Count == 0 && curiosity is null)
             return AgentReply.Act(IntentKind.ShareThoughts,
-                "Honestly, nothing's had time to settle yet — my thoughts form between our " +
-                "conversations, while you're away. Ask me again after I've had a quiet stretch.");
+                $"Right now? I'm {state.SelfReport()}. Beyond that, nothing's had time to settle " +
+                "yet — my thoughts form between our conversations, while you're away. Ask me again " +
+                "after I've had a quiet stretch.");
 
         var sb = new StringBuilder();
+        sb.AppendLine($"Right now I'm {state.SelfReport()}.");
         for (var i = 0; i < musings.Count; i++)
         {
             var age = RelativeTime.Describe(now - musings[i].CreatedAt);

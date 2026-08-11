@@ -49,6 +49,19 @@ public sealed record ContextPacket
     /// </summary>
     public string? CuriosityQuestion { get; init; }
 
+    /// <summary>
+    /// The companion's OWN mood right now (from her inner state — spirits + energy). Colors
+    /// delivery; answered honestly if the user asks how she is; never announced unprompted and
+    /// never the user's fault.
+    /// </summary>
+    public string? MoodNote { get; init; }
+
+    /// <summary>
+    /// Reply-shape guidance derived from the user's message ("short and casual — match it"), or
+    /// null when standing long-form rules govern. The fix for essay-length replies to "lol fair".
+    /// </summary>
+    public string? RegisterNote { get; init; }
+
     /// <summary>Notes about uncertainty, conflicts, or superseded information.</summary>
     public IReadOnlyList<string> UncertaintyNotes { get; init; } = Array.Empty<string>();
 

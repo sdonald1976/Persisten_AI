@@ -55,4 +55,14 @@ public sealed class ProfileStore : IProfileStore
         _db.Users.Update(profile);
         await _db.SaveChangesAsync(ct);
     }
+
+    public async Task SetCompanionSpiritsAsync(
+        string userId, double spirits, DateTimeOffset nudgedAt, CancellationToken ct = default)
+    {
+        var profile = await GetOrCreateAsync(userId, ct);
+        profile.CompanionSpirits = Math.Clamp(spirits, -1.0, 1.0);
+        profile.CompanionSpiritsNudgedAt = nudgedAt;
+        _db.Users.Update(profile);
+        await _db.SaveChangesAsync(ct);
+    }
 }

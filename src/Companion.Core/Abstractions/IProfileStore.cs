@@ -16,4 +16,7 @@ public interface IProfileStore
     /// can be changed independently; a null argument leaves that field as-is.
     /// </summary>
     Task SetIdentityAsync(string userId, string? name, string? gender, string? pronouns, CancellationToken ct = default);
+
+    /// <summary>Persists the companion's spirits value and the moment it was nudged.</summary>
+    Task SetCompanionSpiritsAsync(string userId, double spirits, DateTimeOffset nudgedAt, CancellationToken ct = default);
 }
