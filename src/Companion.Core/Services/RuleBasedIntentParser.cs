@@ -28,6 +28,10 @@ public sealed class RuleBasedIntentParser : IIntentParser
         "direct", "polite", "professional", "playful", "sarcastic", "technical", "simple",
     };
 
+    public Task<Intent> ParseAsync(string input, CancellationToken ct = default)
+        => Task.FromResult(Parse(input));
+
+    /// <summary>The deterministic core, kept synchronous for direct use and as the LLM fallback.</summary>
     public Intent Parse(string input)
     {
         var text = (input ?? string.Empty).Trim();

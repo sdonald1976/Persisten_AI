@@ -71,6 +71,8 @@ public sealed record MemoryDto(string Id, string Kind, string Owner, string Cont
         Math.Round(m.Confidence, 3));
 }
 
+public sealed record PromptEditRequest(string Text);
+
 public sealed record ProjectDto(string Name, string Status, string? Purpose)
 {
     public static ProjectDto From(Project p) => new(p.Name, p.Status.ToString(), p.Purpose);
