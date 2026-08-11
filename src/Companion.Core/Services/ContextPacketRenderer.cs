@@ -16,9 +16,16 @@ public static class ContextPacketRenderer
     {
         var sb = new StringBuilder();
 
+        if (packet.Identities is { } identities)
+        {
+            RenderIdentities(sb, identities);
+            RenderRelationship(sb, identities);
+        }
+
         if (!string.IsNullOrWhiteSpace(packet.Persona))
         {
-            sb.AppendLine(Prompts.Get("renderer.persona.header"));
+            var who = packet.Identities?.CompanionRef ?? "COMPANION";
+            sb.AppendLine($"# {who.ToUpperInvariant()} PERSONALITY / STYLE");
             sb.AppendLine(packet.Persona!.Trim());
             sb.AppendLine();
         }
@@ -54,7 +61,16 @@ public static class ContextPacketRenderer
         {
             sb.AppendLine(Prompts.Get("renderer.recent.header"));
             foreach (var m in packet.RecentMessages)
-                sb.AppendLine($"{m.Role}: {m.Content}");
+            {
+                var label = m.Role switch
+                {
+                    MessageRole.User => packet.Identities?.UserLabel ?? "[USER]",
+                    MessageRole.Assistant => packet.Identities?.CompanionLabel ?? "[COMPANION]",
+                    _ => "[SYSTEM]",
+                };
+                sb.AppendLine(label);
+                sb.AppendLine(m.Content);
+            }
             sb.AppendLine();
         }
 
@@ -101,14 +117,106 @@ public static class ContextPacketRenderer
         var inferred = rest.Where(i => i.Provenance == ContextProvenance.Inferred).ToList();
         var outdated = rest.Where(i => i.Provenance == ContextProvenance.Outdated).ToList();
 
-        BulletSection(sb, "renderer.shared.header", shared.Select(i => i.Text), "renderer.shared.rules");
-        BulletSection(sb, "renderer.direct.header", direct.Select(i => i.Text));
-        BulletSection(sb, "renderer.inferred.header", inferred.Select(i => i.Text));
-        BulletSection(sb, "renderer.outdated.header", outdated.Select(i => i.Text));
+        BulletSection(sb, "renderer.shared.header", shared.Select(i => FormatMemory(i, packet.Identities)), "renderer.shared.rules");
+        BulletSection(sb, "renderer.direct.header", direct.Select(i => FormatMemory(i, packet.Identities)));
+        BulletSection(sb, "renderer.inferred.header", inferred.Select(i => FormatMemory(i, packet.Identities)));
+        BulletSection(sb, "renderer.outdated.header", outdated.Select(i => FormatMemory(i, packet.Identities)));
         BulletSection(sb, "renderer.preferences.header", packet.PreferenceNotes, "renderer.preferences.rules");
         BulletSection(sb, "renderer.uncertainty.header", packet.UncertaintyNotes);
 
         return sb.ToString().TrimEnd();
+    }
+
+    private static void RenderIdentities(StringBuilder sb, PromptIdentityContext identities)
+    {
+        sb.AppendLine("# AUTHORITATIVE IDENTITIES");
+        sb.AppendLine();
+        sb.AppendLine("COMPANION");
+        if (!string.IsNullOrWhiteSpace(identities.CompanionName))
+            sb.AppendLine($"Name: {identities.CompanionRef}");
+        if (!string.IsNullOrWhiteSpace(identities.CompanionGender))
+            sb.AppendLine($"Gender: {identities.CompanionGender!.Trim()}");
+        if (!string.IsNullOrWhiteSpace(identities.CompanionPronouns))
+            sb.AppendLine($"Pronouns: {identities.CompanionPronouns!.Trim()}");
+        sb.AppendLine();
+        sb.AppendLine("USER");
+        if (!string.IsNullOrWhiteSpace(identities.UserName))
+            sb.AppendLine($"Name: {identities.UserRef}");
+        sb.AppendLine();
+        sb.AppendLine($"{identities.CompanionRef} is the companion generating the current response.");
+        sb.AppendLine($"{identities.UserRef} is the user {identities.CompanionRef} is speaking to.");
+        sb.AppendLine();
+        sb.AppendLine($"When {identities.CompanionRef} speaks:");
+        sb.AppendLine($"- I / me / my refers to {identities.CompanionRef}.");
+        sb.AppendLine($"- you / your refers to {identities.UserRef}.");
+        sb.AppendLine($"- user-owned information describes {identities.UserRef}.");
+        sb.AppendLine($"- companion-owned information describes {identities.CompanionRef}.");
+        sb.AppendLine("- shared information may involve both.");
+        sb.AppendLine($"Never transfer identity, preferences, memories, experiences, or relationships between {identities.CompanionRef} and {identities.UserRef}.");
+        sb.AppendLine();
+    }
+
+    private static void RenderRelationship(StringBuilder sb, PromptIdentityContext identities)
+    {
+        if (identities.RelationshipLines.Count == 0)
+            return;
+
+        sb.AppendLine("# AUTHORITATIVE RELATIONSHIP");
+        foreach (var line in identities.RelationshipLines)
+            sb.AppendLine($"- {line}");
+        sb.AppendLine();
+    }
+
+    private static string FormatMemory(ContextItem item, PromptIdentityContext? identities)
+    {
+        var companion = identities?.CompanionRef ?? "the companion";
+        var user = identities?.UserRef ?? "the user";
+        return item.Owner switch
+        {
+            MemoryOwner.Shared => $"SHARED EXPERIENCE - {user} + {companion}: {ProjectMemoryText(item.Text, item.Owner, user, companion)}",
+            MemoryOwner.Companion => $"COMPANION MEMORY - {companion}: {ProjectMemoryText(item.Text, item.Owner, user, companion)}",
+            _ => $"USER MEMORY - {user}: {ProjectMemoryText(item.Text, item.Owner, user, companion)}",
+        };
+    }
+
+    private static string ProjectMemoryText(string text, MemoryOwner owner, string user, string companion)
+    {
+        var trimmed = text.Trim();
+        return owner switch
+        {
+            MemoryOwner.User => ReplaceLeadingUser(trimmed, user),
+            MemoryOwner.Companion => ReplaceLeadingCompanion(trimmed, companion),
+            MemoryOwner.Shared => EnsureSharedNames(trimmed, user, companion),
+            _ => trimmed,
+        };
+    }
+
+    private static string ReplaceLeadingUser(string text, string user)
+    {
+        if (text.StartsWith("The user's ", StringComparison.OrdinalIgnoreCase))
+            return user + "'s " + text["The user's ".Length..];
+        if (text.StartsWith("The user ", StringComparison.OrdinalIgnoreCase))
+            return user + " " + text["The user ".Length..];
+        if (text.StartsWith("User ", StringComparison.OrdinalIgnoreCase))
+            return user + " " + text["User ".Length..];
+        return text;
+    }
+
+    private static string ReplaceLeadingCompanion(string text, string companion)
+    {
+        if (text.StartsWith("You ", StringComparison.OrdinalIgnoreCase))
+            return companion + " " + text["You ".Length..];
+        if (text.StartsWith("The companion ", StringComparison.OrdinalIgnoreCase))
+            return companion + " " + text["The companion ".Length..];
+        return text;
+    }
+
+    private static string EnsureSharedNames(string text, string user, string companion)
+    {
+        if (text.Contains(user, StringComparison.OrdinalIgnoreCase)
+            && text.Contains(companion, StringComparison.OrdinalIgnoreCase))
+            return text;
+        return $"{user} and {companion}: {text}";
     }
 
     /// <summary>A header + prose body (+ optional trailing rules line), skipped when the body is empty.</summary>

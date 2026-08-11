@@ -14,6 +14,9 @@ public sealed record ContextPacket
     /// <summary>Editable persona/style instructions, prepended to the system prompt.</summary>
     public string? Persona { get; init; }
 
+    /// <summary>Authoritative participant identity and relationship projection for the prompt.</summary>
+    public PromptIdentityContext? Identities { get; init; }
+
     /// <summary>Recent verbatim turns, oldest first.</summary>
     public IReadOnlyList<Message> RecentMessages { get; init; } = Array.Empty<Message>();
 
@@ -99,6 +102,24 @@ public sealed record ContextItem
 
     /// <summary>Whose story the line is from — shared moments render as "remember when we…".</summary>
     public MemoryOwner Owner { get; init; } = MemoryOwner.User;
+}
+
+/// <summary>
+/// The model-facing identity projection for the two participants. It is derived from existing
+/// profile fields and persona text; it does not create a new identity store.
+/// </summary>
+public sealed record PromptIdentityContext
+{
+    public string? CompanionName { get; init; }
+    public string? CompanionGender { get; init; }
+    public string? CompanionPronouns { get; init; }
+    public string? UserName { get; init; }
+    public IReadOnlyList<string> RelationshipLines { get; init; } = Array.Empty<string>();
+
+    public string CompanionRef => string.IsNullOrWhiteSpace(CompanionName) ? "the companion" : CompanionName!.Trim();
+    public string UserRef => string.IsNullOrWhiteSpace(UserName) ? "the user" : UserName!.Trim();
+    public string CompanionLabel => string.IsNullOrWhiteSpace(CompanionName) ? "[COMPANION]" : $"[COMPANION - {CompanionRef}]";
+    public string UserLabel => string.IsNullOrWhiteSpace(UserName) ? "[USER]" : $"[USER - {UserRef}]";
 }
 
 /// <summary>How a context item should be trusted by the reader.</summary>

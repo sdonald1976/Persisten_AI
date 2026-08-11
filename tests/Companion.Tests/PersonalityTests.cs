@@ -186,13 +186,17 @@ public class PersonalityTests
     }
 
     [Fact]
-    public void Compose_LeadsWithIdentity()
+    public void IdentityProjection_CarriesIdentity_SeparateFromStyle()
     {
-        var text = Service(identity: new IdentityOptions { Name = "Ava", Gender = "female", Pronouns = "she/her" })
-            .Compose(new UserProfile { UserId = User });
-        Assert.Contains("Your name is Ava", text);
-        Assert.Contains("a woman", text);
-        Assert.Contains("she/her", text);
+        var service = Service(identity: new IdentityOptions { Name = "Ava", Gender = "female", Pronouns = "she/her" });
+        var profile = new UserProfile { UserId = User };
+        var text = service.Compose(profile);
+        var projection = PromptIdentityProjector.From(profile, service.Identity(profile));
+
+        Assert.DoesNotContain("Your name is Ava", text);
+        Assert.Equal("Ava", projection.CompanionName);
+        Assert.Equal("female", projection.CompanionGender);
+        Assert.Equal("she/her", projection.CompanionPronouns);
     }
 
     [Theory]

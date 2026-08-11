@@ -148,7 +148,7 @@ public sealed class Reflector : IReflector
         var sharedMoments = await PersistSharedMomentsAsync(userId, dto.SharedMoments, messages, now, ct);
 
         // Preference signals: her own tastes, evolved gradually — never copied from the user.
-        var preferences = await ApplyPreferenceSignalsAsync(userId, dto.Preferences, now, ct);
+        var preferences = await ApplyPreferenceSignalsAsync(userId, dto.Preferences, messages, now, ct);
 
         // Curiosities the conversation answered close with satisfaction instead of silence.
         var satisfied = await MarkSettledAsync(userId, dto.Settled, held, ct);
@@ -246,7 +246,8 @@ public sealed class Reflector : IReflector
 
     /// <summary>Applies validated preference signals through the store's evolution rules.</summary>
     private async Task<List<CompanionPreference>> ApplyPreferenceSignalsAsync(
-        string userId, List<PreferenceDto>? proposed, DateTimeOffset now, CancellationToken ct)
+        string userId, List<PreferenceDto>? proposed, IReadOnlyList<Message> messages,
+        DateTimeOffset now, CancellationToken ct)
     {
         var applied = new List<CompanionPreference>();
         if (proposed is null)
@@ -254,6 +255,21 @@ public sealed class Reflector : IReflector
 
         foreach (var dto in proposed.Take(MaxPreferenceSignals))
         {
+            if (!IsCompanionOwner(dto.Owner))
+            {
+                _logger.LogWarning("Rejected a companion preference for {UserId}: owner was not Companion.", userId);
+                continue;
+            }
+
+            var source = ResolveEvidence(dto.Evidence, messages);
+            if (source is null || source.Role != MessageRole.Assistant)
+            {
+                _logger.LogWarning(
+                    "Rejected a companion preference for {UserId}: evidence was missing or not assistant-owned.",
+                    userId);
+                continue;
+            }
+
             var subject = Normalize(dto.Subject, 200);
             if (subject is null)
                 continue;
@@ -269,6 +285,9 @@ public sealed class Reflector : IReflector
 
         return applied;
     }
+
+    private static bool IsCompanionOwner(string? owner)
+        => string.Equals(owner?.Trim(), "Companion", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Matches "settled" notes from the model against held curiosities and closes them.</summary>
     private async Task<int> MarkSettledAsync(
@@ -471,5 +490,6 @@ public sealed class Reflector : IReflector
         List<PreferenceDto>? Preferences, List<string>? Settled);
     private sealed record CuriosityDto(string? Question, string? About, string? Reason);
     private sealed record SharedMomentDto(string? Summary, string? Evidence, double? Significance, string? Tone);
-    private sealed record PreferenceDto(string? Subject, string? Feeling, string? Strength, string? Reason);
+    private sealed record PreferenceDto(
+        string? Owner, string? Subject, string? Feeling, string? Strength, string? Reason, string? Evidence);
 }
