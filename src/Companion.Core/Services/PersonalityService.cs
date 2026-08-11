@@ -39,13 +39,10 @@ public sealed class PersonalityService : IPersonalityService
 
     public string Compose(UserProfile profile)
     {
-        var identity = Identity(profile).Describe();
         var preset = Active(profile);
         var custom = profile.Persona?.Trim();
 
         var sb = new System.Text.StringBuilder();
-        if (!string.IsNullOrWhiteSpace(identity))
-            sb.Append(identity).Append("\n\n");
         sb.Append(preset.Instructions);
         if (!string.IsNullOrWhiteSpace(custom))
             sb.Append("\n\nExtra style the user asked for:\n").Append(custom);

@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.Core.Services;
 using Microsoft.Extensions.Logging;
 
 namespace Companion.Infrastructure.Models;
@@ -94,9 +95,15 @@ public sealed class LlmGreeter : IGreeter, IGreetingRephraser
 
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var persona = _personality.Compose(profile);
-        return string.IsNullOrWhiteSpace(persona)
-            ? SystemPrompt
-            : "Stay fully in character as described here:\n" + persona + "\n\n" + SystemPrompt;
+        var identities = PromptIdentityProjector.From(profile, _personality.Identity(profile));
+        var identity = $"{identities.CompanionRef} is the companion speaking. {identities.UserRef} is the user. " +
+                       $"Companion gender: {identities.CompanionGender ?? "unknown"}. " +
+                       $"Companion pronouns: {identities.CompanionPronouns ?? "unknown"}. " +
+                       $"When {identities.CompanionRef} speaks, I/me/my refers to {identities.CompanionRef} and you/your refers to {identities.UserRef}.";
+        var character = string.IsNullOrWhiteSpace(persona)
+            ? identity
+            : identity + "\n\n" + persona;
+        return "Stay fully in character as described here:\n" + character + "\n\n" + SystemPrompt;
     }
 
     private static string BuildPrompt(IReadOnlyList<string> openers, string? timeContext)

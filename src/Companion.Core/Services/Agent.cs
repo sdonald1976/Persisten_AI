@@ -81,10 +81,10 @@ public sealed class Agent : IAgent
             IntentKind.ListProjects => await ListProjectsAsync(userId, ct),
             IntentKind.ListOpenLoops => await ListOpenLoopsAsync(userId, ct),
             IntentKind.Consolidate => await ConsolidateAsync(userId, ct),
-            IntentKind.SetPersona => await SetPersonaAsync(userId, intent.Argument, ct),
-            IntentKind.SetPersonality => await SetPersonalityAsync(userId, intent.Argument, ct),
-            IntentKind.SetIdentity => await SetIdentityAsync(userId, intent.Argument, ct),
-            IntentKind.AdjustStyle => await AdjustStyleAsync(userId, intent.Argument, ct),
+            IntentKind.SetPersona => await SetPersonaAsync(userId, conversationId, intent.Argument, ct),
+            IntentKind.SetPersonality => await SetPersonalityAsync(userId, conversationId, intent.Argument, ct),
+            IntentKind.SetIdentity => await SetIdentityAsync(userId, conversationId, intent.Argument, ct),
+            IntentKind.AdjustStyle => await AdjustStyleAsync(userId, conversationId, intent.Argument, ct),
             IntentKind.FeedbackPositive => await FeedbackAsync(userId, conversationId, FeedbackRating.Positive, intent.Argument, ct),
             IntentKind.FeedbackNegative => await FeedbackAsync(userId, conversationId, FeedbackRating.Negative, intent.Argument, ct),
             IntentKind.PrivacyDoNotRemember => await SetPrivacyAsync(userId, conversationId, ct),
@@ -292,14 +292,20 @@ public sealed class Agent : IAgent
             "Got it — this conversation is private. I'll reply, but I won't save anything from it to long-term memory.");
     }
 
-    private async Task<AgentReply> SetPersonaAsync(string userId, string? persona, CancellationToken ct)
+    private async Task<AgentReply> SetPersonaAsync(string userId, Guid conversationId, string? persona, CancellationToken ct)
     {
+        if (await IsPrivateConversationAsync(userId, conversationId, ct))
+            return PrivateProfileMutationReply(IntentKind.SetPersona);
+
         await _profiles.SetPersonaAsync(userId, persona, ct);
         return AgentReply.Act(IntentKind.SetPersona, "Persona updated.");
     }
 
-    private async Task<AgentReply> SetPersonalityAsync(string userId, string? name, CancellationToken ct)
+    private async Task<AgentReply> SetPersonalityAsync(string userId, Guid conversationId, string? name, CancellationToken ct)
     {
+        if (await IsPrivateConversationAsync(userId, conversationId, ct))
+            return PrivateProfileMutationReply(IntentKind.SetPersonality);
+
         // No specific choice → show the menu.
         if (string.IsNullOrWhiteSpace(name))
             return AgentReply.Act(IntentKind.SetPersonality, PersonalityMenu());
@@ -329,8 +335,11 @@ public sealed class Agent : IAgent
     private static readonly Regex NonBinaryRx = new(@"\b(non-?binary|enby|they/them)\b", IdOpts);
     private static readonly Regex PronounsRx = new(@"\b([a-z]+/[a-z]+)\b", IdOpts);
 
-    private async Task<AgentReply> SetIdentityAsync(string userId, string? directive, CancellationToken ct)
+    private async Task<AgentReply> SetIdentityAsync(string userId, Guid conversationId, string? directive, CancellationToken ct)
     {
+        if (await IsPrivateConversationAsync(userId, conversationId, ct))
+            return PrivateProfileMutationReply(IntentKind.SetIdentity);
+
         if (string.IsNullOrWhiteSpace(directive))
             return AgentReply.Act(IntentKind.SetIdentity, "Tell me a name, gender, or pronouns and I'll take it.");
 
@@ -360,8 +369,11 @@ public sealed class Agent : IAgent
         return AgentReply.Act(IntentKind.SetIdentity, $"Got it — I'm {id.Name} ({id.Pronouns}) from now on.");
     }
 
-    private async Task<AgentReply> AdjustStyleAsync(string userId, string? directive, CancellationToken ct)
+    private async Task<AgentReply> AdjustStyleAsync(string userId, Guid conversationId, string? directive, CancellationToken ct)
     {
+        if (await IsPrivateConversationAsync(userId, conversationId, ct))
+            return PrivateProfileMutationReply(IntentKind.AdjustStyle);
+
         if (string.IsNullOrWhiteSpace(directive))
             return AgentReply.Act(IntentKind.AdjustStyle, "Tell me how you'd like me to sound.");
 
@@ -371,6 +383,13 @@ public sealed class Agent : IAgent
         await _profiles.SetPersonaAsync(userId, persona, ct);
         return AgentReply.Act(IntentKind.AdjustStyle, $"Got it — from now on I'll {directive.TrimEnd('.')}.");
     }
+
+    private async Task<bool> IsPrivateConversationAsync(string userId, Guid conversationId, CancellationToken ct)
+        => (await _conversations.GetConversationAsync(conversationId, userId, ct))?.DoNotRemember == true;
+
+    private static AgentReply PrivateProfileMutationReply(IntentKind intent)
+        => AgentReply.Act(intent,
+            "This conversation is private, so I won't save profile or identity changes from it.");
 
     private async Task<AgentReply> FeedbackAsync(
         string userId, Guid conversationId, FeedbackRating rating, string? note, CancellationToken ct)

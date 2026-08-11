@@ -241,7 +241,9 @@ public sealed class Companion : ICompanion
         // believing it is what keeps personas from leaking into the fact store.
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var persona = _personality.Compose(profile);
-        var lexicon = PersonaLexicon.From(_personality.Identity(profile).Name, persona);
+        var companionIdentity = _personality.Identity(profile);
+        var identityProjection = PromptIdentityProjector.From(profile, companionIdentity);
+        var lexicon = PersonaLexicon.From(companionIdentity.Name, persona);
         var inCharacter = InCharacterDetector.IsInCharacter(promptText, lexicon);
         if (remember && inCharacter)
             _logger.LogDebug("In-character turn for {UserId}: derived memory skipped.", userId);
@@ -285,13 +287,14 @@ public sealed class Companion : ICompanion
         // 4e. Temporal grounding + her own relevant tastes for this turn (top few by similarity —
         // never the whole preference table, and never raw numbers).
         var temporal = TemporalNote(_clock.GetLocalNow(), now, lastSeenBefore);
-        var preferenceNotes = await RelevantPreferencesAsync(userId, outcome.QueryEmbedding, ct);
+        var preferenceNotes = await RelevantPreferencesAsync(
+            userId, outcome.QueryEmbedding, identityProjection.CompanionRef, ct);
 
         // 5. Assemble a bounded, labeled context packet (with the user's persona/style + tone read).
         var packet = _assembler.Assemble(
             promptText, recent, outcome.Selected, projectContext, persona, relationship,
             musing, curiosity?.Question, innerState.Describe(), familiarity.Describe(),
-            temporal, preferenceNotes);
+            temporal, preferenceNotes, identityProjection);
 
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
@@ -434,7 +437,7 @@ public sealed class Companion : ICompanion
 
     /// <summary>Her tastes that are actually relevant to what's being discussed, in natural words.</summary>
     private async Task<IReadOnlyList<string>> RelevantPreferencesAsync(
-        string userId, float[]? queryEmbedding, CancellationToken ct)
+        string userId, float[]? queryEmbedding, string companionName, CancellationToken ct)
     {
         if (queryEmbedding is null)
             return Array.Empty<string>();
@@ -446,7 +449,7 @@ public sealed class Companion : ICompanion
             .Where(x => x.Score >= PreferenceRelevanceFloor)
             .OrderByDescending(x => x.Score)
             .Take(MaxPreferenceNotes)
-            .Select(x => x.Preference.Describe())
+            .Select(x => x.Preference.Describe(companionName))
             .ToList();
     }
 

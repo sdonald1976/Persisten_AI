@@ -17,5 +17,6 @@ public interface IContextAssembler
         string? companionMood = null,
         string? familiarity = null,
         string? temporal = null,
-        IReadOnlyList<string>? preferences = null);
+        IReadOnlyList<string>? preferences = null,
+        PromptIdentityContext? identities = null);
 }

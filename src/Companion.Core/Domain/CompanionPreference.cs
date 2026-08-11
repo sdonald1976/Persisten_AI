@@ -55,6 +55,25 @@ public sealed class CompanionPreference
         return line + ".";
     }
 
+    public string Describe(string companionName)
+    {
+        var who = string.IsNullOrWhiteSpace(companionName) ? "The companion" : companionName.Trim();
+        var feeling = Affinity switch
+        {
+            >= 0.6 => "really likes",
+            >= 0.25 => "has a moderately positive opinion of",
+            > -0.25 => "has mixed, unsettled feelings about",
+            > -0.6 => "isn't keen on",
+            _ => "really dislikes",
+        };
+        var line = $"{who} {feeling} {Subject}";
+        if (!string.IsNullOrWhiteSpace(Reason))
+            line += $" - {Reason!.TrimEnd('.')}";
+        if (Confidence < 0.4)
+            line += $" (a newer taste - {who} is still settling it)";
+        return line + ".";
+    }
+
     private static string StripYou(string thirdPerson) => thirdPerson switch
     {
         "really likes" => "really like",

@@ -97,7 +97,16 @@ public static class PersonalityCatalog
     };
 
     /// <summary>All presets, in menu order.</summary>
-    public static readonly IReadOnlyList<PersonalityPreset> All = new[] { Seductive };
+    public static readonly IReadOnlyList<PersonalityPreset> All = new[]
+    {
+        Warm,
+        Witty,
+        Direct,
+        Playful,
+        Flirty,
+        Sage,
+        Seductive,
+    };
 
     /// <summary>The preset used when nothing else resolves.</summary>
     public static PersonalityPreset Fallback => Warm;

@@ -182,6 +182,20 @@ app.MapPost("/chat", async (ChatRequest req, IUserContext user, IConversationSto
     return Results.Ok(ReplyDto.From(reply));
 });
 
+if (app.Environment.IsDevelopment())
+{
+    app.MapPost("/debug/chat", async (ChatRequest req, IUserContext user, IConversationStore conversations, IAgent agent, CancellationToken ct) =>
+    {
+        if (!Guid.TryParse(req.ConversationId, out var convId))
+            return ApiError.BadRequest("conversationId must be a GUID (start one via POST /conversations).");
+        if (await conversations.GetConversationAsync(convId, user.UserId, ct) is null)
+            return ApiError.ConversationNotFound();
+
+        var reply = await agent.HandleAsync(user.UserId, convId, req.Message, tokenSink: null, ct);
+        return Results.Ok(DebugReplyDto.From(reply));
+    });
+}
+
 app.MapPost("/chat/confirm", async (ConfirmRequest req, IUserContext user, IConversationStore conversations, IAgent agent, CancellationToken ct) =>
 {
     if (!Guid.TryParse(req.ConversationId, out var convId))

@@ -252,7 +252,7 @@ public static class Prompts
             "{\"musing\": string or null,\n" +
             " \"curiosities\": [{\"question\": string, \"about\": string, \"reason\": string}],\n" +
             " \"sharedMoments\": [{\"summary\": string, \"evidence\": string, \"significance\": 0..1, \"tone\": string}],\n" +
-            " \"preferences\": [{\"subject\": string, \"feeling\": \"like\"|\"dislike\"|\"mixed\", \"strength\": \"slight\"|\"moderate\"|\"strong\", \"reason\": string}],\n" +
+            " \"preferences\": [{\"owner\":\"Companion\", \"subject\": string, \"feeling\": \"like\"|\"dislike\"|\"mixed\", \"strength\": \"slight\"|\"moderate\"|\"strong\", \"reason\": string, \"evidence\": string}],\n" +
             " \"settled\": [string]}\n\n" +
             "sharedMoments (at most 2) are moments you and the user genuinely had TOGETHER — teaching, " +
             "joking, working through something side by side. summary is one sentence of shared history " +
@@ -260,8 +260,10 @@ public static class Prompts
             "of a kind\"); evidence must QUOTE the user's actual words from the conversation, or the " +
             "moment will be discarded. A moment that only involves the user is not shared — leave it out.\n\n" +
             "preferences (at most 3) are YOUR OWN tastes forming or shifting from what YOU experienced — " +
-            "never an echo of what the user likes. The user loving something is a fact about them, not " +
-            "about you; only report a preference when something genuinely landed with you or didn't.\n\n" +
+            "Every preference MUST have owner=\"Companion\" and evidence that quotes your own assistant-side " +
+            "words from the conversation. Never echo what the user likes. The user loving something is a " +
+            "fact about them, not about you; only report a preference when something genuinely landed with " +
+            "you or didn't.\n\n" +
             "settled lists any of your held questions this conversation actually answered (repeat the " +
             "question or its topic).\n\n" +
             "The musing is a short first-person diary entry (2-5 sentences): what you noticed, what " +

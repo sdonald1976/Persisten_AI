@@ -59,6 +59,13 @@ public sealed record TraceDto(
 
 public sealed record RetrievedDto(string Content, double Score);
 
+public sealed record DebugReplyDto(ReplyDto Reply, string? RenderedContext)
+{
+    public static DebugReplyDto From(AgentReply reply) => new(
+        ReplyDto.From(reply),
+        reply.Trace?.Packet.Render());
+}
+
 public sealed record MemoryDto(string Id, string Kind, string Owner, string Content, string Status, string? Validity, double Confidence)
 {
     public static MemoryDto From(IMemory m) => new(
