@@ -13,5 +13,6 @@ public interface IContextAssembler
         string? persona = null,
         RelationshipSnapshot? relationship = null,
         string? musing = null,
-        string? curiosity = null);
+        string? curiosity = null,
+        string? companionMood = null);
 }

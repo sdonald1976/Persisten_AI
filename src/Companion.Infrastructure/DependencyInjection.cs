@@ -159,6 +159,11 @@ public static class DependencyInjection
         // the companion can attune its tone across sessions.
         services.AddScoped<IRelationshipTracker, RelationshipTracker>();
 
+        // Her own inner state — the relationship tracker's mirror image, pointed inward. Spirits
+        // follow how conversations have actually felt; energy follows her day. Colors every reply
+        // and answers "how are you?" honestly.
+        services.AddScoped<ICompanionStateTracker, CompanionStateTracker>();
+
         // The between-session reflection pass (inner monologue): musings + curiosities, written
         // while the user is away and surfaced through the greeter and the context packet. Thinks
         // with the conversational model — reflection is the companion's own voice, not a

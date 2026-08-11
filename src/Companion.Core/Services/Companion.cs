@@ -33,6 +33,7 @@ public sealed class Companion : ICompanion
     private readonly IRelationshipTracker _relationship;
     private readonly IReflectionStore _reflections;
     private readonly IAnticipationStore _anticipations;
+    private readonly ICompanionStateTracker _innerState;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -53,6 +54,7 @@ public sealed class Companion : ICompanion
         IRelationshipTracker relationship,
         IReflectionStore reflections,
         IAnticipationStore anticipations,
+        ICompanionStateTracker innerState,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -72,6 +74,7 @@ public sealed class Companion : ICompanion
         _relationship = relationship;
         _reflections = reflections;
         _anticipations = anticipations;
+        _innerState = innerState;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -245,12 +248,17 @@ public sealed class Companion : ICompanion
         var curiosity = await _reflections.GetNextToVoiceAsync(
             userId, now, TimeSpan.FromHours(_options.CuriosityCooldownHours), ct);
 
+        // 4d. Her own inner state — spirits + energy — colors the reply's tone (and answers
+        // "how are you?" honestly). Read AFTER the mood capture above, so this turn's emotional
+        // signal has already rubbed off on her.
+        var innerState = await _innerState.BuildAsync(userId, ct);
+
         // 5. Assemble a bounded, labeled context packet (with the user's persona/style + tone read).
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var persona = _personality.Compose(profile);
         var packet = _assembler.Assemble(
             promptText, recent, outcome.Selected, projectContext, persona, relationship,
-            musing, curiosity?.Question);
+            musing, curiosity?.Question, innerState.Describe());
 
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
@@ -394,6 +402,9 @@ public sealed class Companion : ICompanion
             Topic = topic,
             ProjectId = resolvedProject?.Id,
         }, ct);
+
+        // The moment rubs off on her too — honest emotional contagion, one small step.
+        await _innerState.NudgeAsync(userId, mood.Valence, ct);
 
         _logger.LogDebug(
             "Captured mood for {UserId}: {Sentiment} ({Valence:+0.00;-0.00}) about \"{Topic}\" from \"{Evidence}\"",

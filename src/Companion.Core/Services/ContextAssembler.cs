@@ -23,7 +23,8 @@ public sealed class ContextAssembler : IContextAssembler
         string? persona = null,
         RelationshipSnapshot? relationship = null,
         string? musing = null,
-        string? curiosity = null)
+        string? curiosity = null,
+        string? companionMood = null)
     {
         var items = new List<ContextItem>();
         var notes = new List<string>();
@@ -70,6 +71,8 @@ public sealed class ContextAssembler : IContextAssembler
             RelationshipNote = relationship?.Describe(),
             Musing = musing,
             CuriosityQuestion = curiosity,
+            MoodNote = companionMood,
+            RegisterNote = RegisterAdvisor.Advise(userMessage),
             UncertaintyNotes = notes,
             EstimatedTokens = usedTokens + recentCost + EstimateTokens(userMessage),
         };

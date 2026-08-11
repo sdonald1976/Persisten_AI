@@ -48,6 +48,24 @@ public static class ContextPacketRenderer
             "going, and don't end with an offer to continue; finish the task, then stop.");
         sb.AppendLine();
 
+        if (!string.IsNullOrWhiteSpace(packet.MoodNote))
+        {
+            // Her own state, not a fact about the user. Prose so it can't read as a memory item.
+            sb.AppendLine("## Your own mood right now");
+            sb.AppendLine(packet.MoodNote!.Trim());
+            sb.AppendLine(
+                "Let it color your tone naturally. If the user asks how you are, answer honestly from " +
+                "this. Don't announce it unprompted, and never imply the user caused it.");
+            sb.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(packet.RegisterNote))
+        {
+            sb.AppendLine("## Reply shape for this turn");
+            sb.AppendLine(packet.RegisterNote!.Trim());
+            sb.AppendLine();
+        }
+
         if (!string.IsNullOrWhiteSpace(packet.RelationshipNote))
         {
             // Tone guidance, not a fact. Rendered as prose (no "- " bullet) so it shapes delivery
