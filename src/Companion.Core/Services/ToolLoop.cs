@@ -34,8 +34,8 @@ public sealed class ToolLoop
     /// <summary>Per-call execution timeout; every tool here is a local lookup.</summary>
     private static readonly TimeSpan ToolTimeout = TimeSpan.FromSeconds(30);
 
-    private const int MaxResultChars = 2000;
-    private const int MaxSectionChars = 6000;
+    private const int MaxResultChars = 1200;
+    private const int MaxSectionChars = 2500;
 
     private readonly IEnumerable<ICompanionTool> _tools;
     private readonly IChatModel _chat;

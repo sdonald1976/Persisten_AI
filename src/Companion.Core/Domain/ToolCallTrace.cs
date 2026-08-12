@@ -62,4 +62,7 @@ public sealed record TurnDiagnostics
 
     /// <summary>How many planner passes actually ran this turn (0 = nudge-only or disabled).</summary>
     public int PlanningRounds { get; init; }
+
+    /// <summary>Estimated size of the rendered context packet the reply model received.</summary>
+    public int PacketTokens { get; init; }
 }

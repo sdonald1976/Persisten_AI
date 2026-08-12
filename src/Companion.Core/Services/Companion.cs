@@ -331,6 +331,16 @@ public sealed class Companion : ICompanion
         // and the planner model is deliberately not her. Everything executed is read-only,
         // validated, deduped, and capped; results are injected into the packet for THIS
         // generation only — they never become messages or memory.
+        if (_options.PacketTokenWarningThreshold > 0
+            && packet.EstimatedTokens > _options.PacketTokenWarningThreshold)
+        {
+            _logger.LogWarning(
+                "Context packet for {UserId} is ~{Tokens} tokens (threshold {Threshold}); " +
+                "sections: {Sections}. A bloated prompt degrades small local models quietly.",
+                userId, packet.EstimatedTokens, _options.PacketTokenWarningThreshold,
+                string.Join(", ", PresentSections(packet)));
+        }
+
         var planningContext = BuildPlanningContext(recent, selectedMemories, projectContext.ResolvedProjectName);
         var toolOutcome = await _toolLoop.RunAsync(userId, planningContext, promptText, ct);
         if (toolOutcome.ResultsSection is not null)
@@ -416,6 +426,7 @@ public sealed class Companion : ICompanion
             ToolCalls = toolOutcome.Calls,
             ToolDecisions = toolOutcome.Decisions,
             PlanningRounds = toolOutcome.PlanningRounds,
+            PacketTokens = packet.EstimatedTokens,
         });
 
         return new TurnTrace

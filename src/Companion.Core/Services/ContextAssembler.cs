@@ -75,9 +75,7 @@ public sealed class ContextAssembler : IContextAssembler
             notes.Add($"The project reference is ambiguous — ask to clarify rather than guessing: {question}");
         }
 
-        var recentCost = recentMessages.Sum(m => EstimateTokens(m.Content));
-
-        return new ContextPacket
+        var packet = new ContextPacket
         {
             UserMessage = userMessage,
             Persona = persona,
@@ -104,8 +102,14 @@ public sealed class ContextAssembler : IContextAssembler
                 .Concat((attention ?? Array.Empty<string>()).Select(a => $"Attention: {Truncate(a)}"))
                 .Concat((procedures ?? Array.Empty<string>()).Select(p => $"Procedure: {Truncate(p)}"))
                 .ToList(),
-            EstimatedTokens = usedTokens + recentCost + EstimateTokens(userMessage),
         };
+
+        // Measure what the model will ACTUALLY receive. The old estimate summed only memories +
+        // recent messages + the user message, so it under-reported by everything else in the
+        // prompt (persona, project state, companion state, procedures, capabilities, tool
+        // results) — the very sections most likely to grow. An honest number is what makes
+        // "is the prompt getting too big?" answerable instead of theoretical.
+        return packet with { EstimatedTokens = EstimateTokens(packet.Render()) };
     }
 
     private static ContextProvenance ClassifyProvenance(IMemory memory)
@@ -170,7 +174,7 @@ public sealed class ContextAssembler : IContextAssembler
     }
 
     /// <summary>Rough token estimate (~4 chars/token). Good enough for budgeting.</summary>
-    internal static int EstimateTokens(string text)
+    public static int EstimateTokens(string text)
         => string.IsNullOrEmpty(text) ? 0 : Math.Max(1, text.Length / 4);
 
     private static string Truncate(string text, int max = 60)

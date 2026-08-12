@@ -68,7 +68,30 @@ single-user scale. Add a test that runs a turn and a sleep cycle concurrently.
 
 ---
 
-## 3. Per-section token budgets for the context packet — P2, Medium effort, Medium risk
+## 3. ✅ PARTLY DONE — Per-section token budgets for the context packet — P2, Medium effort, Medium risk
+
+**Implemented (Option A, for the sections that were actually unbounded):** measurement came first —
+a worst-case packet rendered to **7,206 tokens**, and per-section measurement showed the bulk was
+tool results (1,619) and the recent transcript (1,248), not the many small state sections. So:
+
+- tool results clipped harder (2,500 chars/section, 1,200/result — was 6,000/2,000);
+- a per-message clip of 800 chars on recent turns, so one pasted spec can't own the prompt;
+- a 2,800-char budget on the recent-conversation section as a whole, filled **newest-first**
+  (the most recent message is always kept, however long).
+
+Worst case is now **5,629 tokens**, a typical turn ~1,000. `EstimatedTokens` was also fixed — it
+previously counted only memories + recent + user message, under-reporting everything else — and is
+now measured from the fully rendered packet, surfaced per turn in diagnostics and as a configurable
+warning (`Companion:PacketTokenWarningThreshold`, default 3,000).
+
+**Behavioral difference:** on a very long transcript, the oldest of the recent turns may now drop
+out of the prompt, and a pasted wall of text appears clipped with `[…]`.
+
+**Still open:** budgets for the remaining sections (preferences, attention, procedures,
+perspectives) and a real tokenizer instead of chars/4. Neither is urgent — those sections are
+count-capped and small — and both need the trim-order product decision below.
+
+Original analysis:
 
 **Now:** sections are capped by *count* (max memories, max loops, max attention items). Content
 length is unbounded, so a few long memories plus a long recent transcript can crowd an 8B model's
@@ -131,8 +154,12 @@ testability for a model call that isn't currently the bottleneck.
 
 ---
 
-## 7. Prompt-size regression guard — P3, Small effort, Low risk
+## 7. ✅ DONE — Prompt-size regression guard — P3, Small effort, Low risk
 
-There is no test asserting the assembled Chat prompt stays within a sane size for an 8B model. A
-cheap guard (assemble a maximal packet from fixtures, assert an estimated-token ceiling) would catch
-context bloat at the moment it's introduced rather than when replies start degrading.
+**Implemented:** `PromptBudgetTests` asserts four things — a pathological packet stays under 6,000
+tokens, a typical turn under 1,500, an empty packet under 400 (proving unused sections cost
+nothing), and one pasted wall of text cannot own the prompt. The guard paid for itself immediately:
+it is what surfaced the 7,206-token worst case that drove item #3.
+
+The ceiling is a **regression tripwire, not a target** — the comment in the test says so explicitly,
+so a future reader doesn't start trimming real context to chase a smaller number.
