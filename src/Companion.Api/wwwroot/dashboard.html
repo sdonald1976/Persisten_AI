@@ -102,6 +102,7 @@
       moments: { label: '✨ Shared moments', render: renderMoments },
       outreach: { label: '📱 Outreach', render: renderOutreach },
       character: { label: '🎭 Character', render: renderCharacter },
+      diagnostics: { label: '🔬 Diagnostics', render: renderDiagnostics },
     };
     let active = location.hash.slice(1) || 'mind';
 
@@ -171,6 +172,39 @@
             'No upcoming events held.')) +
         card('Open loops — unfinished business she can recall',
           items(loops, l => '<div class="item">' + esc(l.description) + '</div>', 'No open loops.'));
+    }
+
+    // ---- diagnostics: what actually ran — turns, tool use, model telemetry ----
+
+    async function renderDiagnostics() {
+      const [turns, tools, models] = await Promise.all([
+        get('/diagnostics/turns'), get('/diagnostics/tools?count=25'), get('/diagnostics/models?hours=24'),
+      ]);
+      mainEl.innerHTML =
+        card('Recent turns (this session) — what she had and what she did with it',
+          items(turns, t => '<div class="item">' + esc(t.userMessagePreview || '(no preview)') +
+            '<div class="meta">' + when(t.at) + ' · model ' + esc(t.modelUsed || '?') +
+            ' · ' + t.generationRounds + ' round' + (t.generationRounds === 1 ? '' : 's') +
+            ' · ' + t.memoriesRetrieved + ' memories · sections: ' + esc((t.contextSections || []).join(', ')) + '</div>' +
+            ((t.toolCalls || []).length
+              ? (t.toolCalls.map(c => '<div class="meta">🔧 ' + esc(c.tool) + ' → ' + esc(c.code) +
+                  ' (' + c.durationMs + 'ms)</div>').join(''))
+              : '<div class="meta">🔧 no tools used</div>') + '</div>',
+            'No turns recorded since the server started — talk to her first.')) +
+        card('Model usage — last 24h, per job (the data for picking models)',
+          items(models, s => '<div class="item">' + esc(s.role) + ' · ' + esc(s.model || '(unnamed)') +
+            (s.failures > 0 ? '<span class="badge">' + s.failures + ' failed</span>' : '') +
+            '<div class="meta">' + s.calls + ' calls · avg ' + s.avgDurationMs + 'ms' +
+            (s.promptTokens || s.completionTokens
+              ? ' · tokens ' + s.promptTokens + ' in / ' + s.completionTokens + ' out' : '') +
+            ' · last ' + when(s.lastCalledAt) + '</div></div>',
+            'No model calls in the window yet.')) +
+        card('Tool calls — durable history (survives restarts)',
+          items(tools, c => '<div class="item">' + esc(c.tool) +
+            '<span class="badge">' + esc(c.code) + '</span>' +
+            '<div class="meta">' + when(c.timestamp) + ' · ' + c.durationMs + 'ms' +
+            (c.arguments ? ' · args ' + esc(c.arguments) : '') + '</div></div>',
+            'She hasn\'t used any tools yet.'));
     }
 
     // ---- projects: what she's tracking, plus merge for accidental duplicates ----

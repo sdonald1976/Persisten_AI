@@ -134,12 +134,27 @@ public class ToolLayerTests
         }
     }
 
-    private static ToolLoop Loop(IChatModel chat, FakeTool tool, Action<CompanionOptions>? configure = null)
+    private sealed class NoopDiagnostics : IDiagnosticsStore
+    {
+        public List<ToolCallRecord> ToolCalls { get; } = new();
+        public Task RecordModelCallAsync(ModelCallRecord record, CancellationToken ct = default) => Task.CompletedTask;
+        public Task RecordToolCallAsync(ToolCallRecord record, CancellationToken ct = default)
+        { ToolCalls.Add(record); return Task.CompletedTask; }
+        public Task<IReadOnlyList<ToolCallRecord>> GetRecentToolCallsAsync(string userId, int count, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ToolCallRecord>>(ToolCalls);
+        public Task<IReadOnlyList<ModelRoleStats>> GetModelStatsAsync(DateTimeOffset since, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ModelRoleStats>>(Array.Empty<ModelRoleStats>());
+        public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default) => Task.FromResult(0);
+    }
+
+    private static ToolLoop Loop(
+        IChatModel chat, FakeTool tool, Action<CompanionOptions>? configure = null, NoopDiagnostics? diagnostics = null)
     {
         var options = new CompanionOptions();
         configure?.Invoke(options);
         return new ToolLoop(
-            new ICompanionTool[] { tool }, chat, Options.Create(options), NullLogger<ToolLoop>.Instance);
+            new ICompanionTool[] { tool }, chat, diagnostics ?? new NoopDiagnostics(),
+            Options.Create(options), TimeProvider.System, NullLogger<ToolLoop>.Instance);
     }
 
     [Fact]

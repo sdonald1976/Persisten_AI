@@ -33,16 +33,20 @@ public sealed class ToolLoop
 
     private readonly IEnumerable<ICompanionTool> _tools;
     private readonly IChatModel _chat;
+    private readonly IDiagnosticsStore _diagnostics;
     private readonly CompanionOptions _options;
+    private readonly TimeProvider _clock;
     private readonly ILogger<ToolLoop> _logger;
 
     public ToolLoop(
-        IEnumerable<ICompanionTool> tools, IChatModel chat,
-        IOptions<CompanionOptions> options, ILogger<ToolLoop> logger)
+        IEnumerable<ICompanionTool> tools, IChatModel chat, IDiagnosticsStore diagnostics,
+        IOptions<CompanionOptions> options, TimeProvider clock, ILogger<ToolLoop> logger)
     {
         _tools = tools;
         _chat = chat;
+        _diagnostics = diagnostics;
         _options = options.Value;
+        _clock = clock;
         _logger = logger;
     }
 
@@ -93,6 +97,11 @@ public sealed class ToolLoop
                     Tool = call.Value.Tool, Arguments = call.Value.ArgumentsJson,
                     Ok = false, Code = "unavailable",
                 });
+                await _diagnostics.RecordToolCallAsync(new ToolCallRecord
+                {
+                    Id = Guid.NewGuid(), UserId = userId, Tool = call.Value.Tool,
+                    Ok = false, Code = "unavailable", Timestamp = _clock.GetUtcNow(),
+                }, CancellationToken.None);
                 break;
             }
 
@@ -134,6 +143,19 @@ public sealed class ToolLoop
                 ResultSummary = resultJson,
             });
             resultBlocks.Add($"[{tool.Name}] {resultJson}");
+
+            // The durable record (the in-memory ring above forgets on restart; this doesn't).
+            await _diagnostics.RecordToolCallAsync(new ToolCallRecord
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Tool = tool.Name,
+                Arguments = call.Value.ArgumentsJson,
+                Ok = result.Ok,
+                Code = result.Code,
+                DurationMs = stopwatch.ElapsedMilliseconds,
+                Timestamp = _clock.GetUtcNow(),
+            }, CancellationToken.None);
 
             _logger.LogInformation(
                 "Tool {Tool} for {UserId}: {Code} in {Ms}ms", tool.Name, userId, result.Code, stopwatch.ElapsedMilliseconds);

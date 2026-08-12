@@ -22,10 +22,14 @@ public sealed class SleepCycle : ISleepCycle
     /// <summary>An event this long past that never got its follow-up isn't asked about anymore.</summary>
     public static readonly TimeSpan StaleAnticipationAge = TimeSpan.FromDays(7);
 
+    /// <summary>How long model/tool call telemetry is kept before the sleep pass sweeps it.</summary>
+    public static readonly TimeSpan DiagnosticsRetention = TimeSpan.FromDays(30);
+
     private readonly IReflector _reflector;
     private readonly IMemoryConsolidator _consolidator;
     private readonly IReflectionStore _reflections;
     private readonly IAnticipationStore _anticipations;
+    private readonly IDiagnosticsStore _diagnostics;
     private readonly TimeProvider _clock;
     private readonly ILogger<SleepCycle> _logger;
 
@@ -34,6 +38,7 @@ public sealed class SleepCycle : ISleepCycle
         IMemoryConsolidator consolidator,
         IReflectionStore reflections,
         IAnticipationStore anticipations,
+        IDiagnosticsStore diagnostics,
         TimeProvider clock,
         ILogger<SleepCycle> logger)
     {
@@ -41,6 +46,7 @@ public sealed class SleepCycle : ISleepCycle
         _consolidator = consolidator;
         _reflections = reflections;
         _anticipations = anticipations;
+        _diagnostics = diagnostics;
         _clock = clock;
         _logger = logger;
     }
@@ -62,6 +68,10 @@ public sealed class SleepCycle : ISleepCycle
             userId, _clock.GetUtcNow() - StaleCuriosityAge, ct);
         var expired = await _anticipations.ExpireStaleAsync(
             userId, _clock.GetLocalNow().Date - StaleAnticipationAge, ct);
+
+        // Sweep old telemetry while tidying — a month of model/tool history is plenty for
+        // debugging and model comparisons, and the tables stay bounded without a separate job.
+        await _diagnostics.PruneAsync(_clock.GetUtcNow() - DiagnosticsRetention, ct);
 
         var result = new SleepCycleResult
         {

@@ -43,6 +43,7 @@ public class SleepCycleTests
             consolidator,
             sp.GetRequiredService<IReflectionStore>(),
             sp.GetRequiredService<IAnticipationStore>(),
+            sp.GetRequiredService<IDiagnosticsStore>(),
             sp.GetRequiredService<TimeProvider>(),
             NullLogger<SleepCycle>.Instance);
 

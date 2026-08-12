@@ -308,6 +308,9 @@
               currentBot = null;
             }
             decorateLastBot(m.kind, finalText);
+            // Honesty about lookups: when she used her tools for this reply, say so quietly.
+            if (Array.isArray(m.tools) && m.tools.length)
+              add('sys', '🔧 looked up: ' + m.tools.join(', '));
             // A whole-frame reply (Action/Confirmation — nothing streamed) still gets spoken,
             // but only when nothing newer has been sent since.
             if (!speech && turnQueue.length === 0 && turn && turn.speak) newSpeechTurn(true);
