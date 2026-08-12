@@ -56,7 +56,10 @@ public sealed record TurnDiagnostics
     public IReadOnlyList<string> AdvertisedTools { get; init; } = Array.Empty<string>();
     public IReadOnlyList<ToolCallTrace> ToolCalls { get; init; } = Array.Empty<ToolCallTrace>();
 
-    /// <summary>The model's verbatim (clipped) tool decisions, one per loop round — the answer
-    /// to "did she decline, or produce something unusable?" when no tools ran.</summary>
+    /// <summary>The planner's verbatim (clipped) decisions, one per planning round — the answer
+    /// to "did it decline, or produce something unusable?" when no tools ran.</summary>
     public IReadOnlyList<string> ToolDecisions { get; init; } = Array.Empty<string>();
+
+    /// <summary>How many planner passes actually ran this turn (0 = nudge-only or disabled).</summary>
+    public int PlanningRounds { get; init; }
 }

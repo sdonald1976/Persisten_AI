@@ -9,4 +9,5 @@ internal static class ChatRoles
     public const string Reranker = "reranker";
     public const string Safety = "safety";
     public const string TaskAuditor = "task-auditor";
+    public const string ToolPlanner = "tool-planner";
 }

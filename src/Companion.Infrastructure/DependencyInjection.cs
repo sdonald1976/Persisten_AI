@@ -134,6 +134,7 @@ public static class DependencyInjection
             services.AddKeyedSingleton<IChatModel>(ChatRoles.Reranker, (sp, _) => BuildChat(sp, modelOptions.RerankerOrSummarizer, ProviderHttpClients.Reranker));
             services.AddKeyedSingleton<IChatModel>(ChatRoles.Safety, (sp, _) => BuildChat(sp, modelOptions.SafetyOrExtraction, ProviderHttpClients.Safety));
             services.AddKeyedSingleton<IChatModel>(ChatRoles.TaskAuditor, (sp, _) => BuildChat(sp, modelOptions.TaskAuditorOrSummarizer, ProviderHttpClients.TaskAuditor));
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.ToolPlanner, (sp, _) => BuildChat(sp, modelOptions.ToolPlannerOrExtraction, ProviderHttpClients.ToolPlanner));
 
             // The default IChatModel (the assistant's reply) is the conversational one.
             services.AddSingleton<IChatModel>(sp => sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation));
@@ -296,7 +297,18 @@ public static class DependencyInjection
         services.AddScoped<ICompanionTool, Core.Services.Tools.ProcedureSearchTool>();
         services.AddScoped<ICompanionTool, Core.Services.Tools.PreferenceListTool>();
         services.AddScoped<ICompanionTool, Core.Services.Tools.DiagnosticsTool>();
-        services.AddScoped<ToolLoop>();
+        // The loop plans with the executive ToolPlanner role (its own small model, falling back
+        // to Extraction then Chat), NOT the conversational model: orchestration is a judgment
+        // job for an instruction-follower, and the RP model should specialize in being herself.
+        services.AddScoped<ToolLoop>(sp => new ToolLoop(
+            sp.GetServices<ICompanionTool>(),
+            modelOptions.UsesRealModel
+                ? sp.GetRequiredKeyedService<IChatModel>(ChatRoles.ToolPlanner)
+                : sp.GetRequiredService<IChatModel>(),
+            sp.GetRequiredService<IDiagnosticsStore>(),
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CompanionOptions>>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<ToolLoop>>()));
 
         // The brain facade every face (CLI, HTTP, voice, avatar) drives the companion through.
         services.AddScoped<IAgent, Agent>();
@@ -338,6 +350,7 @@ public static class DependencyInjection
         Require("Reranker", options.RerankerOrSummarizer);
         Require("Safety", options.SafetyOrExtraction);
         Require("TaskAuditor", options.TaskAuditorOrSummarizer);
+        Require("ToolPlanner", options.ToolPlannerOrExtraction);
         Require("Embeddings", options.Embeddings);
         if (options.Vision is { } v) Require("Vision", v);
         if (options.Transcription is { } t) Require("Transcription", t);

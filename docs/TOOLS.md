@@ -30,23 +30,39 @@ Every tool result is structured JSON with provenance labels (kind, owner, confid
 rather than bare text, and every failure is a typed code — `invalid_arguments`, `not_found`,
 `unavailable`, `provider_failure`, `timeout` — never an exception escaping into a turn.
 
-## How a turn uses them
+## How a turn uses them — the Tool Planner
+
+Tool selection is NOT the conversational model's job. An 8B roleplay fine-tune reliably
+follows the JSON format but unreliably exercises the *judgment* ("would a lookup help here?"),
+so orchestration belongs to a dedicated executive — the **ToolPlanner** model role — plus a
+deterministic tier above it:
 
 ```
 user message
   → pipeline as before (retrieval, project context, mood, …) → context packet
-  → ToolLoop: "would a lookup genuinely help? answer in strict JSON"
-      {"tool": "memory.search", "arguments": {"query": "…"}}   → execute, append result, ask again
-      {"tool": null}                                            → done
+  → Tier 1 — deterministic nudges: extremely clear phrasings ("can you see images?",
+      "why did you say that?") run their tool outright, no model judgment involved
+  → Tier 2 — the PLANNER (its own small model; no personality, no prose):
+      input:  COMPACT planning context — recent exchange, what automatic retrieval already
+              found, detected project, tool list, any nudge hint. Never the persona packet.
+      output: {"needsTools": true|false, "reason": "…", "calls": [{"tool": …, "arguments": …}]}
+      → validated calls execute; ONE follow-up planning round may chase what results revealed
   → results injected into the packet as a labeled section ("Things you just looked up")
-  → ONE final generation with everything in place → reply
+  → ONE final generation by the conversational model with everything in place → reply
 ```
 
-The protocol is prompt-level JSON, not native function calling, because the target chat model
-(an L3-8B roleplay fine-tune served over the OpenAI-compatible API) has no reliable native
-tool-call support. The loop treats the model's output as untrusted text: if it parses as a
-valid call to a real, available tool, the call runs; anything else — prose, malformed JSON,
-unknown tool names — safely means "answer directly".
+The split is deliberate: **Stheno specializes in being her; the planner specializes in what
+she needs before she speaks; deterministic code decides what actually happens.**
+
+The planner role is configured like every other specialist (`Models:ToolPlanner` —
+BaseUrl/Model/Temperature/TimeoutSeconds), falls back to `Extraction` then `Chat` when not
+configured, and works best on a small instruction-following model (e.g. a 3B instruct at
+temperature 0.1). The protocol is prompt-level JSON, not native function calling — local RP
+models have no reliable native tool support. Planner output is untrusted text: valid plans
+execute, and prose, malformed JSON, timeouts, or a dead endpoint all degrade to "answer
+without lookups" (the failure is recorded in the decision trail). Bounds: max
+`MaxToolCallsPerTurn` executions and max 2 planning rounds per turn; the legacy single-call
+dialect ({"tool": "name"} / {"tool": null}) is tolerated for robustness with small models.
 
 ## The safety properties
 

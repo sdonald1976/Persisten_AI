@@ -52,6 +52,8 @@ public class ModelSelectionTests
         Assert.Equal("fast-summarizer", ChatModelFor(sp, "reranker"));
         Assert.Equal("small-extractor", ChatModelFor(sp, "safety"));
         Assert.Equal("fast-summarizer", ChatModelFor(sp, "task-auditor"));
+        // The executive planner falls back to the structured-extraction model when unconfigured.
+        Assert.Equal("small-extractor", ChatModelFor(sp, "tool-planner"));
 
         var embed = (OpenAiCompatibleEmbeddingModel)((LoggingEmbeddingModel)sp.GetRequiredService<IEmbeddingModel>()).Inner;
         Assert.Equal("dedicated-embedder", embed.ModelName);
@@ -93,6 +95,25 @@ public class ModelSelectionTests
         Assert.Equal("only-model", ChatModelFor(sp, "reranker"));
         Assert.Equal("only-model", ChatModelFor(sp, "safety"));
         Assert.Equal("only-model", ChatModelFor(sp, "task-auditor"));
+        Assert.Equal("only-model", ChatModelFor(sp, "tool-planner"));
+    }
+
+    [Fact]
+    public void ToolPlanner_UsesItsOwnModel_WhenConfigured()
+    {
+        using var sp = Build(new Dictionary<string, string?>
+        {
+            ["Models:Provider"] = "OpenAiCompatible",
+            ["Models:Chat:BaseUrl"] = "http://localhost:11434/v1",
+            ["Models:Chat:Model"] = "big-conversational",
+            ["Models:ToolPlanner:BaseUrl"] = "http://localhost:11434/v1",
+            ["Models:ToolPlanner:Model"] = "tiny-planner",
+            ["Models:Embeddings:BaseUrl"] = "http://localhost:11434/v1",
+            ["Models:Embeddings:Model"] = "embedder",
+        });
+
+        Assert.Equal("tiny-planner", ChatModelFor(sp, "tool-planner"));
+        Assert.Equal("big-conversational", ChatModelFor(sp, null)); // the reply model is untouched
     }
 
     [Fact]
