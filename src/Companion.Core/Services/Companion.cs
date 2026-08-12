@@ -347,27 +347,38 @@ public sealed class Companion : ICompanion
         var assistantMsg = await StoreMessageAsync(
             userId, conversationId, MessageRole.Assistant, response, replyToId, _clock.GetUtcNow(), ct, generated);
 
-        // 8–9. Extract candidate memories from the exchange and validate/persist accepted ones.
-        // (Skipped for private AND in-character turns — fiction never reaches the fact store.)
+        // 8–10. Derived-state work: extraction, project/open-loop updates, attention, procedures,
+        // commitments. The reply is already generated and STORED, so a failure here (extraction
+        // model down, embedding server gone, a malformed candidate) must not turn a delivered
+        // answer into an error — the user would see a 500 for a message the companion actually
+        // answered, and the stored exchange would be orphaned mid-turn. Losing a turn's derived
+        // memory is recoverable; losing the turn is not. Cancellation still propagates: that is
+        // the caller leaving, not a failure.
         var exchange = new[] { extractionSource, assistantMsg };
-        var extraction = extractFacts
-            ? await _pipeline.ProcessAsync(userId, exchange, ct)
-            : MemoryExtractionResult.Empty;
-
-        // 10. Reflect accepted memories into project/open-loop state.
-        var updates = extractFacts
-            ? await _projectUpdater.ApplyAsync(userId, exchange, extraction, projectContext, ct)
-            : ProjectUpdateResult.Empty;
-
-        // 10b. Capture a commitment the companion just made ("I'll check in tomorrow") as a
-        // companion-owned open loop, so it can follow up next session instead of forgetting it said
-        // so. Skipped on private and in-character turns; deduped against existing open commitments.
-        if (extractFacts)
+        var extraction = MemoryExtractionResult.Empty;
+        var updates = ProjectUpdateResult.Empty;
+        try
         {
-            await _attention.CaptureTurnAsync(userId, extractionSource, remember: true, ct);
-            await _procedures.ApplyRevisionAsync(userId, extractionSource, now, ct);
-            await _procedures.AddOrUpdateFromTeachingAsync(userId, conversationId, extractionSource, now, ct);
-            await CaptureCommitmentAsync(userId, response, assistantMsg.Id, now, ct);
+            // (Skipped for private AND in-character turns — fiction never reaches the fact store.)
+            if (extractFacts)
+            {
+                extraction = await _pipeline.ProcessAsync(userId, exchange, ct);
+                updates = await _projectUpdater.ApplyAsync(userId, exchange, extraction, projectContext, ct);
+
+                // A commitment the companion just made ("I'll check in tomorrow") becomes a
+                // companion-owned open loop, so it can follow up next session instead of
+                // forgetting it said so. Deduped against existing open commitments.
+                await _attention.CaptureTurnAsync(userId, extractionSource, remember: true, ct);
+                await _procedures.ApplyRevisionAsync(userId, extractionSource, now, ct);
+                await _procedures.AddOrUpdateFromTeachingAsync(userId, conversationId, extractionSource, now, ct);
+                await CaptureCommitmentAsync(userId, response, assistantMsg.Id, now, ct);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex,
+                "Derived-state work failed for {UserId} after the reply was stored; " +
+                "the turn stands, this turn's derived memory is lost.", userId);
         }
 
         // 10c. The offered curiosity is spent whether or not the model chose to raise it — asked

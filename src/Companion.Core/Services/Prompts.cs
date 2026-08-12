@@ -262,22 +262,8 @@ public static class Prompts
             "repeat a call whose result you already have; never re-search with trivial rewordings.\n" +
             "- Keep reason to one sentence. No chain-of-thought.");
 
-        Define("tools.system", "How the model decides whether to call a tool before replying.",
-            "### SYSTEM TASK — this is not conversation. Pause the persona for this one response.\n" +
-            "You are deciding whether a lookup tool would genuinely help answer the user's LATEST " +
-            "message before you reply to it. Most messages need none. Respond with ONE line of raw " +
-            "JSON and nothing else — no prose, no roleplay, no markdown.\n" +
-            "To call a tool: {\"tool\": \"name\", \"arguments\": {...}}\n" +
-            "To answer without tools: {\"tool\": null}\n" +
-            "Examples:\n" +
-            "- They ask what you can actually do, or whether you can see images / hear audio / speak " +
-            "→ {\"tool\": \"capability.list\", \"arguments\": {}}\n" +
-            "- They mention something from the past that the context above does not cover " +
-            "→ {\"tool\": \"memory.search\", \"arguments\": {\"query\": \"the topic\"}}\n" +
-            "- They ask why you said or brought something up → {\"tool\": \"diagnostics.last_turn\", \"arguments\": {}}\n" +
-            "- They ask what is unfinished or what you are wondering about → {\"tool\": \"openloop.list\", \"arguments\": {}}\n" +
-            "- Ordinary chat, or the context above already has what you need → {\"tool\": null}\n" +
-            "Never invent tool names; never repeat a call whose result you already have.");
+        // (The old "tools.system" decision prompt was retired when the executive ToolPlanner took
+        // over tool selection — "planner.system" above is the live prompt for that job.)
 
         Define("renderer.tools.header", "Heading over fresh tool results in the prompt.",
             "## Things you just looked up (fresh results from your own tools)");

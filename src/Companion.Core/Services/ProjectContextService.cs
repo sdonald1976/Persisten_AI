@@ -105,7 +105,17 @@ public sealed class ProjectContextService : IProjectContextService
         if (loops.Count == 0)
             return Array.Empty<RetrievedOpenLoop>();
 
-        var queryEmbedding = await _embeddings.EmbedAsync(query, ct);
+        // As in the retriever: an embedding outage degrades open-loop ranking to keywords and
+        // project membership rather than failing the turn.
+        float[] queryEmbedding;
+        try
+        {
+            queryEmbedding = await _embeddings.EmbedAsync(query, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            queryEmbedding = Array.Empty<float>();
+        }
 
         var scored = new List<RetrievedOpenLoop>(loops.Count);
         foreach (var loop in loops)

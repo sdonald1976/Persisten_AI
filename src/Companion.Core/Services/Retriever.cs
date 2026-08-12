@@ -45,7 +45,20 @@ public sealed class Retriever : IRetriever
         // The query embedding is computed unconditionally: even with no memories yet, the turn
         // still exposes it (RetrievalOutcome.QueryEmbedding) for other similarity lookups
         // (e.g. resurfacing a relevant past musing).
-        var queryEmbedding = await _embeddings.EmbedAsync(query, ct);
+        //
+        // An unreachable embedding server must NOT cost the user their conversation: degrade to
+        // keyword/recency retrieval for this turn (Cosine treats an empty vector as 0 similarity)
+        // and let the reply happen. Memory is poorer for one turn; silence would be worse.
+        float[] queryEmbedding;
+        try
+        {
+            queryEmbedding = await _embeddings.EmbedAsync(query, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Embedding unavailable; retrieving on keywords alone this turn.");
+            queryEmbedding = Array.Empty<float>();
+        }
 
         var candidates = await _memories.GetRetrievableMemoriesAsync(userId, ct);
         if (candidates.Count == 0)
@@ -59,8 +72,11 @@ public sealed class Retriever : IRetriever
         }
 
         // Similarity comes through the vector-index seam. Ask for all candidates so every
-        // memory gets a similarity value; missing ids fall back to 0.
-        var hits = await _vectorIndex.SearchAsync(userId, queryEmbedding, candidates.Count, ct);
+        // memory gets a similarity value; missing ids fall back to 0. With no query embedding
+        // (server down) the search is skipped entirely and every similarity is 0.
+        var hits = queryEmbedding.Length == 0
+            ? Array.Empty<VectorHit>()
+            : await _vectorIndex.SearchAsync(userId, queryEmbedding, candidates.Count, ct);
         var similarity = hits.ToDictionary(h => h.MemoryId, h => h.Similarity);
 
         var now = _clock.GetUtcNow();

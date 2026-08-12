@@ -55,7 +55,9 @@ public class ModelSelectionTests
         // The executive planner falls back to the structured-extraction model when unconfigured.
         Assert.Equal("small-extractor", ChatModelFor(sp, "tool-planner"));
 
-        var embed = (OpenAiCompatibleEmbeddingModel)((LoggingEmbeddingModel)sp.GetRequiredService<IEmbeddingModel>()).Inner;
+        // Embeddings are wrapped in caching → telemetry → the configured adapter; unwrap both.
+        var caching = (CachingEmbeddingModel)sp.GetRequiredService<IEmbeddingModel>();
+        var embed = (OpenAiCompatibleEmbeddingModel)((LoggingEmbeddingModel)caching.Inner).Inner;
         Assert.Equal("dedicated-embedder", embed.ModelName);
     }
 
