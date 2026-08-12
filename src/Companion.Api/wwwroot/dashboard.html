@@ -185,6 +185,7 @@
           items(turns, t => '<div class="item">' + esc(t.userMessagePreview || '(no preview)') +
             '<div class="meta">' + when(t.at) + ' · model ' + esc(t.modelUsed || '?') +
             ' · ' + t.generationRounds + ' round' + (t.generationRounds === 1 ? '' : 's') +
+            ' · planner ×' + (t.planningRounds || 0) +
             ' · ' + t.memoriesRetrieved + ' memories · sections: ' + esc((t.contextSections || []).join(', ')) + '</div>' +
             ((t.toolCalls || []).length
               ? (t.toolCalls.map(c => '<div class="meta">🔧 ' + esc(c.tool) + ' → ' + esc(c.code) +

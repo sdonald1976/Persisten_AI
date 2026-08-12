@@ -30,6 +30,14 @@ public sealed class ModelOptions
     /// <summary>Optional task-completion auditor. Falls back to <see cref="Summarizer"/> then <see cref="Chat"/>.</summary>
     public EndpointOptions? TaskAuditor { get; set; }
 
+    /// <summary>
+    /// Optional executive tool planner: decides what the companion should look up before the
+    /// conversational model replies. Best served by a small instruction-following model (the
+    /// conversational RP model is exactly what it should NOT be). Falls back to
+    /// <see cref="Extraction"/> (already the structured-output role), then <see cref="Chat"/>.
+    /// </summary>
+    public EndpointOptions? ToolPlanner { get; set; }
+
     /// <summary>Dedicated embedding model.</summary>
     public EndpointOptions Embeddings { get; set; } = new();
 
@@ -66,6 +74,9 @@ public sealed class ModelOptions
 
     /// <summary>Task auditor endpoint, or the cheap summarizer fallback.</summary>
     public EndpointOptions TaskAuditorOrSummarizer => TaskAuditor ?? SummarizerOrChat;
+
+    /// <summary>Tool planner endpoint, or the structured extraction fallback.</summary>
+    public EndpointOptions ToolPlannerOrExtraction => ToolPlanner ?? ExtractionOrChat;
 }
 
 /// <summary>Connection details for one OpenAI-compatible endpoint (chat or embeddings).</summary>

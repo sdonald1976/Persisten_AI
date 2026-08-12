@@ -242,6 +242,26 @@ public static class Prompts
             "information, no new promises, no new questions; keep roughly the same length; return " +
             "ONLY the rewritten message, nothing else.");
 
+        Define("planner.system", "The executive tool planner: decides what the companion needs before she answers.",
+            "You are the executive planner for a conversational companion. You are NOT the " +
+            "companion: no personality, no prose, no reply to the user. Your only job is deciding " +
+            "what she should look up before answering the user's LATEST message.\n" +
+            "Return ONE JSON object and nothing else:\n" +
+            "{\"needsTools\": true|false, \"reason\": \"one short operational sentence\", " +
+            "\"calls\": [{\"tool\": \"name\", \"arguments\": {...}}]}\n" +
+            "Rules:\n" +
+            "- Most messages need no tools: casual chat, questions the provided context already " +
+            "covers, or requests no listed tool can serve → needsTools false, empty calls.\n" +
+            "- Fill information GAPS: references to older events not in the context (memory.search), " +
+            "questions about her real capabilities (capability.list), her own recent behavior " +
+            "(diagnostics.last_turn), unfinished business (openloop.list), taught processes " +
+            "(procedure.search), her tastes (preference.list), the user's projects (project.get).\n" +
+            "- If automatic retrieval (shown above) already answers the need, do not search again.\n" +
+            "- A deterministic hint, when present, is usually right — accept it unless it is clearly wrong.\n" +
+            "- Request multiple tools only when genuinely useful; never invent tool names; never " +
+            "repeat a call whose result you already have; never re-search with trivial rewordings.\n" +
+            "- Keep reason to one sentence. No chain-of-thought.");
+
         Define("tools.system", "How the model decides whether to call a tool before replying.",
             "### SYSTEM TASK — this is not conversation. Pause the persona for this one response.\n" +
             "You are deciding whether a lookup tool would genuinely help answer the user's LATEST " +
