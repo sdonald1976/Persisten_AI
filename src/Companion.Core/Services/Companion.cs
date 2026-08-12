@@ -42,6 +42,8 @@ public sealed class Companion : ICompanion
     private readonly IProcedureStore _procedures;
     private readonly ICapabilityRegistry _capabilities;
     private readonly ISharedPerspectiveStore _sharedPerspectives;
+    private readonly ToolLoop _toolLoop;
+    private readonly ITurnTraceLog _turnLog;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -71,6 +73,8 @@ public sealed class Companion : ICompanion
         IProcedureStore procedures,
         ICapabilityRegistry capabilities,
         ISharedPerspectiveStore sharedPerspectives,
+        ToolLoop toolLoop,
+        ITurnTraceLog turnLog,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger)
@@ -99,6 +103,8 @@ public sealed class Companion : ICompanion
         _procedures = procedures;
         _capabilities = capabilities;
         _sharedPerspectives = sharedPerspectives;
+        _toolLoop = toolLoop;
+        _turnLog = turnLog;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -319,6 +325,14 @@ public sealed class Companion : ICompanion
             temporal, preferenceNotes, identityProjection, attentionNotes, procedureNotes,
             capabilityNote, perspectiveNotes);
 
+        // 5b. The bounded tool loop: the model may intentionally look things up (memory search,
+        // capabilities, diagnostics, …) before its final reply. Everything is read-only, validated,
+        // deduped, and capped; results are injected into the packet for THIS generation only —
+        // they never become messages or memory.
+        var toolOutcome = await _toolLoop.RunAsync(userId, packet.Render(), promptText, ct);
+        if (toolOutcome.ResultsSection is not null)
+            packet = packet with { ToolResults = toolOutcome.ResultsSection };
+
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
         // task), and streams to the sink across rounds when one is provided.
@@ -368,6 +382,26 @@ public sealed class Companion : ICompanion
             extraction.Accepted, extraction.Merged, extraction.NeedsReview, extraction.Rejected,
             updates.Actions.Count);
 
+        // The operational record for "why did you say that?" — powers diagnostics.last_turn.
+        _turnLog.Record(userId, new TurnDiagnostics
+        {
+            At = now,
+            UserMessagePreview = promptText.Length <= 80 ? promptText : promptText[..80],
+            MemoriesRetrieved = selectedMemories.Count,
+            RetrievedSummaries = selectedMemories.Take(5)
+                .Select(r => (r.Memory.Content.Length <= 120 ? r.Memory.Content : r.Memory.Content[..120])
+                    + $" (score {r.Score:F2})").ToList(),
+            ContextSections = PresentSections(packet),
+            DetectedProject = projectContext.ResolvedProjectName,
+            InCharacterTurn = inCharacter,
+            PrivateConversation = !remember,
+            FinishReason = generated.FinishReason,
+            GenerationRounds = generated.Rounds,
+            ModelUsed = generated.Model,
+            AdvertisedTools = toolOutcome.AdvertisedTools,
+            ToolCalls = toolOutcome.Calls,
+        });
+
         return new TurnTrace
         {
             UserMessage = promptText,
@@ -381,7 +415,30 @@ public sealed class Companion : ICompanion
             Extraction = extraction,
             ProjectContext = projectContext,
             ProjectUpdates = updates,
+            AdvertisedTools = toolOutcome.AdvertisedTools,
+            ToolCalls = toolOutcome.Calls,
         };
+    }
+
+    /// <summary>Which packet sections were actually present — diagnostics, not content.</summary>
+    private static IReadOnlyList<string> PresentSections(ContextPacket packet)
+    {
+        var sections = new List<string>();
+        void If(bool present, string name) { if (present) sections.Add(name); }
+        If(!string.IsNullOrWhiteSpace(packet.Persona), "persona");
+        If(!string.IsNullOrWhiteSpace(packet.MoodNote), "mood");
+        If(!string.IsNullOrWhiteSpace(packet.RegisterNote), "register");
+        If(!string.IsNullOrWhiteSpace(packet.FamiliarityNote), "familiarity");
+        If(!string.IsNullOrWhiteSpace(packet.RelationshipNote), "relationship");
+        If(!string.IsNullOrWhiteSpace(packet.TemporalNote), "temporal");
+        If(!string.IsNullOrWhiteSpace(packet.Musing), "musing");
+        If(!string.IsNullOrWhiteSpace(packet.CuriosityQuestion), "curiosity");
+        If(packet.Project is not null, "project");
+        If(packet.OpenLoops.Count > 0, "openLoops");
+        If(packet.Memories.Count > 0, "memories");
+        If(packet.PreferenceNotes.Count > 0, "preferences");
+        If(!string.IsNullOrWhiteSpace(packet.ToolResults), "toolResults");
+        return sections;
     }
 
     // ---- helpers ----

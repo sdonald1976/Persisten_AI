@@ -89,6 +89,12 @@ public sealed record ContextPacket
     public IReadOnlyList<string> SharedPerspectiveNotes { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Diagnostics { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// Structured results of tools the companion just invoked this turn (bounded JSON blocks),
+    /// injected for the final generation — fresh lookups, never stored as memory or messages.
+    /// </summary>
+    public string? ToolResults { get; init; }
+
     /// <summary>Notes about uncertainty, conflicts, or superseded information.</summary>
     public IReadOnlyList<string> UncertaintyNotes { get; init; } = Array.Empty<string>();
 

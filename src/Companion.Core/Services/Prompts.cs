@@ -242,6 +242,19 @@ public static class Prompts
             "information, no new promises, no new questions; keep roughly the same length; return " +
             "ONLY the rewritten message, nothing else.");
 
+        Define("tools.system", "How the model decides whether to call a tool before replying.",
+            "Before replying, you may look things up. Decide whether one of the tools below would " +
+            "GENUINELY help answer this specific message — most messages need none. Return ONLY JSON: " +
+            "{\"tool\": \"name\", \"arguments\": {…}} to call one tool, or {\"tool\": null} to answer " +
+            "directly. Never invent tool names; never repeat a call whose result you already have.");
+
+        Define("renderer.tools.header", "Heading over fresh tool results in the prompt.",
+            "## Things you just looked up (fresh results from your own tools)");
+        Define("renderer.tools.rules", "How tool results may be used in the reply.",
+            "Use these naturally in your reply — they are current and accurate for this " +
+            "installation. Don't recite raw JSON, don't invent beyond what they contain, and if a " +
+            "lookup failed or found nothing, be honest about that.");
+
         // ---- system prompts for the model-facing jobs ----
 
         Define("reflection.system", "The between-session reflection (inner monologue) instructions.",
