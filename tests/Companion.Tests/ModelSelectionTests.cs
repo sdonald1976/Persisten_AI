@@ -24,7 +24,9 @@ public class ModelSelectionTests
         var chat = role is null
             ? sp.GetRequiredService<IChatModel>()
             : sp.GetRequiredKeyedService<IChatModel>(role);
-        return ((OpenAiCompatibleChatModel)chat).ModelName;
+        // Every role is wrapped in call telemetry; unwrap to assert the configured adapter.
+        var inner = chat is LoggingChatModel logging ? logging.Inner : chat;
+        return ((OpenAiCompatibleChatModel)inner).ModelName;
     }
 
     [Fact]
@@ -51,7 +53,7 @@ public class ModelSelectionTests
         Assert.Equal("small-extractor", ChatModelFor(sp, "safety"));
         Assert.Equal("fast-summarizer", ChatModelFor(sp, "task-auditor"));
 
-        var embed = (OpenAiCompatibleEmbeddingModel)sp.GetRequiredService<IEmbeddingModel>();
+        var embed = (OpenAiCompatibleEmbeddingModel)((LoggingEmbeddingModel)sp.GetRequiredService<IEmbeddingModel>()).Inner;
         Assert.Equal("dedicated-embedder", embed.ModelName);
     }
 

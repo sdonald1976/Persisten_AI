@@ -40,6 +40,8 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<ProcedureStep> ProcedureSteps => Set<ProcedureStep>();
     public DbSet<ProcedureRevision> ProcedureRevisions => Set<ProcedureRevision>();
     public DbSet<CapabilityDescriptor> Capabilities => Set<CapabilityDescriptor>();
+    public DbSet<ModelCallRecord> ModelCalls => Set<ModelCallRecord>();
+    public DbSet<ToolCallRecord> ToolCalls => Set<ToolCallRecord>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -51,6 +53,28 @@ public sealed class CompanionDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder b)
     {
+        b.Entity<ModelCallRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Role).HasMaxLength(40);
+            e.Property(x => x.Operation).HasMaxLength(20);
+            e.Property(x => x.Model).HasMaxLength(200);
+            e.Property(x => x.Error).HasMaxLength(200);
+            // Stats aggregate over a time window; pruning deletes below a cutoff.
+            e.HasIndex(x => x.Timestamp);
+        });
+
+        b.Entity<ToolCallRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Tool).HasMaxLength(80);
+            e.Property(x => x.Arguments).HasMaxLength(2000);
+            e.Property(x => x.Code).HasMaxLength(40);
+            // Read newest-first per user.
+            e.HasIndex(x => new { x.UserId, x.Timestamp });
+        });
+
         b.Entity<UserProfile>(e =>
         {
             e.HasKey(x => x.UserId);

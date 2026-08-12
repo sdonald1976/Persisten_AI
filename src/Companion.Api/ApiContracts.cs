@@ -55,13 +55,15 @@ public sealed record TraceDto(
     string? DetectedProject,
     IReadOnlyList<RetrievedDto> Retrieved,
     int MemoriesExtracted,
-    int OpenLoopsSurfaced)
+    int OpenLoopsSurfaced,
+    IReadOnlyList<string> ToolsUsed)
 {
     public static TraceDto From(TurnTrace t) => new(
         t.DetectedProject,
         t.Retrieved.Select(r => new RetrievedDto(r.Memory.Content, Math.Round(r.Score, 3))).ToList(),
         t.Extraction.Accepted + t.Extraction.Merged,
-        t.ProjectContext.OpenLoops.Count);
+        t.ProjectContext.OpenLoops.Count,
+        t.ToolCalls.Where(c => c.Ok).Select(c => c.Tool).Distinct().ToList());
 }
 
 public sealed record RetrievedDto(string Content, double Score);

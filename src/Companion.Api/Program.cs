@@ -532,6 +532,26 @@ app.MapPost("/reflect", async (IUserContext user, IReflector reflector, Cancella
     });
 });
 
+// ---- operational diagnostics: what actually ran (turns, tools, model telemetry) ----
+
+// The in-memory ring: the last few turns' full operational story (sections, retrieval, tools).
+app.MapGet("/diagnostics/turns", (IUserContext user, ITurnTraceLog log) =>
+    Results.Ok(log.Recent(user.UserId, 5)));
+
+// Durable tool-call history, newest first: when and whether she used her tools.
+app.MapGet("/diagnostics/tools", async (
+    IUserContext user, IDiagnosticsStore diagnostics, int? count, CancellationToken ct) =>
+    Results.Ok(await diagnostics.GetRecentToolCallsAsync(user.UserId, count ?? 50, ct)));
+
+// Per role+model aggregates (calls, failures, latency, tokens) over a window — the data for
+// deciding which model earns which job.
+app.MapGet("/diagnostics/models", async (
+    IDiagnosticsStore diagnostics, TimeProvider clock, double? hours, CancellationToken ct) =>
+{
+    var window = TimeSpan.FromHours(Math.Clamp(hours ?? 24, 0.1, 24 * 90));
+    return Results.Ok(await diagnostics.GetModelStatsAsync(clock.GetUtcNow() - window, ct));
+});
+
 app.MapGet("/persona", async (IUserContext user, IProfileStore store, CancellationToken ct) =>
 {
     var profile = await store.GetOrCreateAsync(user.UserId, ct);
@@ -809,6 +829,8 @@ internal sealed class WebSocketConversation
         intent = reply.Intent.ToString(),
         text = reply.Text,
         confirmationToken = reply.ConfirmationToken,
+        // Which tools she used for this reply, so the UI can show the lookup honestly.
+        tools = reply.Trace?.ToolCalls.Where(c => c.Ok).Select(c => c.Tool).Distinct().ToList(),
     };
 
     private async Task SendAsync(object payload, CancellationToken ct)

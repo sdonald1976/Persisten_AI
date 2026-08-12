@@ -32,6 +32,10 @@ public static class DependencyInjection
 
         services.AddDbContext<CompanionDbContext>(o => o.UseSqlite(sqliteConnectionString));
 
+        // Durable operational telemetry (model calls, tool calls). Singleton because its writers
+        // are singletons (the model decorators); it opens its own scope per operation.
+        services.AddSingleton<IDiagnosticsStore, DiagnosticsStore>();
+
         // Stores (authoritative) + vector index (derived).
         services.AddScoped<IConversationStore, ConversationStore>();
         services.AddScoped<IMemoryStore, MemoryStore>();
@@ -113,9 +117,16 @@ public static class DependencyInjection
             // A separate chat model per job (keyed), so you can run a big conversational model,
             // a small structured-output-friendly extraction model, and a cheap/fast summarizer.
             // Extraction/summarizer fall back to the conversational endpoint when not configured.
-            OpenAiCompatibleChatModel BuildChat(IServiceProvider sp, EndpointOptions ep, string role) =>
-                new(ep, sp.GetRequiredService<IHttpClientFactory>(), ProviderHttpClients.Name(role),
-                    sp.GetRequiredService<ILogger<OpenAiCompatibleChatModel>>());
+            // Every role is wrapped in call telemetry (duration, tokens, outcome per role+model),
+            // so model comparisons come from recorded usage instead of impressions.
+            IChatModel BuildChat(IServiceProvider sp, EndpointOptions ep, string role) =>
+                new LoggingChatModel(
+                    new OpenAiCompatibleChatModel(
+                        ep, sp.GetRequiredService<IHttpClientFactory>(), ProviderHttpClients.Name(role),
+                        sp.GetRequiredService<ILogger<OpenAiCompatibleChatModel>>()),
+                    role,
+                    sp.GetRequiredService<IDiagnosticsStore>(),
+                    sp.GetRequiredService<TimeProvider>());
 
             services.AddKeyedSingleton<IChatModel>(ChatRoles.Conversation, (sp, _) => BuildChat(sp, modelOptions.Chat, ProviderHttpClients.Conversation));
             services.AddKeyedSingleton<IChatModel>(ChatRoles.Extraction, (sp, _) => BuildChat(sp, modelOptions.ExtractionOrChat, ProviderHttpClients.Extraction));
@@ -128,10 +139,13 @@ public static class DependencyInjection
             services.AddSingleton<IChatModel>(sp => sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation));
 
             services.AddSingleton<IEmbeddingModel>(sp =>
-                new OpenAiCompatibleEmbeddingModel(
-                    modelOptions.Embeddings, sp.GetRequiredService<IHttpClientFactory>(),
-                    ProviderHttpClients.Name(ProviderHttpClients.Embeddings),
-                    sp.GetRequiredService<ILogger<OpenAiCompatibleEmbeddingModel>>()));
+                new LoggingEmbeddingModel(
+                    new OpenAiCompatibleEmbeddingModel(
+                        modelOptions.Embeddings, sp.GetRequiredService<IHttpClientFactory>(),
+                        ProviderHttpClients.Name(ProviderHttpClients.Embeddings),
+                        sp.GetRequiredService<ILogger<OpenAiCompatibleEmbeddingModel>>()),
+                    sp.GetRequiredService<IDiagnosticsStore>(),
+                    sp.GetRequiredService<TimeProvider>()));
 
             services.AddSingleton<ISummarizer>(sp =>
                 new LlmSummarizer(sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Summarizer)));
@@ -156,8 +170,13 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddSingleton<IEmbeddingModel>(new MockEmbeddingModel());
-            services.AddSingleton<IChatModel, MockChatModel>();
+            // The mocks get the same telemetry wrapper: the diagnostics pipeline stays the one
+            // code path whether the models are real or offline stand-ins.
+            services.AddSingleton<IEmbeddingModel>(sp => new LoggingEmbeddingModel(
+                new MockEmbeddingModel(), sp.GetRequiredService<IDiagnosticsStore>(), sp.GetRequiredService<TimeProvider>()));
+            services.AddSingleton<IChatModel>(sp => new LoggingChatModel(
+                new MockChatModel(), ProviderHttpClients.Conversation,
+                sp.GetRequiredService<IDiagnosticsStore>(), sp.GetRequiredService<TimeProvider>()));
             services.AddSingleton<ISummarizer, MockSummarizer>();
             services.AddScoped<IMemoryExtractor, RuleBasedMemoryExtractor>();
 
