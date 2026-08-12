@@ -25,6 +25,13 @@ public static class ContextPacketRenderer
     /// </summary>
     private const int RecentSectionCharBudget = 2800;
 
+    /// <summary>
+    /// Ceiling for any single note/bullet (memory line, preference, attention item, procedure,
+    /// mood, musing…). These are meant to be a sentence or two; one that arrives enormous is a
+    /// generation bug upstream, and it must not be allowed to crowd out the rest of the prompt.
+    /// </summary>
+    private const int MaxNoteChars = 400;
+
     private static string Clip(string text, int max)
         => string.IsNullOrEmpty(text) || text.Length <= max ? text : text[..max] + " […]";
 
@@ -276,7 +283,11 @@ public static class ContextPacketRenderer
         if (string.IsNullOrWhiteSpace(body))
             return;
         sb.AppendLine(Prompts.Exists(headerKey) ? Prompts.Get(headerKey) : $"## {headerKey}");
-        sb.AppendLine(body!.Trim());
+        // Tool results carry their own (larger) budget from the loop; every other prose section
+        // is a note that should be a sentence or two, so a runaway one is a bug, not content.
+        sb.AppendLine(headerKey == "renderer.tools.header"
+            ? body!.Trim()
+            : Clip(body!.Trim(), MaxNoteChars));
         if (rulesKey is not null)
             sb.AppendLine(Prompts.Get(rulesKey));
         sb.AppendLine();
@@ -291,7 +302,7 @@ public static class ContextPacketRenderer
             return;
         sb.AppendLine(Prompts.Exists(headerKey) ? Prompts.Get(headerKey) : $"## {headerKey}");
         foreach (var item in list)
-            sb.AppendLine($"- {item}");
+            sb.AppendLine($"- {Clip(item, MaxNoteChars)}");
         if (rulesKey is not null)
             sb.AppendLine(Prompts.Get(rulesKey));
         sb.AppendLine();

@@ -239,8 +239,21 @@ work fails, that turn's memories/updates are lost, and the failure is logged at 
 the whole turn failed and nothing downstream ran anyway). No change to personality, identity,
 privacy semantics, memory ownership, or conversational behavior.
 
-## 16. Larger recommendations deferred
+## 16. Larger recommendations deferred — now worked through
 
-See `docs/IMPROVEMENT_BACKLOG.md` — the retrieval projection, SQLite busy-retry, token budgeting,
-restart/concurrency tests, endpoint-file split, and a shared turn-analysis object (evaluated and
-**not** recommended in its naive form).
+`docs/IMPROVEMENT_BACKLOG.md` has the full record. Since this audit was written, backlog items
+1–5 and 7 have been implemented across two passes; item 6 (a shared turn-analysis object) remains
+deliberately unimplemented, with its reasoning preserved as a decision record.
+
+Notable outcomes beyond the original findings:
+
+- The prompt-size guard (#7) immediately exposed a **7,206-token** worst-case packet, which drove
+  the section budgets in #3 (now 5,629; a typical turn ~1,000).
+- The concurrency tests (#4) exposed a **real race**: `ProfileStore.GetOrCreateAsync` was a
+  read-then-insert, so two callers arriving together for a new user both inserted and the loser
+  hit `UNIQUE constraint failed` — failing that turn. Fixed by re-reading the winner's row.
+- `EstimatedTokens` was found to under-report the prompt (it counted three sections of a dozen) and
+  is now measured from the fully rendered packet.
+
+That second finding is the strongest argument for the tests-for-failure-classes principle: neither
+bug was visible by inspection, and both would have surfaced first as a confusing error in real use.

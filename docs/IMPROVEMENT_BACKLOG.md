@@ -1,15 +1,14 @@
 # Improvement Backlog
 
-Worthwhile changes identified by the full-solution audit that were **deliberately not implemented**
-in that pass — each is either too large, too risky, or needs a design decision first. Ordered by
-value. Each entry states the alternative designs considered, because "why this way" ages better
-than "what".
+Changes identified by the full-solution audit and worked through in the passes after it. Each entry
+keeps the alternative designs considered, because "why this way" ages better than "what".
 
 ---
 
-> **Status update:** items **1, 2 and 4 are now done** (see `FULL_SOLUTION_AUDIT.md` §15 and the
-> backlog-pass commit). They are kept below with their original reasoning, marked ✅, because the
-> alternatives considered are still the useful record. Items 3, 5, 6, 7 remain open.
+> **Status: the backlog is worked through.** Items **1, 2, 3, 4, 5 and 7 are done**; item **6 is
+> deliberately not implemented** and the reasoning is preserved as the decision record. Entries are
+> kept with their original analysis because the alternatives considered are the useful part — a
+> future reader needs "why this way", not just "what".
 
 ---
 
@@ -87,9 +86,13 @@ warning (`Companion:PacketTokenWarningThreshold`, default 3,000).
 **Behavioral difference:** on a very long transcript, the oldest of the recent turns may now drop
 out of the prompt, and a pasted wall of text appears clipped with `[…]`.
 
-**Still open:** budgets for the remaining sections (preferences, attention, procedures,
-perspectives) and a real tokenizer instead of chars/4. Neither is urgent — those sections are
-count-capped and small — and both need the trim-order product decision below.
+**Second pass added** a 400-char ceiling on any single note or bullet (memory line, preference,
+attention item, procedure, mood, musing). Those are meant to be a sentence or two, so an enormous
+one is an upstream generation bug and must not be allowed to crowd out the prompt.
+
+**Still open, deliberately:** a real tokenizer instead of chars/4. Every section is now bounded, so
+the estimate's job is trend-watching, not precision — and adding a Llama tokenizer dependency to
+buy accuracy nobody currently acts on would be the wrong trade.
 
 Original analysis:
 
@@ -108,20 +111,38 @@ what should Ava lose first when the window is tight?
 
 ---
 
-## 4. ✅ MOSTLY DONE — Restart and concurrency test coverage — P2, Medium effort, Low risk
+## 4. ✅ DONE — Restart and concurrency test coverage — P2, Medium effort, Low risk
 
 **Implemented:** `TestHost` now accepts a real file-backed connection string, enabling (a) a restart
 test — a second host over the same database file rebuilds the cold vector index from disk and
 retrieves the same memory — and (b) a concurrency test running a turn and the sleep cycle
 simultaneously.
 
-**Still open:** (c) two simultaneous *turns* for the same user (profile/relationship/attention
-races), and (d) mid-turn client disconnect leaving consistent state. Both need a deliberate
-interleaving harness rather than `Task.WhenAll`, which is why they weren't bundled in.
+**Completed in the second pass** with `ConcurrencyTests`: (c) two simultaneous turns for the same
+user, and (d) a client leaving mid-generation (a gated chat model holds the turn open, the token is
+cancelled, and the test asserts no phantom assistant reply is stored).
+
+**This found a real bug.** `ProfileStore.GetOrCreateAsync` was a read-then-insert: two callers
+arriving together for a user with no row both inserted, and the loser got
+`UNIQUE constraint failed: Users.UserId` — which would fail a turn. Realistic on a fresh install,
+where the greeting, the first message and the background worker can all land at once. Now the
+losing insert is detected and the winner's row re-read.
 
 ---
 
-## 5. Split `Program.cs` (875 lines) and `Companion.cs` (764 lines) — P3, Medium effort, Low risk
+## 5. ✅ PARTLY DONE — Split `Program.cs` and `Companion.cs` — P3, Medium effort, Low risk
+
+**Implemented for `Program.cs`** (875 → 640 lines): three cohesive, self-contained groups moved to
+endpoint-extension files — `MemoryEndpoints` (memories, projects, curation, loops),
+`CompanionStateEndpoints` (reflections, curiosities, preferences, anticipations, outreach, prompt
+catalog), and `DiagnosticsEndpoints`. Groups that capture host locals (auth token, logger, static
+file config) stayed in `Program.cs`, where they belong. The existing API tests cover the moved
+endpoints, so the move is verified behaviorally rather than by inspection.
+
+**`Companion.cs` deliberately left alone** — see the original note below: the turn's readability as
+a single narrative is a feature, and splitting it would cost more than it gains.
+
+Original analysis:
 
 Both are navigable but at the limit. `Program.cs` naturally splits by area (conversation, memory,
 projects, reflection, diagnostics, prompts, media) into endpoint-group extension methods.

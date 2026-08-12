@@ -16,16 +16,37 @@ public sealed class ProfileStore : IProfileStore
         _clock = clock;
     }
 
+    /// <summary>
+    /// Get-or-create is a read-then-insert, so two callers arriving together for a user who has
+    /// no row yet will BOTH try to insert and one will lose on the primary key. That happens for
+    /// real on a fresh install — the greeting, the first message, and the background worker can
+    /// all land at once — and an unhandled unique violation there would fail the user's very
+    /// first turn. Losing the race is not an error: the row now exists, so re-read it.
+    /// </summary>
     public async Task<UserProfile> GetOrCreateAsync(string userId, CancellationToken ct = default)
     {
         var profile = await _db.Users.FirstOrDefaultAsync(u => u.UserId == userId, ct);
-        if (profile is null)
+        if (profile is not null)
+            return profile;
+
+        profile = new UserProfile { UserId = userId, CreatedAt = _clock.GetUtcNow() };
+        _db.Users.Add(profile);
+        try
         {
-            profile = new UserProfile { UserId = userId, CreatedAt = _clock.GetUtcNow() };
-            _db.Users.Add(profile);
             await _db.SaveChangesAsync(ct);
+            return profile;
         }
-        return profile;
+        catch (DbUpdateException)
+        {
+            // Someone else created it between our read and our insert. Drop our losing copy so
+            // the context isn't left holding a duplicate, then take theirs. A unique violation
+            // with no row afterwards is a genuine failure, so that case rethrows.
+            _db.Entry(profile).State = EntityState.Detached;
+            var winner = await _db.Users.FirstOrDefaultAsync(u => u.UserId == userId, ct);
+            if (winner is null)
+                throw;
+            return winner;
+        }
     }
 
     public async Task SetPersonaAsync(string userId, string? persona, CancellationToken ct = default)
