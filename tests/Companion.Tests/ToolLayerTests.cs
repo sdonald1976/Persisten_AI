@@ -177,6 +177,9 @@ public class ToolLayerTests
         // The second decision prompt showed the model what it already looked up.
         Assert.Contains("Results you already looked up", chat.SystemPrompts[1]);
         Assert.Equal(new[] { "fake.lookup" }, outcome.AdvertisedTools);
+        // Both verbatim decisions (the call and the decline) are kept for diagnostics.
+        Assert.Equal(2, outcome.Decisions.Count);
+        Assert.Contains("fake.lookup", outcome.Decisions[0]);
     }
 
     [Fact]

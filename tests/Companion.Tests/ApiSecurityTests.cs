@@ -16,7 +16,8 @@ namespace Companion.Tests;
 /// Integration tests for the locked-down local API (H1/H2/H3/H6): token auth, CORS allow-list,
 /// orphan/foreign conversation rejection, and sanitized errors. Runs the real app offline.
 /// </summary>
-public class ApiSecurityTests : IClassFixture<CompanionApiFactory>
+[Collection(ApiCollection.Name)]
+public class ApiSecurityTests
 {
     private readonly CompanionApiFactory _factory;
     public ApiSecurityTests(CompanionApiFactory factory) => _factory = factory;

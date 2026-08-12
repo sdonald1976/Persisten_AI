@@ -400,6 +400,7 @@ public sealed class Companion : ICompanion
             ModelUsed = generated.Model,
             AdvertisedTools = toolOutcome.AdvertisedTools,
             ToolCalls = toolOutcome.Calls,
+            ToolDecisions = toolOutcome.Decisions,
         });
 
         return new TurnTrace
