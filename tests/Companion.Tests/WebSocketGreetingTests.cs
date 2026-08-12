@@ -11,7 +11,8 @@ namespace Companion.Tests;
 /// A model-phrased `greeting` upgrade frame follows only when a real model is configured — with
 /// the offline mocks no rephraser is registered, so no upgrade frame may ever appear.
 /// </summary>
-public class WebSocketGreetingTests : IClassFixture<CompanionApiFactory>
+[Collection(ApiCollection.Name)]
+public class WebSocketGreetingTests
 {
     private readonly CompanionApiFactory _factory;
     public WebSocketGreetingTests(CompanionApiFactory factory) => _factory = factory;

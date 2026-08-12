@@ -189,7 +189,9 @@
             ((t.toolCalls || []).length
               ? (t.toolCalls.map(c => '<div class="meta">🔧 ' + esc(c.tool) + ' → ' + esc(c.code) +
                   ' (' + c.durationMs + 'ms)</div>').join(''))
-              : '<div class="meta">🔧 no tools used</div>') + '</div>',
+              : ((t.toolDecisions || []).length
+                  ? '<div class="meta">🔧 no tools used — her decision was: <code>' + esc(t.toolDecisions[0]) + '</code></div>'
+                  : '<div class="meta">🔧 no tools used</div>')) + '</div>',
             'No turns recorded since the server started — talk to her first.')) +
         card('Model usage — last 24h, per job (the data for picking models)',
           items(models, s => '<div class="item">' + esc(s.role) + ' · ' + esc(s.model || '(unnamed)') +

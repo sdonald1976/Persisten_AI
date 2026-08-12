@@ -317,6 +317,7 @@ public sealed class DiagnosticsTool : ICompanionTool
                 privateConversation = t.PrivateConversation,
                 generation = new { t.FinishReason, rounds = t.GenerationRounds, model = t.ModelUsed },
                 toolCalls = t.ToolCalls.Select(c => new { c.Tool, c.Ok, c.Code, c.DurationMs }),
+                toolDecisions = t.ToolDecisions,
             }),
         }));
     }

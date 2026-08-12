@@ -53,7 +53,8 @@ public sealed class ToolLoop
     public sealed record Outcome(
         IReadOnlyList<string> AdvertisedTools,
         IReadOnlyList<ToolCallTrace> Calls,
-        string? ResultsSection);
+        string? ResultsSection,
+        IReadOnlyList<string> Decisions);
 
     public async Task<Outcome> RunAsync(
         string userId, string renderedContext, string userMessage, CancellationToken ct = default)
@@ -61,10 +62,11 @@ public sealed class ToolLoop
         var available = _tools.Where(t => t.Available).ToList();
         var advertised = available.Select(t => t.Name).ToList();
         if (!_options.EnableToolUse || available.Count == 0)
-            return new Outcome(advertised, Array.Empty<ToolCallTrace>(), null);
+            return new Outcome(advertised, Array.Empty<ToolCallTrace>(), null, Array.Empty<string>());
 
         var traces = new List<ToolCallTrace>();
         var resultBlocks = new List<string>();
+        var decisions = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
         for (var i = 0; i < Math.Max(1, _options.MaxToolCallsPerTurn); i++)
@@ -82,6 +84,10 @@ public sealed class ToolLoop
                 _logger.LogDebug(ex, "Tool decision call failed; answering without tools.");
                 break;
             }
+
+            // The verbatim decision (clipped) goes to diagnostics: "did she decline or ramble?"
+            // is the first question when tools never fire, and it must be answerable from data.
+            decisions.Add(Clip(raw.Trim(), 200));
 
             var call = TryParseCall(raw);
             if (call is null)
@@ -162,7 +168,7 @@ public sealed class ToolLoop
         }
 
         var section = resultBlocks.Count == 0 ? null : Clip(string.Join("\n", resultBlocks), MaxSectionChars);
-        return new Outcome(advertised, traces, section);
+        return new Outcome(advertised, traces, section, decisions);
     }
 
     private static string DecisionPrompt(

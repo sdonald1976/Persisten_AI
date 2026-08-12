@@ -13,7 +13,8 @@ namespace Companion.Tests;
 /// The curation endpoints over the real app: merging folds one project into another (and the
 /// old name keeps resolving via its alias); malformed requests are rejected before any work.
 /// </summary>
-public class ProjectCurationApiTests : IClassFixture<CompanionApiFactory>
+[Collection(ApiCollection.Name)]
+public class ProjectCurationApiTests
 {
     private readonly CompanionApiFactory _factory;
 
