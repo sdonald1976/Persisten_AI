@@ -128,11 +128,32 @@
     }
 
     // ---- her mind: diary, wonderings, dates she's holding ----
+
+    // Trigger a reflection pass on demand (the worker normally runs one after ~30 idle minutes).
+    async function reflectNow(btn) {
+      btn.disabled = true; btn.textContent = '🌙 Reflecting…';
+      try {
+        const res = await fetch('/reflect', { method: 'POST', headers: authHeaders() });
+        if (!res.ok) throw new Error('/reflect → ' + res.status);
+        const r = await res.json();
+        statusEl.textContent = r.reflected
+          ? (r.quietDay ? 'reflected — a quiet day, nothing worth musing on' : 'reflected ✓')
+          : (r.reason || 'nothing new enough to think about');
+        await show(); // re-render so a fresh musing/curiosity appears immediately
+      } catch (e) {
+        btn.disabled = false; btn.textContent = '🌙 Reflect now';
+        statusEl.textContent = String(e.message || e);
+      }
+    }
+
     async function renderMind() {
       const [reflections, curiosities, anticipations, loops] = await Promise.all([
         get('/reflections'), get('/curiosities'), get('/anticipations'), get('/loops'),
       ]);
       mainEl.innerHTML =
+        '<div class="row" style="margin-bottom:10px"><button class="save" ' +
+          'onclick="reflectNow(this)" title="Run the between-sessions thinking pass right now ' +
+          'instead of waiting for the idle window">🌙 Reflect now</button></div>' +
         card('Diary — what she\'s been thinking between conversations',
           items(reflections, r => '<div class="item">' + esc(r.musing) +
             '<div class="meta">' + when(r.createdAt) + ' · reflected over ' + r.messagesReflected + ' messages</div></div>',
