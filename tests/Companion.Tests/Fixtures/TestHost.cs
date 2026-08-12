@@ -18,7 +18,10 @@ public sealed class TestHost : IAsyncDisposable
     public IServiceProvider Services { get; }
     public FixedTimeProvider Clock { get; }
 
-    public TestHost(DateTimeOffset now, Action<CompanionOptions>? configureOptions = null)
+    public TestHost(
+        DateTimeOffset now,
+        Action<CompanionOptions>? configureOptions = null,
+        Action<IServiceCollection>? configureServices = null)
     {
         Clock = new FixedTimeProvider(now);
 
@@ -39,6 +42,9 @@ public sealed class TestHost : IAsyncDisposable
         services.AddSingleton<TimeProvider>(Clock);
         if (configureOptions is not null)
             services.Configure(configureOptions);
+
+        // Late overrides for test doubles (e.g. a scripted IChatModel) — last registration wins.
+        configureServices?.Invoke(services);
 
         Services = services.BuildServiceProvider();
         Services.MigrateDatabaseAsync().GetAwaiter().GetResult();

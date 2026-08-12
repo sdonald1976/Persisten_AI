@@ -41,4 +41,10 @@ public sealed record TurnTrace
 
     /// <summary>Project/open-loop state changes made after the turn (step 10).</summary>
     public ProjectUpdateResult ProjectUpdates { get; init; } = ProjectUpdateResult.Empty;
+
+    /// <summary>Tool names the model was offered this turn.</summary>
+    public IReadOnlyList<string> AdvertisedTools { get; init; } = Array.Empty<string>();
+
+    /// <summary>Tools actually invoked this turn (validated args, outcome, duration).</summary>
+    public IReadOnlyList<ToolCallTrace> ToolCalls { get; init; } = Array.Empty<ToolCallTrace>();
 }

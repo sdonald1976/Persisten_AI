@@ -128,6 +128,9 @@ public static class ContextPacketRenderer
         BulletSection(sb, "renderer.outdated.header", outdated.Select(i => FormatMemory(i, packet.Identities)));
         BulletSection(sb, "USER-TAUGHT PROCEDURES", packet.ProcedureNotes);
         BulletSection(sb, "renderer.preferences.header", packet.PreferenceNotes, "renderer.preferences.rules");
+        // Fresh lookups the companion made this turn — grounded data for THIS reply only.
+        ProseSection(sb, "renderer.tools.header", packet.ToolResults, "renderer.tools.rules");
+
         BulletSection(sb, "renderer.uncertainty.header", packet.UncertaintyNotes);
         BulletSection(sb, "DEBUG CONTEXT SELECTION", packet.Diagnostics);
 

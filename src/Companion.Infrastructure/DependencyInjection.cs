@@ -267,6 +267,18 @@ public static class DependencyInjection
             services.AddSingleton<IVoiceRephraser, PassthroughRephraser>();
         }
 
+        // The tool layer: read-only capabilities the chat model may intentionally invoke, plus
+        // the bounded loop that mediates every call and the diagnostics ring that records them.
+        services.AddSingleton<ITurnTraceLog, InMemoryTurnTraceLog>();
+        services.AddScoped<ICompanionTool, Core.Services.Tools.CapabilityListTool>();
+        services.AddScoped<ICompanionTool, Core.Services.Tools.MemorySearchTool>();
+        services.AddScoped<ICompanionTool, Core.Services.Tools.ProjectTool>();
+        services.AddScoped<ICompanionTool, Core.Services.Tools.OpenLoopListTool>();
+        services.AddScoped<ICompanionTool, Core.Services.Tools.ProcedureSearchTool>();
+        services.AddScoped<ICompanionTool, Core.Services.Tools.PreferenceListTool>();
+        services.AddScoped<ICompanionTool, Core.Services.Tools.DiagnosticsTool>();
+        services.AddScoped<ToolLoop>();
+
         // The brain facade every face (CLI, HTTP, voice, avatar) drives the companion through.
         services.AddScoped<IAgent, Agent>();
 

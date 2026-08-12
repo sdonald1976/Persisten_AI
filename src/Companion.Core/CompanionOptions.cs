@@ -99,6 +99,16 @@ public sealed class CompanionOptions
     public double CuriosityCooldownHours { get; set; } = 1.0;
 
     /// <summary>
+    /// Let the chat model intentionally invoke read-only tools (memory search, capability list,
+    /// diagnostics, …) before replying. Adds up to MaxToolCallsPerTurn+1 model calls to a turn
+    /// when the model chooses to look things up; offline mocks never produce a tool call.
+    /// </summary>
+    public bool EnableToolUse { get; set; } = true;
+
+    /// <summary>Hard ceiling on tool executions in one turn (identical repeats stop earlier).</summary>
+    public int MaxToolCallsPerTurn { get; set; } = 3;
+
+    /// <summary>
     /// Layer the LLM intent classifier on top of the deterministic rules (requires a real model).
     /// The rules always run first and always win when they match; the model may only promote a
     /// plain chat message to a read-only intent for phrasings the rules don't know.
