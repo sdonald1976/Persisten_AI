@@ -166,6 +166,13 @@
 
     let socket, conversationId = null, currentBot = null, greetingBubble = null;
 
+    // One entry per message sent whose 'reply' frame hasn't arrived yet (the server answers
+    // strictly in order on one socket). Lets a fast follow-up message coexist with the previous
+    // turn's late 'reply' frame — which arrives seconds after its visible token stream ends
+    // (the server extracts memories etc. first) — without duplicating that reply's text.
+    const turnQueue = [];
+    const newestTurnActive = () => turnQueue.length === 1; // the streaming turn is the latest sent
+
     function add(cls, text) {
       const el = document.createElement('div');
       el.className = 'msg ' + cls;
@@ -255,6 +262,9 @@
           case 'ready':
             authenticated = true;
             conversationId = m.conversationId;
+            turnQueue.length = 0; // replies in flight on a dropped socket are never coming
+            currentBot = null;
+            hideThinking();
             // The companion opens the conversation so you don't have to. Show its message and
             // offer the memory-grounded starters as clickable chips (or just type your own).
             // The bubble is kept so a later 'greeting' frame can upgrade the wording in place.
@@ -271,13 +281,19 @@
             break;
           case 'token':
             hideThinking();
-            if (!currentBot) currentBot = add('bot', '');
+            if (!currentBot) {
+              currentBot = add('bot', '');
+              // Speak this stream only when it belongs to the latest message — a turn the user
+              // already talked over (barge-in / fast follow-up) stays silent.
+              if (newestTurnActive() && turnQueue[0].speak) newSpeechTurn(true);
+            }
             currentBot.textContent += m.text;
             feedSpeech(m.text); // synthesize each sentence as it streams in
             log.scrollTop = log.scrollHeight;
             break;
           case 'reply': {
             hideThinking();
+            const turn = turnQueue.shift();
             let finalText = m.text;
             if (m.kind === 'Confirmation') {
               if (currentBot) currentBot = null;
@@ -292,14 +308,21 @@
               currentBot = null;
             }
             decorateLastBot(m.kind, finalText);
+            // A whole-frame reply (Action/Confirmation — nothing streamed) still gets spoken,
+            // but only when nothing newer has been sent since.
+            if (!speech && turnQueue.length === 0 && turn && turn.speak) newSpeechTurn(true);
             finalizeSpeech(finalText);
+            // Another message is already queued behind this turn — show that it's being worked on.
+            if (turnQueue.length) showThinking();
             break;
           }
           case 'error':
             hideThinking();
+            turnQueue.shift();
             add('sys', '⚠ ' + m.message);
             currentBot = null;
             stopSpeech();
+            if (turnQueue.length) showThinking();
             break;
         }
       };
@@ -318,6 +341,7 @@
     }
 
     function confirmChoice(token, confirmed) {
+      turnQueue.push({ speak: false }); // its 'reply' frame shifts the queue like any other turn
       socket.send(JSON.stringify({ type: 'confirm', token, confirmed, conversationId }));
     }
 
@@ -343,8 +367,11 @@
       // no derived memory), and both sides render it as a deed, not a line of dialogue.
       if (asAction) text = '*' + text.replace(/^\*+|\*+$/g, '') + '*';
       add(asAction ? 'you act' : 'you', text);
-      currentBot = null;
-      newSpeechTurn(speakAll || viaVoice); // voice in → voice out, or speak-all toggle on
+      // Barge-in: talking over her stops the current audio. The streamed bubble and the speech
+      // decision for the NEW turn are handled when its frames arrive ('token'/'reply' above) —
+      // resetting them here made a fast follow-up duplicate the previous reply.
+      stopSpeech();
+      turnQueue.push({ speak: speakAll || viaVoice }); // voice in → voice out, or speak-all toggle on
       socket.send(JSON.stringify({ type: 'chat', text, conversationId }));
       showThinking();
       (asAction ? actInput : input).value = '';
