@@ -48,7 +48,17 @@ public sealed class EntityResolver : IEntityResolver
             .GroupBy(a => a.ProjectId)
             .ToDictionary(g => g.Key, g => g.Select(a => a.Alias).ToList());
 
-        var referenceEmbedding = await _embeddings.EmbedAsync(reference, ct);
+        // Alias and name matching still resolve projects without embeddings, so an embedding
+        // outage weakens resolution instead of breaking the turn.
+        float[] referenceEmbedding;
+        try
+        {
+            referenceEmbedding = await _embeddings.EmbedAsync(reference, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            referenceEmbedding = Array.Empty<float>();
+        }
         var referenceTokens = new HashSet<string>(Tokenizer.Tokenize(reference));
         var now = _clock.GetUtcNow();
 

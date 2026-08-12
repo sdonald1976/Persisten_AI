@@ -139,14 +139,17 @@ public static class DependencyInjection
             // The default IChatModel (the assistant's reply) is the conversational one.
             services.AddSingleton<IChatModel>(sp => sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation));
 
+            // Cache outermost: a repeat of the same text costs nothing and is not recorded as a
+            // provider call, so telemetry keeps showing real traffic.
             services.AddSingleton<IEmbeddingModel>(sp =>
-                new LoggingEmbeddingModel(
-                    new OpenAiCompatibleEmbeddingModel(
-                        modelOptions.Embeddings, sp.GetRequiredService<IHttpClientFactory>(),
-                        ProviderHttpClients.Name(ProviderHttpClients.Embeddings),
-                        sp.GetRequiredService<ILogger<OpenAiCompatibleEmbeddingModel>>()),
-                    sp.GetRequiredService<IDiagnosticsStore>(),
-                    sp.GetRequiredService<TimeProvider>()));
+                new CachingEmbeddingModel(
+                    new LoggingEmbeddingModel(
+                        new OpenAiCompatibleEmbeddingModel(
+                            modelOptions.Embeddings, sp.GetRequiredService<IHttpClientFactory>(),
+                            ProviderHttpClients.Name(ProviderHttpClients.Embeddings),
+                            sp.GetRequiredService<ILogger<OpenAiCompatibleEmbeddingModel>>()),
+                        sp.GetRequiredService<IDiagnosticsStore>(),
+                        sp.GetRequiredService<TimeProvider>())));
 
             services.AddSingleton<ISummarizer>(sp =>
                 new LlmSummarizer(sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Summarizer)));
@@ -173,8 +176,10 @@ public static class DependencyInjection
         {
             // The mocks get the same telemetry wrapper: the diagnostics pipeline stays the one
             // code path whether the models are real or offline stand-ins.
-            services.AddSingleton<IEmbeddingModel>(sp => new LoggingEmbeddingModel(
-                new MockEmbeddingModel(), sp.GetRequiredService<IDiagnosticsStore>(), sp.GetRequiredService<TimeProvider>()));
+            services.AddSingleton<IEmbeddingModel>(sp => new CachingEmbeddingModel(
+                new LoggingEmbeddingModel(
+                    new MockEmbeddingModel(), sp.GetRequiredService<IDiagnosticsStore>(),
+                    sp.GetRequiredService<TimeProvider>())));
             services.AddSingleton<IChatModel>(sp => new LoggingChatModel(
                 new MockChatModel(), ProviderHttpClients.Conversation,
                 sp.GetRequiredService<IDiagnosticsStore>(), sp.GetRequiredService<TimeProvider>()));
