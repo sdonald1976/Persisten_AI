@@ -315,7 +315,7 @@ app.Map("/ws", async (HttpContext ctx, IUserContext user, IServiceScopeFactory s
 
 app.MapGet("/memories", async (IUserContext user, IMemoryStore store, CancellationToken ct) =>
 {
-    var memories = await store.GetRetrievableMemoriesAsync(user.UserId, ct);
+    var memories = await store.GetRetrievalCandidatesAsync(user.UserId, ct);
     return Results.Ok(memories.OrderByDescending(m => m.EffectiveAt).Select(MemoryDto.From));
 });
 

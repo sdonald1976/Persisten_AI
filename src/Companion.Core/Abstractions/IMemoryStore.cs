@@ -19,6 +19,16 @@ public interface IMemoryStore
     /// </summary>
     Task<IReadOnlyList<IMemory>> GetRetrievableMemoriesAsync(string userId, CancellationToken ct = default);
 
+    /// <summary>
+    /// The same candidate set as <see cref="GetRetrievableMemoriesAsync"/> but WITHOUT the
+    /// embedding blobs — for readers that score through the vector index or don't score at all.
+    /// Embeddings are by far the largest column (a float array per memory), and loading them for
+    /// a path that never reads them is the single biggest avoidable cost on the turn. The
+    /// returned instances are untracked and have a null <c>Embedding</c>: never pass one to an
+    /// update method, or you would erase the stored vector.
+    /// </summary>
+    Task<IReadOnlyList<IMemory>> GetRetrievalCandidatesAsync(string userId, CancellationToken ct = default);
+
     Task<SemanticMemory?> GetSemanticAsync(Guid id, string userId, CancellationToken ct = default);
     Task<EpisodicMemory?> GetEpisodicAsync(Guid id, string userId, CancellationToken ct = default);
 

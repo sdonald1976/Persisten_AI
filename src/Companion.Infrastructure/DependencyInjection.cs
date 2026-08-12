@@ -406,6 +406,7 @@ public static class DependencyInjection
         try
         {
             await db.Database.MigrateAsync(ct);
+            await EnableWriteAheadLoggingAsync(db, ct);
         }
         catch (Exception ex)
         {
@@ -423,6 +424,31 @@ public static class DependencyInjection
                     "No data was lost. See the inner exception for details.", ex);
             }
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Puts a file-backed database in WAL mode. In the default rollback journal, a single writer
+    /// blocks every reader — so the reflection worker consolidating memories while the user is
+    /// mid-turn can surface "database is locked". WAL lets readers continue during a write, which
+    /// is exactly this app's shape: constant small reads on the turn path, occasional background
+    /// writes. The setting is persisted in the database header, so this runs once and sticks.
+    /// (In-memory databases used by tests have no journal to switch; SQLite reports "memory" and
+    /// the call is a harmless no-op.)
+    /// </summary>
+    private static async Task EnableWriteAheadLoggingAsync(CompanionDbContext db, CancellationToken ct)
+    {
+        try
+        {
+            // synchronous=NORMAL is the documented companion to WAL: durable across process
+            // crashes, and only at risk from an OS/power failure — the right trade for a local
+            // companion whose alternative is fsync on every commit.
+            await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;", ct);
+            await db.Database.ExecuteSqlRawAsync("PRAGMA synchronous=NORMAL;", ct);
+        }
+        catch (Exception)
+        {
+            // A database that won't take the pragma still works in rollback-journal mode.
         }
     }
 

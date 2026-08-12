@@ -57,7 +57,7 @@ public sealed class Greeter : IGreeter
         var projects = (await _projects.GetProjectsAsync(userId, ct))
             .OrderByDescending(p => p.LastActivityAt)
             .ToList();
-        var memories = await _memories.GetRetrievableMemoriesAsync(userId, ct);
+        var memories = await _memories.GetRetrievalCandidatesAsync(userId, ct);
 
         var now = _clock.GetUtcNow();
 

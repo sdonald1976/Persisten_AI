@@ -60,7 +60,7 @@ public sealed class Retriever : IRetriever
             queryEmbedding = Array.Empty<float>();
         }
 
-        var candidates = await _memories.GetRetrievableMemoriesAsync(userId, ct);
+        var candidates = await _memories.GetRetrievalCandidatesAsync(userId, ct);
         if (candidates.Count == 0)
         {
             return new RetrievalOutcome

@@ -126,7 +126,7 @@ public sealed class Agent : IAgent
 
     private async Task<AgentReply> RecallAsync(string userId, string? topic, CancellationToken ct)
     {
-        var memories = await _memories.GetRetrievableMemoriesAsync(userId, ct);
+        var memories = await _memories.GetRetrievalCandidatesAsync(userId, ct);
         if (memories.Count == 0)
             return AgentReply.Act(IntentKind.Recall, "I don't have any memories for you yet.");
 
@@ -425,7 +425,7 @@ public sealed class Agent : IAgent
     private async Task<IMemory?> ResolveMemoryAsync(
         string userId, Guid conversationId, string? reference, CancellationToken ct)
     {
-        var memories = await _memories.GetRetrievableMemoriesAsync(userId, ct);
+        var memories = await _memories.GetRetrievalCandidatesAsync(userId, ct);
         if (memories.Count == 0)
             return null;
 

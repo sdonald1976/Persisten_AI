@@ -23,7 +23,7 @@ public sealed class AssociativeRecallService : IAssociativeRecallService
     {
         var ids = primary.Select(r => r.Memory.Id).ToHashSet();
         var associations = await _associations.GetFromSourcesAsync(userId, ids, ct);
-        var memories = await _memories.GetRetrievableMemoriesAsync(userId, ct);
+        var memories = await _memories.GetRetrievalCandidatesAsync(userId, ct);
         var byId = memories.ToDictionary(m => m.Id);
 
         return associations
