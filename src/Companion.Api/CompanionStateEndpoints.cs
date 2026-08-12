@@ -26,6 +26,22 @@ internal static class CompanionStateEndpoints
                 }));
         });
 
+        // The diary grouped into trains of thought: what she has kept working through across
+        // reflection passes, most recently developed first.
+        app.MapGet("/reflections/threads", async (IUserContext user, IReflectionStore store, CancellationToken ct) =>
+        {
+            var threads = await store.GetThreadsAsync(user.UserId, 12, ct);
+            return Results.Ok(threads.Select(t => new
+            {
+                threadId = t.ThreadId,
+                startedAt = t.StartedAt,
+                lastDevelopedAt = t.LastDevelopedAt,
+                length = t.Length,
+                settled = t.Settled,
+                entries = t.Entries.Select(r => new { id = r.Id, createdAt = r.CreatedAt, musing = r.Musing }),
+            }));
+        });
+
         // What it currently wonders about (open, not-yet-voiced curiosities).
         app.MapGet("/curiosities", async (IUserContext user, IReflectionStore store, CancellationToken ct) =>
         {

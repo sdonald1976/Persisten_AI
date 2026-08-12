@@ -24,6 +24,9 @@ public sealed class QueuedChatModel : IChatModel
 
     public QueuedChatModel(params string[] responses) : this(responses, "(no more scripted replies)") { }
 
+    /// <summary>Adds a response to the back of the queue mid-test (when it depends on earlier state).</summary>
+    public void Enqueue(string response) => _responses.Enqueue(response);
+
     public Task<ChatCompletion> CompleteAsync(
         string systemPrompt, string userMessage, bool jsonMode = false,
         string? assistantPrefix = null, CancellationToken ct = default)
