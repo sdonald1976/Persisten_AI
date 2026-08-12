@@ -56,6 +56,70 @@ public sealed class MemoryStore : IMemoryStore
         return semantic.Cast<IMemory>().Concat(episodic).ToList();
     }
 
+    /// <summary>
+    /// Retrieval candidates projected WITHOUT their embeddings (see the interface for why).
+    /// Every other scalar is carried across so downstream scoring, kind checks
+    /// (<see cref="EpisodicMemory.IsOpenLoop"/>, <see cref="SemanticMemory.Validity"/>) and
+    /// rendering behave identically — a projection test asserts this stays exhaustive as the
+    /// entities grow.
+    /// </summary>
+    public async Task<IReadOnlyList<IMemory>> GetRetrievalCandidatesAsync(
+        string userId, CancellationToken ct = default)
+    {
+        var semantic = await _db.SemanticMemories
+            .AsNoTracking()
+            .Where(m => m.UserId == userId
+                && m.Status != MemoryStatus.Deleted
+                && m.Status != MemoryStatus.Candidate)
+            .Select(m => new SemanticMemory
+            {
+                Id = m.Id,
+                UserId = m.UserId,
+                Subject = m.Subject,
+                Predicate = m.Predicate,
+                Value = m.Value,
+                NormalizedFact = m.NormalizedFact,
+                Confidence = m.Confidence,
+                Importance = m.Importance,
+                Validity = m.Validity,
+                Status = m.Status,
+                Owner = m.Owner,
+                Origin = m.Origin,
+                FirstObserved = m.FirstObserved,
+                LastConfirmed = m.LastConfirmed,
+                CreatedAt = m.CreatedAt,
+                SupersededById = m.SupersededById,
+                RelatedProject = m.RelatedProject,
+            })
+            .ToListAsync(ct);
+
+        var episodic = await _db.EpisodicMemories
+            .AsNoTracking()
+            .Where(m => m.UserId == userId
+                && m.Status != MemoryStatus.Deleted
+                && m.Status != MemoryStatus.Candidate)
+            .Select(m => new EpisodicMemory
+            {
+                Id = m.Id,
+                UserId = m.UserId,
+                Description = m.Description,
+                EventTime = m.EventTime,
+                TimePrecision = m.TimePrecision,
+                MentionedAt = m.MentionedAt,
+                CreatedAt = m.CreatedAt,
+                EpisodeStatus = m.EpisodeStatus,
+                Importance = m.Importance,
+                Confidence = m.Confidence,
+                EmotionalSignificance = m.EmotionalSignificance,
+                Status = m.Status,
+                Owner = m.Owner,
+                RelatedProject = m.RelatedProject,
+            })
+            .ToListAsync(ct);
+
+        return semantic.Cast<IMemory>().Concat(episodic).ToList();
+    }
+
     public async Task<SemanticMemory?> GetSemanticAsync(Guid id, string userId, CancellationToken ct = default)
         => await _db.SemanticMemories.FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId, ct);
 

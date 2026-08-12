@@ -7,7 +7,20 @@ than "what".
 
 ---
 
-## 1. Stop materializing embeddings the retriever never reads — P2, Medium effort, Medium risk
+> **Status update:** items **1, 2 and 4 are now done** (see `FULL_SOLUTION_AUDIT.md` §15 and the
+> backlog-pass commit). They are kept below with their original reasoning, marked ✅, because the
+> alternatives considered are still the useful record. Items 3, 5, 6, 7 remain open.
+
+---
+
+## 1. ✅ DONE — Stop materializing embeddings the retriever never reads — P2, Medium effort, Medium risk
+
+**Implemented as Option A:** `GetRetrievalCandidatesAsync` projects every scalar except the
+embedding, untracked, and the read-only consumers (retriever, associative recall, greeter, agent
+recall, `/memories`) use it. The pipeline and consolidator keep the full load because they genuinely
+need vectors. A reflection-based test asserts the projection stays exhaustive as the entities grow,
+and another asserts nothing from it enters the change tracker (so it can never save a null embedding
+over a real one).
 
 **Now:** `GetRetrievableMemoriesAsync` loads every non-deleted memory for the user, *including the
 embedding blob*, on every turn. The retriever then gets similarity from the in-memory vector index
@@ -34,7 +47,14 @@ wrong trade for a memory system whose whole promise is *not* forgetting.
 
 ---
 
-## 2. SQLite busy/lock handling — P2, Small effort, Low risk
+## 2. ✅ DONE — SQLite busy/lock handling — P2, Small effort, Low risk
+
+**Implemented:** WAL mode (+ `synchronous=NORMAL`) is enabled once after migration on file-backed
+databases — readers no longer block behind the background writer, which was the actual shape of the
+problem. Microsoft.Data.Sqlite already retries `SQLITE_BUSY` within its command timeout, so Option A
+below turned out to be redundant. A test runs a turn and a sleep cycle concurrently.
+
+Original analysis:
 
 **Now:** concurrent writes (a turn finishing while the reflection worker consolidates) can raise
 `SQLITE_BUSY`. Nothing retries; the caller sees a raw DB error.
@@ -65,15 +85,16 @@ what should Ava lose first when the window is tight?
 
 ---
 
-## 4. Restart and concurrency test coverage — P2, Medium effort, Low risk
+## 4. ✅ MOSTLY DONE — Restart and concurrency test coverage — P2, Medium effort, Low risk
 
-Missing: (a) a test that the in-memory vector index rebuilds correctly from disk after a restart
-and yields the same retrieval as before; (b) a test that two simultaneous turns for the same user
-don't corrupt profile/relationship/attention state; (c) a test that a mid-turn client disconnect
-leaves consistent state.
+**Implemented:** `TestHost` now accepts a real file-backed connection string, enabling (a) a restart
+test — a second host over the same database file rebuilds the cold vector index from disk and
+retrieves the same memory — and (b) a concurrency test running a turn and the sleep cycle
+simultaneously.
 
-These are the failure classes that only appear in real long-running use, and they're cheap to add
-now that `TestHost` supports service overrides.
+**Still open:** (c) two simultaneous *turns* for the same user (profile/relationship/attention
+races), and (d) mid-turn client disconnect leaving consistent state. Both need a deliberate
+interleaving harness rather than `Task.WhenAll`, which is why they weren't bundled in.
 
 ---
 

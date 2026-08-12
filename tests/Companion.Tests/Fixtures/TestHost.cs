@@ -21,12 +21,14 @@ public sealed class TestHost : IAsyncDisposable
     public TestHost(
         DateTimeOffset now,
         Action<CompanionOptions>? configureOptions = null,
-        Action<IServiceCollection>? configureServices = null)
+        Action<IServiceCollection>? configureServices = null,
+        string? connectionString = null)
     {
         Clock = new FixedTimeProvider(now);
 
         // A named shared-cache in-memory DB survives as long as at least one connection is open.
-        var connectionString = $"Data Source=file:test-{Guid.NewGuid():N}?mode=memory&cache=shared";
+        // Tests that need real file semantics (restart, WAL, concurrency) pass their own path.
+        connectionString ??= $"Data Source=file:test-{Guid.NewGuid():N}?mode=memory&cache=shared";
         _keepAlive = new SqliteConnection(connectionString);
         _keepAlive.Open();
 
