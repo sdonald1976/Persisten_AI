@@ -14,6 +14,14 @@ public sealed class CompanionOptions
     /// <summary>Approximate token budget for the memory section of the packet.</summary>
     public int MemoryTokenBudget { get; set; } = 800;
 
+    /// <summary>
+    /// Soft ceiling for the WHOLE rendered packet. Exceeding it logs a warning and shows up in
+    /// turn diagnostics rather than silently truncating: on a small local model a bloated prompt
+    /// degrades replies long before it errors, and quietly dropping context would trade a visible
+    /// problem for an invisible one. Set to 0 to disable the warning.
+    /// </summary>
+    public int PacketTokenWarningThreshold { get; set; } = 3000;
+
     /// <summary>How many recent messages to include verbatim.</summary>
     public int RecentMessageCount { get; set; } = 6;
 

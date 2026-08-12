@@ -12,6 +12,43 @@ namespace Companion.Core.Services;
 /// </summary>
 public static class ContextPacketRenderer
 {
+    /// <summary>
+    /// Per-message ceiling for the recent-conversation section (~130 words). Long enough that a
+    /// normal turn is never touched; short enough that one pasted document can't own the prompt.
+    /// </summary>
+    private const int MaxRecentMessageChars = 800;
+
+    /// <summary>
+    /// Budget for the recent-conversation section as a whole (~700 tokens). Filled NEWEST-FIRST:
+    /// when a transcript is heavy, the turns nearest to now are the ones that matter for
+    /// continuity, and the oldest are dropped rather than letting the section grow without limit.
+    /// </summary>
+    private const int RecentSectionCharBudget = 2800;
+
+    private static string Clip(string text, int max)
+        => string.IsNullOrEmpty(text) || text.Length <= max ? text : text[..max] + " […]";
+
+    /// <summary>
+    /// The recent turns that fit the section budget, still in chronological order. Always keeps
+    /// at least the most recent message, however long it is (clipped) — a reply with no
+    /// immediate context is worse than a big prompt.
+    /// </summary>
+    private static IReadOnlyList<Message> WithinBudget(IReadOnlyList<Message> messages)
+    {
+        var kept = new List<Message>(messages.Count);
+        var used = 0;
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            var cost = Math.Min(messages[i].Content.Length, MaxRecentMessageChars);
+            if (kept.Count > 0 && used + cost > RecentSectionCharBudget)
+                break;
+            used += cost;
+            kept.Add(messages[i]);
+        }
+        kept.Reverse();
+        return kept;
+    }
+
     public static string Render(ContextPacket packet)
     {
         var sb = new StringBuilder();
@@ -64,7 +101,7 @@ public static class ContextPacketRenderer
         if (packet.RecentMessages.Count > 0)
         {
             sb.AppendLine(Prompts.Get("renderer.recent.header"));
-            foreach (var m in packet.RecentMessages)
+            foreach (var m in WithinBudget(packet.RecentMessages))
             {
                 var label = m.Role switch
                 {
@@ -73,7 +110,11 @@ public static class ContextPacketRenderer
                     _ => "[SYSTEM]",
                 };
                 sb.AppendLine(label);
-                sb.AppendLine(m.Content);
+                // One pasted wall of text (a spec, a log, an article) would otherwise crowd out
+                // every other section for the rest of the conversation. Clipping a single long
+                // turn keeps continuity — the gist and the opening are what later turns need —
+                // without letting transcript length become an unbounded prompt cost.
+                sb.AppendLine(Clip(m.Content, MaxRecentMessageChars));
             }
             sb.AppendLine();
         }

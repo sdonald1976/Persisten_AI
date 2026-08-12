@@ -186,6 +186,7 @@
             '<div class="meta">' + when(t.at) + ' · model ' + esc(t.modelUsed || '?') +
             ' · ' + t.generationRounds + ' round' + (t.generationRounds === 1 ? '' : 's') +
             ' · planner ×' + (t.planningRounds || 0) +
+            (t.packetTokens ? ' · ~' + t.packetTokens + ' prompt tokens' : '') +
             ' · ' + t.memoriesRetrieved + ' memories · sections: ' + esc((t.contextSections || []).join(', ')) + '</div>' +
             ((t.toolCalls || []).length
               ? (t.toolCalls.map(c => '<div class="meta">🔧 ' + esc(c.tool) + ' → ' + esc(c.code) +
