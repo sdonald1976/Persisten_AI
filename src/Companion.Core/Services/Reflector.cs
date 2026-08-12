@@ -32,7 +32,7 @@ public sealed class Reflector : IReflector
     private const int MaxRawChars = 100_000;
 
     // How much surrounding context one pass gets to think with.
-    private const int PriorMusings = 2;
+    private const int PriorMusings = 3;
     private const int RecentSignals = 5;
 
     // Per-pass caps on what reflection may persist beyond the diary itself.
@@ -115,10 +115,7 @@ public sealed class Reflector : IReflector
         var held = await _reflections.GetOpenCuriositiesAsync(userId, ct);
         var openLoops = await _projects.GetOpenLoopsAsync(userId, onlyOpen: true, ct);
         var signals = await _emotions.GetRecentSignalsAsync(userId, RecentSignals, ct);
-        var priorMusings = (await _reflections.GetRecentAsync(userId, 10, ct))
-            .Where(r => r.HasMusing)
-            .Take(PriorMusings)
-            .ToList();
+        var priorMusings = await RelevantPriorMusingsAsync(userId, messages, ct);
 
         var now = _clock.GetUtcNow();
         var material = ComposeMaterial(messages, priorMusings, held, openLoops, signals, now);
@@ -149,6 +146,7 @@ public sealed class Reflector : IReflector
         {
             reflection.Musing = musing;
             reflection.Embedding = await _embeddings.EmbedAsync(musing, ct);
+            ApplyThread(reflection, dto, priorMusings);
         }
 
         var curiosities = SelectCuriosities(dto.Curiosities, held, userId, now);
@@ -597,6 +595,115 @@ public sealed class Reflector : IReflector
         return selected;
     }
 
+    // ---- continuity of thought ----
+
+    /// <summary>
+    /// Places this musing in a train of thought. The model proposes which earlier thought it
+    /// develops (by the short id it was shown); deterministic code decides whether to believe it:
+    /// the id must match a musing that was actually offered THIS pass, which makes it impossible
+    /// to graft onto an arbitrary or invented row. An unmatched or absent claim simply starts a
+    /// new thread — the honest default, and the pre-threading behavior.
+    /// </summary>
+    private static void ApplyThread(
+        Reflection reflection, ReflectionDto dto, IReadOnlyList<Reflection> priorMusings)
+    {
+        var claimed = dto.ContinuesThought?.Trim();
+        var parent = string.IsNullOrEmpty(claimed)
+            ? null
+            : priorMusings.FirstOrDefault(r =>
+                ShortId(r.Id).Equals(claimed, StringComparison.OrdinalIgnoreCase)
+                || r.Id.ToString().Equals(claimed, StringComparison.OrdinalIgnoreCase));
+
+        if (parent is null)
+        {
+            // A new train of thought: it is its own root.
+            reflection.ThreadId = reflection.Id;
+            reflection.ContinuesReflectionId = null;
+        }
+        else
+        {
+            reflection.ContinuesReflectionId = parent.Id;
+            // Inherit the parent's thread — including when the parent predates threading and has
+            // no id of its own, in which case the parent becomes the root.
+            reflection.ThreadId = parent.ThreadId == Guid.Empty ? parent.Id : parent.ThreadId;
+        }
+
+        // Settling only means something for a thought that continues one; a brand-new thought
+        // declaring itself finished is just a thought.
+        reflection.ThreadSettled = dto.ThoughtSettled == true && parent is not null;
+    }
+
+    /// <summary>Short, prompt-friendly handle for a reflection (the model echoes it back).</summary>
+    private static string ShortId(Guid id) => id.ToString("N")[..8];
+
+    /// <summary>How far back a dormant thread can still be picked up.</summary>
+    private const int PriorMusingLookback = 40;
+
+    /// <summary>
+    /// The past thoughts worth continuing THIS pass. Recency alone made each reflection nearly
+    /// independent: a thread she was developing three cycles ago was invisible the moment two
+    /// newer thoughts existed, so she restarted instead of continuing. This keeps the latest
+    /// thought (the conversation's current shape) and adds the most RELEVANT older ones — judged
+    /// by similarity between the new material and each musing — so a dormant thread resurfaces
+    /// when its subject comes back around.
+    /// </summary>
+    private async Task<IReadOnlyList<Reflection>> RelevantPriorMusingsAsync(
+        string userId, IReadOnlyList<Message> messages, CancellationToken ct)
+    {
+        var recent = (await _reflections.GetRecentAsync(userId, PriorMusingLookback, ct))
+            .Where(r => r.HasMusing)
+            .ToList();
+
+        // A thread she has settled is finished thinking about. Excluding the whole thread (not
+        // just the settling entry) is what stops a resolved thought being resumed forever —
+        // the difference between a train of thought and rumination.
+        var settled = recent
+            .Where(r => r.ThreadSettled && r.ThreadId != Guid.Empty)
+            .Select(r => r.ThreadId)
+            .ToHashSet();
+        var candidates = recent.Where(r => !settled.Contains(r.ThreadId)).ToList();
+        if (candidates.Count <= PriorMusings)
+            return candidates;
+
+        // The newest thought always comes along: it is the thread she was most recently on.
+        var latest = candidates.OrderByDescending(r => r.CreatedAt).First();
+        var rest = candidates.Where(r => r.Id != latest.Id).ToList();
+
+        float[] materialEmbedding;
+        try
+        {
+            var gist = string.Join('\n', messages
+                .Where(m => m.Role == MessageRole.User)
+                .TakeLast(RelevanceGistMessages)
+                .Select(m => m.Content));
+            materialEmbedding = string.IsNullOrWhiteSpace(gist)
+                ? Array.Empty<float>()
+                : await _embeddings.EmbedAsync(gist, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // No embeddings available — fall back to the old recency behavior rather than fail.
+            _logger.LogDebug(ex, "Embedding unavailable for prior-musing selection; using recency.");
+            materialEmbedding = Array.Empty<float>();
+        }
+
+        var chosen = materialEmbedding.Length == 0
+            ? rest.OrderByDescending(r => r.CreatedAt).Take(PriorMusings - 1)
+            : rest.Select(r => (Reflection: r, Score: ScoreMath.Cosine(materialEmbedding, r.Embedding)))
+                .Where(x => x.Score >= PriorMusingRelevanceFloor)
+                .OrderByDescending(x => x.Score)
+                .Take(PriorMusings - 1)
+                .Select(x => x.Reflection);
+
+        return chosen.Append(latest).OrderBy(r => r.CreatedAt).ToList();
+    }
+
+    /// <summary>How many recent user messages summarize what this pass is about.</summary>
+    private const int RelevanceGistMessages = 6;
+
+    /// <summary>Minimum similarity for an older thought to be worth resuming.</summary>
+    private const double PriorMusingRelevanceFloor = 0.25;
+
     // ---- prompt material ----
 
     private static string ComposeMaterial(
@@ -611,9 +718,12 @@ public sealed class Reflector : IReflector
 
         if (priorMusings.Count > 0)
         {
-            sb.AppendLine("## Your earlier thoughts (continue the thread; it's fine to revise them)");
+            sb.AppendLine("## Your earlier thoughts (continue one by id, or start a new one)");
             foreach (var r in priorMusings.OrderBy(r => r.CreatedAt))
-                sb.AppendLine($"- [{RelativeTime.Describe(now - r.CreatedAt)} ago] {r.Musing}");
+            {
+                sb.AppendLine(
+                    $"- id={ShortId(r.Id)} [{RelativeTime.Describe(now - r.CreatedAt)} ago] {r.Musing}");
+            }
             sb.AppendLine();
         }
 
@@ -694,7 +804,8 @@ public sealed class Reflector : IReflector
     }
 
     private sealed record ReflectionDto(
-        string? Musing, List<CuriosityDto>? Curiosities, List<SharedMomentDto>? SharedMoments,
+        string? Musing, string? ContinuesThought, bool? ThoughtSettled,
+        List<CuriosityDto>? Curiosities, List<SharedMomentDto>? SharedMoments,
         List<PreferenceDto>? Preferences,
         List<AttentionCandidateDto>? AttentionCandidates,
         List<AssociationCandidateDto>? AssociationCandidates,

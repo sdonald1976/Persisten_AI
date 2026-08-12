@@ -49,6 +49,39 @@ public sealed class ReflectionStore : IReflectionStore
             .ToListAsync(ct);
     }
 
+    /// <summary>
+    /// Groups the diary into trains of thought. Only entries with a musing take part — a quiet-day
+    /// watermark is bookkeeping, not a thought — and threads are ordered by when they were last
+    /// developed, so what she is currently chewing on comes first.
+    /// </summary>
+    public async Task<IReadOnlyList<ReflectionThread>> GetThreadsAsync(
+        string userId, int count, CancellationToken ct = default)
+    {
+        if (count <= 0)
+            return Array.Empty<ReflectionThread>();
+
+        // A generous window of recent musings, then grouped in memory: threads interleave, so
+        // taking the newest N rows and grouping is what reconstructs them in one query.
+        var musings = await _db.Reflections
+            .Where(r => r.UserId == userId && r.Musing != null)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(Math.Clamp(count * 10, 20, 300))
+            .ToListAsync(ct);
+
+        return musings
+            // A pre-threading row has an empty ThreadId; treat it as its own single-entry thread
+            // so old diary entries still render instead of collapsing into one bogus thread.
+            .GroupBy(r => r.ThreadId == Guid.Empty ? r.Id : r.ThreadId)
+            .Select(g => new ReflectionThread
+            {
+                ThreadId = g.Key,
+                Entries = g.OrderBy(r => r.CreatedAt).ToList(),
+            })
+            .OrderByDescending(t => t.LastDevelopedAt)
+            .Take(count)
+            .ToList();
+    }
+
     public async Task<IReadOnlyList<Curiosity>> GetOpenCuriositiesAsync(
         string userId, CancellationToken ct = default)
         => await _db.Curiosities

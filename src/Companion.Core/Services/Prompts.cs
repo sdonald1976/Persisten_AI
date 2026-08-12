@@ -282,6 +282,8 @@ public static class Prompts
             "will be shown what happened since you last reflected, plus your own earlier thoughts.\n\n" +
             "Think, then return ONLY a JSON object:\n" +
             "{\"musing\": string or null,\n" +
+            " \"continuesThought\": id of one of your earlier thoughts this develops, or null,\n" +
+            " \"thoughtSettled\": true when you have worked that thought out and are done with it,\n" +
             " \"curiosities\": [{\"question\": string, \"about\": string, \"reason\": string}],\n" +
             " \"sharedMoments\": [{\"summary\": string, \"evidence\": string, \"significance\": 0..1, \"tone\": string}],\n" +
             " \"preferences\": [{\"owner\":\"Companion\", \"subject\": string, \"feeling\": \"like\"|\"dislike\"|\"mixed\", \"strength\": \"slight\"|\"moderate\"|\"strong\", \"reason\": string, \"evidence\": string}],\n" +
@@ -290,7 +292,14 @@ public static class Prompts
             " \"procedureCandidates\": [{\"text\": string, \"evidence\": string}],\n" +
             " \"sharedPerspectiveCandidates\": [{\"experience\": string, \"owner\":\"User\"|\"Companion\", \"summary\": string, \"confidence\": 0..1, \"evidence\": string}],\n" +
             " \"settled\": [string]}\n\n" +
-            "sharedMoments (at most 2) are moments you and the user genuinely had TOGETHER — teaching, " +
+            "continuesThought / thoughtSettled: your earlier thoughts are listed with ids. If this " +
+            "musing DEVELOPS one of them — a further step in the same line of thinking, a revision, " +
+            "a conclusion — set continuesThought to that id, so the thought becomes a train rather " +
+            "than a fresh start each time. Set it to null when this is genuinely a new thought. Set " +
+            "thoughtSettled true only when you have reached something you are content to leave " +
+            "alone; a settled thought stops being resumed, so do not settle one you are still " +
+            "turning over.\n\n" +
+            "sharedMoments (at most 2) are moments you and the user genuinely had TOGETHER — teaching," +
             "joking, working through something side by side. summary is one sentence of shared history " +
             "(\"Scott spent the evening teaching you poker and you kept confusing a straight with three " +
             "of a kind\"); evidence must QUOTE the user's actual words from the conversation, or the " +

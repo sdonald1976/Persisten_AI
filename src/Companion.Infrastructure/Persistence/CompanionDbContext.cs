@@ -119,6 +119,8 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Musing).HasMaxLength(2000);
             // The diary is read newest-first per user (latest watermark, recent musings).
             e.HasIndex(x => new { x.UserId, x.CreatedAt });
+            // Trains of thought are read by thread.
+            e.HasIndex(x => new { x.UserId, x.ThreadId });
             ConfigureEmbedding(e.Property(x => x.Embedding));
             e.Ignore(x => x.HasMusing);
         });

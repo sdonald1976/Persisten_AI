@@ -88,3 +88,39 @@ Three seams:
 Offline (mock provider) the reflector's output never parses, so nothing is stored and the
 worker's idle spacing keeps retries rare — the feature simply stays dormant until a real model
 is configured.
+
+## Trains of thought (threads)
+
+Reflections used to be independent rows whose only relationship was a timestamp: each pass saw
+her two most recent musings and otherwise started fresh. That made "what has she been working
+through this week?" unanswerable, and let a thought she was developing three cycles ago vanish
+the moment two newer ones existed.
+
+Two changes give thinking continuity:
+
+**Relevance-based priors.** A pass now sees her latest musing *plus* the most **relevant** older
+ones — chosen by similarity between the new conversation material and each stored musing, over a
+40-entry lookback. A dormant thread resurfaces when its subject comes back around, instead of
+being buried by recency. With no embedding server available this falls back to the old
+recency-only selection rather than failing.
+
+**Thread identity.** Each musing carries a `ThreadId`, and optionally the `ContinuesReflectionId`
+of the specific earlier thought it develops. The priors are shown to the model with short ids; it
+answers `continuesThought` (an id, or null) and `thoughtSettled`. Deterministic code decides
+whether to believe it: the claimed id must match a musing **actually offered in that pass**, so a
+thought cannot be grafted onto an arbitrary or invented row. No match → a new thread, which is
+also the pre-threading behavior.
+
+**Anti-rumination.** When she marks a thread settled, the *whole thread* is excluded from future
+prior selection — a resolved thought stops being resumed. Settling only counts on a musing that
+continues something; a brand-new thought declaring itself finished is just a thought.
+
+### Seeing it
+
+- Dashboard → **💭 Her mind** shows trains of thought: the thought as it currently stands, with
+  its earlier steps beneath it, a `settled` badge, and how many passes it has run for.
+- `GET /reflections/threads` returns the same grouping (most recently developed first).
+- `GET /reflections` still returns the flat diary.
+
+Databases created before threading upgrade cleanly: existing musings have an empty `ThreadId` and
+render as single-entry threads rather than collapsing together.

@@ -19,6 +19,13 @@ public interface IReflectionStore
     /// <summary>The newest reflections, newest first, capped at <paramref name="count"/>.</summary>
     Task<IReadOnlyList<Reflection>> GetRecentAsync(string userId, int count, CancellationToken ct = default);
 
+    /// <summary>
+    /// Recent trains of thought, most recently developed first: the diary grouped into the threads
+    /// she actually kept working on, rather than a flat list of independent entries.
+    /// </summary>
+    Task<IReadOnlyList<ReflectionThread>> GetThreadsAsync(
+        string userId, int count, CancellationToken ct = default);
+
     /// <summary>All open (not yet voiced/dismissed) curiosities, newest first.</summary>
     Task<IReadOnlyList<Curiosity>> GetOpenCuriositiesAsync(string userId, CancellationToken ct = default);
 
