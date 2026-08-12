@@ -272,6 +272,88 @@ public class ToolLayerTests
         Assert.Contains("invalid_arguments", outcome.ResultsSection);
     }
 
+    // ---- rules-first nudges ----
+
+    [Theory]
+    [InlineData("Be honest — what can you actually do? Can you see images?", "capability.list")]
+    [InlineData("can you hear me right now?", "capability.list")]
+    [InlineData("Why did you bring that up just now?", "diagnostics.last_turn")]
+    [InlineData("Is there anything unfinished between us?", "openloop.list")]
+    [InlineData("So what do you actually like these days?", "preference.list")]
+    public void Nudge_MatchesUnambiguousPhrasings(string message, string expectedTool)
+        => Assert.Equal(expectedTool, ToolNudge.Detect(message)?.Tool);
+
+    [Fact]
+    public void Nudge_ExtractsTheMemoryTopic()
+    {
+        var match = ToolNudge.Detect("Hey, do you remember the greenhouse sensor debacle?");
+        Assert.NotNull(match);
+        Assert.Equal("memory.search", match!.Tool);
+        Assert.Contains("greenhouse sensor debacle", match.ArgumentsJson);
+    }
+
+    [Theory]
+    [InlineData("How was your day?")]
+    [InlineData("I can see the finish line on this project.")]  // user's own "can see", not a question to her
+    [InlineData("Let's talk about the weather.")]
+    public void Nudge_LeavesOrdinaryChatAlone(string message)
+        => Assert.Null(ToolNudge.Detect(message));
+
+    [Fact]
+    public async Task Nudge_RunsTheTool_EvenWhenTheModelDeclines()
+    {
+        // The model always says no — the deterministic nudge must carry the obvious case anyway.
+        var chat = new QueuedChatModel("""{"tool": null}""");
+        var tool = new FakeTool();
+        var diagnostics = new NoopDiagnostics();
+
+        // FakeTool is named fake.lookup, so use the loop with a memory-style nudge…
+        var outcome = await Loop(chat, tool, diagnostics: diagnostics)
+            .RunAsync("u1", "ctx", "do you remember the answer to everything?");
+
+        // …which targets memory.search: not in this loop's tool set, so nothing ran — but the
+        // decision trail shows the rules never got a matching tool and the model was still asked.
+        Assert.Empty(outcome.Calls);
+        Assert.Equal(1, chat.Calls);
+    }
+
+    private sealed class NudgeTool : ICompanionTool
+    {
+        public int Executions { get; private set; }
+        public string Name => "capability.list";
+        public string Description => "capabilities";
+        public string ArgumentsHint => "{}";
+        public bool Available => true;
+        public Task<ToolResult> ExecuteAsync(string userId, JsonElement arguments, CancellationToken ct = default)
+        {
+            Executions++;
+            return Task.FromResult(ToolResult.Success(new { vision = "available" }));
+        }
+    }
+
+    [Fact]
+    public async Task CapabilityQuestion_GetsRegistryData_WithAnUncooperativeModel()
+    {
+        // The exact live failure: "can you see images?" answered by an RP model that declines
+        // the JSON protocol. The nudge runs capability.list deterministically; the model's
+        // decline afterwards costs nothing; the packet still carries real registry data.
+        var chat = new QueuedChatModel("""{"tool": null}""");
+        var tool = new NudgeTool();
+        var loop = new ToolLoop(
+            new ICompanionTool[] { tool }, chat, new NoopDiagnostics(),
+            Options.Create(new CompanionOptions()), TimeProvider.System, NullLogger<ToolLoop>.Instance);
+
+        var outcome = await loop.RunAsync("u1", "ctx", "Be honest — what can you actually do? Can you see images?");
+
+        Assert.Equal(1, tool.Executions);
+        var call = Assert.Single(outcome.Calls);
+        Assert.True(call.Ok);
+        Assert.Contains("[capability.list]", outcome.ResultsSection);
+        Assert.Contains("(rule nudge) capability.list", outcome.Decisions[0]);
+        // The model was still consulted for ADDITIONAL lookups and declined — that's fine.
+        Assert.Equal(1, chat.Calls);
+    }
+
     // ---- full-turn integration ----
 
     [Fact]

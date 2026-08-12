@@ -69,6 +69,25 @@ public sealed class ToolLoop
         var decisions = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
+        // 0. Rules first (the intent-parser philosophy, applied to lookups): an unambiguous
+        // phrasing — "can you see images?", "why did you say that?" — selects its tool
+        // deterministically and runs BEFORE the model is consulted, so the obvious cases work
+        // even when a small model would politely decline and then confabulate. The model loop
+        // below still runs for anything the rules can't see (dedupe prevents a repeat call).
+        var nudge = ToolNudge.Detect(userMessage);
+        if (nudge is not null)
+        {
+            var nudged = available.FirstOrDefault(
+                t => t.Name.Equals(nudge.Tool, StringComparison.OrdinalIgnoreCase));
+            if (nudged is not null && seen.Add(nudged.Name + "|" + nudge.ArgumentsJson))
+            {
+                decisions.Add($"(rule nudge) {nudged.Name} {nudge.ArgumentsJson}");
+                using var args = JsonDocument.Parse(nudge.ArgumentsJson);
+                await ExecuteAndRecordAsync(
+                    nudged, args.RootElement, nudge.ArgumentsJson, userId, traces, resultBlocks, ct);
+            }
+        }
+
         for (var i = 0; i < Math.Max(1, _options.MaxToolCallsPerTurn); i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -115,60 +134,69 @@ public sealed class ToolLoop
             if (!seen.Add(tool.Name + "|" + call.Value.ArgumentsJson))
                 break;
 
-            var stopwatch = Stopwatch.StartNew();
-            ToolResult result;
-            using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
-            {
-                timeout.CancelAfter(ToolTimeout);
-                try
-                {
-                    result = await tool.ExecuteAsync(userId, call.Value.Arguments, timeout.Token);
-                }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                {
-                    result = ToolResult.Fail("timeout", "The lookup took too long.");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Tool {Tool} failed.", tool.Name);
-                    result = ToolResult.Fail("provider_failure", "The lookup failed.");
-                }
-            }
-            stopwatch.Stop();
-
-            var resultJson = Clip(JsonSerializer.Serialize(
-                new { ok = result.Ok, code = result.Code, data = result.Data }, Json), MaxResultChars);
-
-            traces.Add(new ToolCallTrace
-            {
-                Tool = tool.Name,
-                Arguments = call.Value.ArgumentsJson,
-                Ok = result.Ok,
-                Code = result.Code,
-                DurationMs = stopwatch.ElapsedMilliseconds,
-                ResultSummary = resultJson,
-            });
-            resultBlocks.Add($"[{tool.Name}] {resultJson}");
-
-            // The durable record (the in-memory ring above forgets on restart; this doesn't).
-            await _diagnostics.RecordToolCallAsync(new ToolCallRecord
-            {
-                Id = Guid.NewGuid(),
-                UserId = userId,
-                Tool = tool.Name,
-                Arguments = call.Value.ArgumentsJson,
-                Ok = result.Ok,
-                Code = result.Code,
-                DurationMs = stopwatch.ElapsedMilliseconds,
-                Timestamp = _clock.GetUtcNow(),
-            }, CancellationToken.None);
-
-            _logger.LogInformation(
-                "Tool {Tool} for {UserId}: {Code} in {Ms}ms", tool.Name, userId, result.Code, stopwatch.ElapsedMilliseconds);
+            await ExecuteAndRecordAsync(
+                tool, call.Value.Arguments, call.Value.ArgumentsJson, userId, traces, resultBlocks, ct);
         }
 
         var section = resultBlocks.Count == 0 ? null : Clip(string.Join("\n", resultBlocks), MaxSectionChars);
         return new Outcome(advertised, traces, section, decisions);
+    }
+
+    /// <summary>One mediated tool execution: timeout, trace, durable record, result block.</summary>
+    private async Task ExecuteAndRecordAsync(
+        ICompanionTool tool, JsonElement arguments, string argumentsJson, string userId,
+        List<ToolCallTrace> traces, List<string> resultBlocks, CancellationToken ct)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        ToolResult result;
+        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        {
+            timeout.CancelAfter(ToolTimeout);
+            try
+            {
+                result = await tool.ExecuteAsync(userId, arguments, timeout.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                result = ToolResult.Fail("timeout", "The lookup took too long.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Tool {Tool} failed.", tool.Name);
+                result = ToolResult.Fail("provider_failure", "The lookup failed.");
+            }
+        }
+        stopwatch.Stop();
+
+        var resultJson = Clip(JsonSerializer.Serialize(
+            new { ok = result.Ok, code = result.Code, data = result.Data }, Json), MaxResultChars);
+
+        traces.Add(new ToolCallTrace
+        {
+            Tool = tool.Name,
+            Arguments = argumentsJson,
+            Ok = result.Ok,
+            Code = result.Code,
+            DurationMs = stopwatch.ElapsedMilliseconds,
+            ResultSummary = resultJson,
+        });
+        resultBlocks.Add($"[{tool.Name}] {resultJson}");
+
+        // The durable record (the in-memory ring forgets on restart; this doesn't).
+        await _diagnostics.RecordToolCallAsync(new ToolCallRecord
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Tool = tool.Name,
+            Arguments = argumentsJson,
+            Ok = result.Ok,
+            Code = result.Code,
+            DurationMs = stopwatch.ElapsedMilliseconds,
+            Timestamp = _clock.GetUtcNow(),
+        }, CancellationToken.None);
+
+        _logger.LogInformation(
+            "Tool {Tool} for {UserId}: {Code} in {Ms}ms", tool.Name, userId, result.Code, stopwatch.ElapsedMilliseconds);
     }
 
     private static string DecisionPrompt(
