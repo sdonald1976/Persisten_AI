@@ -24,6 +24,7 @@ internal static class ProviderHttpClients
     public const string Reranker = "reranker";
     public const string Safety = "safety";
     public const string TaskAuditor = "task-auditor";
+    public const string ToolPlanner = "tool-planner";
     public const string Embeddings = "embeddings";
     public const string Vision = "vision";
     public const string Transcription = "transcription";
@@ -40,6 +41,7 @@ internal static class ProviderHttpClients
         Register(services, Reranker, options.RerankerOrSummarizer);
         Register(services, Safety, options.SafetyOrExtraction);
         Register(services, TaskAuditor, options.TaskAuditorOrSummarizer);
+        Register(services, ToolPlanner, options.ToolPlannerOrExtraction);
         Register(services, Embeddings, options.Embeddings);
         if (options.Vision is { } vision) Register(services, Vision, vision);
         if (options.Transcription is { } transcription) Register(services, Transcription, transcription);

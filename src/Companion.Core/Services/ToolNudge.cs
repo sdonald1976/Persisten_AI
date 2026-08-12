@@ -48,6 +48,17 @@ public static partial class ToolNudge
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex MemoryRx();
 
+    [GeneratedRegex(
+        @"\b(?:what procedures? (?:have i|did i) (?:taught|teach)|how do i (?:normally|usually|like to)|" +
+        @"the way i (?:taught|showed) you)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ProcedureRx();
+
+    [GeneratedRegex(
+        @"\b(?:what projects? (?:am i|are we) (?:working on|tracking)|list (?:my|the) projects)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ProjectsRx();
+
     public static Match? Detect(string? userMessage)
     {
         if (string.IsNullOrWhiteSpace(userMessage))
@@ -61,6 +72,12 @@ public static partial class ToolNudge
             return new Match("openloop.list", "{}");
         if (PreferencesRx().IsMatch(userMessage))
             return new Match("preference.list", "{}");
+        if (ProjectsRx().IsMatch(userMessage))
+            return new Match("project.get", "{}");
+        if (ProcedureRx().IsMatch(userMessage))
+            return new Match("procedure.search",
+                System.Text.Json.JsonSerializer.Serialize(
+                    new { query = userMessage.Length <= 200 ? userMessage : userMessage[..200] }));
 
         var memory = MemoryRx().Match(userMessage);
         if (memory.Success)

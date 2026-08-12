@@ -325,11 +325,14 @@ public sealed class Companion : ICompanion
             temporal, preferenceNotes, identityProjection, attentionNotes, procedureNotes,
             capabilityNote, perspectiveNotes);
 
-        // 5b. The bounded tool loop: the model may intentionally look things up (memory search,
-        // capabilities, diagnostics, …) before its final reply. Everything is read-only, validated,
-        // deduped, and capped; results are injected into the packet for THIS generation only —
-        // they never become messages or memory.
-        var toolOutcome = await _toolLoop.RunAsync(userId, packet.Render(), promptText, ct);
+        // 5b. The bounded tool loop, driven by the executive planner. It gets a COMPACT planning
+        // context — recent exchange, what retrieval already found, the detected project — never
+        // the full persona packet: planning is an information-gap question, not a conversation,
+        // and the planner model is deliberately not her. Everything executed is read-only,
+        // validated, deduped, and capped; results are injected into the packet for THIS
+        // generation only — they never become messages or memory.
+        var planningContext = BuildPlanningContext(recent, selectedMemories, projectContext.ResolvedProjectName);
+        var toolOutcome = await _toolLoop.RunAsync(userId, planningContext, promptText, ct);
         if (toolOutcome.ResultsSection is not null)
             packet = packet with { ToolResults = toolOutcome.ResultsSection };
 
@@ -401,6 +404,7 @@ public sealed class Companion : ICompanion
             AdvertisedTools = toolOutcome.AdvertisedTools,
             ToolCalls = toolOutcome.Calls,
             ToolDecisions = toolOutcome.Decisions,
+            PlanningRounds = toolOutcome.PlanningRounds,
         });
 
         return new TurnTrace
@@ -419,6 +423,39 @@ public sealed class Companion : ICompanion
             AdvertisedTools = toolOutcome.AdvertisedTools,
             ToolCalls = toolOutcome.Calls,
         };
+    }
+
+    /// <summary>
+    /// The planner's bounded view of the turn: enough to judge information gaps ("does the
+    /// context already cover this?"), nothing more. Deliberately NOT the full packet — no
+    /// persona, no mood, no relationship framing; the planner is an executive, not her.
+    /// </summary>
+    private static string BuildPlanningContext(
+        IReadOnlyList<Message> recent, IReadOnlyList<RetrievalResult> selectedMemories, string? project)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Recent conversation (newest last):");
+        foreach (var message in recent.OrderBy(m => m.Timestamp).TakeLast(6))
+        {
+            var content = message.Content.Length <= 200 ? message.Content : message.Content[..200] + "…";
+            sb.AppendLine($"- {(message.Role == MessageRole.User ? "user" : "assistant")}: {content}");
+        }
+        sb.AppendLine(project is null ? "Detected project: (none)" : $"Detected project: {project}");
+        if (selectedMemories.Count == 0)
+        {
+            sb.AppendLine("Automatic retrieval found nothing relevant for this message.");
+        }
+        else
+        {
+            sb.AppendLine($"Automatic retrieval already found {selectedMemories.Count} memories " +
+                "(judge whether these already cover the need):");
+            foreach (var retrieved in selectedMemories.Take(3))
+            {
+                var summary = retrieved.Memory.Content;
+                sb.AppendLine($"- {(summary.Length <= 150 ? summary : summary[..150] + "…")}");
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>Which packet sections were actually present — diagnostics, not content.</summary>
