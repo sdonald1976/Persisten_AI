@@ -4,7 +4,7 @@ namespace Companion.Core.Services;
 
 /// <summary>
 /// Spots a dated upcoming event in the user's own words — "I have an interview tomorrow",
-/// "my sister's graduation is on Saturday" — and resolves the day, so the companion can wish
+/// "my friend's graduation is on Saturday" — and resolves the day, so the companion can wish
 /// them luck on the morning and ask how it went after. Deliberately conservative, like the
 /// commitment and mood detectors: it only fires on a clear event-noun + day-word pairing and
 /// misses some rather than inventing plans the user never stated. Day precision only — that's

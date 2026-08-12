@@ -2,7 +2,7 @@ namespace Companion.Core.Domain;
 
 /// <summary>
 /// A dated thing in the user's life the companion is looking forward to with them — "the
-/// interview on Thursday", "your sister's graduation on Saturday". It exists so the companion can
+/// interview on Thursday", "your friend's graduation on Saturday". It exists so the companion can
 /// care at the <em>right moments</em>: encouragement on the day ("good luck today"), a follow-up
 /// once it's passed ("how did it go?"), each voiced at most once, then the anticipation closes.
 /// One that never got its follow-up quietly expires — she doesn't ask about an interview from

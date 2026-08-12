@@ -22,7 +22,7 @@ public class ReflectionTests
     private const string User = CompanionSeeder.DemoUserId;
 
     private const string MusingJson =
-        """{"musing":"She mentioned her sister twice now, but I still don't know her name. The interview seems to weigh on her.","curiosities":[{"question":"What's your sister's name?","about":"her sister","reason":"mentioned twice, never named"}]}""";
+        """{"musing":"She mentioned her project partner twice now, but I still don't know their name. The interview seems to weigh on her.","curiosities":[{"question":"What's your project partner's name?","about":"the project partner","reason":"mentioned twice, never named"}]}""";
 
     private const string QuietJson = """{"musing":null,"curiosities":[]}""";
 
@@ -59,7 +59,7 @@ public class ReflectionTests
             await store.AddMessageAsync(new Message
             {
                 Id = Guid.NewGuid(), ConversationId = conv.Id, UserId = User,
-                Role = MessageRole.User, Content = $"my sister called me again today ({i})", Timestamp = t,
+                Role = MessageRole.User, Content = $"my project partner called me again today ({i})", Timestamp = t,
             });
             await store.AddMessageAsync(new Message
             {
@@ -97,11 +97,11 @@ public class ReflectionTests
 
         Assert.NotNull(result);
         Assert.True(result!.Reflection.HasMusing);
-        Assert.Contains("sister", result.Reflection.Musing);
+        Assert.Contains("project partner", result.Reflection.Musing);
         Assert.NotNull(result.Reflection.Embedding); // a thought can be found again later
 
         var curiosity = Assert.Single(result.Curiosities);
-        Assert.Equal("What's your sister's name?", curiosity.Question);
+        Assert.Equal("What's your project partner's name?", curiosity.Question);
         Assert.Equal(CuriosityStatus.Open, curiosity.Status);
 
         var open = await sp.GetRequiredService<IReflectionStore>().GetOpenCuriositiesAsync(User);
@@ -166,7 +166,7 @@ public class ReflectionTests
         var sp = scope.ServiceProvider;
         await SeedConversationAsync(sp, userMessages: 4);
 
-        Assert.Null(await BuildReflector(sp, "I had a lovely think about her sister.").ReflectAsync(User));
+        Assert.Null(await BuildReflector(sp, "I had a lovely think about her project partner.").ReflectAsync(User));
         Assert.Null(await sp.GetRequiredService<IReflectionStore>().GetLatestAsync(User));
 
         // A model failure is not a quiet day: the watermark did not move, so a later pass with a

@@ -11,9 +11,9 @@ namespace Companion.Core.Services;
 public static class PromptIdentityProjector
 {
     private static readonly Regex YouAreMyRelation = new(
-        @"\byou\s+are\s+my\s+(sister|brother|sibling)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        @"\byou\s+are\s+my\s+(mentor|coach|teacher|partner)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex IAmYourRelation = new(
-        @"\bi\s+am\s+your\s+(sister|brother|sibling)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        @"\bi\s+am\s+your\s+(mentor|coach|teacher|partner)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static PromptIdentityContext From(UserProfile profile, CompanionIdentity companion)
     {
@@ -50,9 +50,10 @@ public static class PromptIdentityProjector
 
         var reciprocal = normalized switch
         {
-            "sister" => "brother",
-            "brother" => "sister",
-            _ => "sibling",
+            "mentor" => "student",
+            "coach" => "student",
+            "teacher" => "student",
+            _ => "partner",
         };
         lines.Add($"{user} is {Possessive(companion)} {reciprocal}.");
     }

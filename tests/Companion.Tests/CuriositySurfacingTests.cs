@@ -69,7 +69,7 @@ public class CuriositySurfacingTests
         await using var host = new TestHost(Now);
         using var scope = host.CreateScope();
         var sp = scope.ServiceProvider;
-        await SeedThoughtAsync(sp, null, Now.AddHours(-8), "What's your sister's name?");
+        await SeedThoughtAsync(sp, null, Now.AddHours(-8), "What's your project partner's name?");
         var conv = await NewConversationAsync(sp);
         var companion = sp.GetRequiredService<ICompanion>();
 
@@ -77,7 +77,7 @@ public class CuriositySurfacingTests
         var rendered = trace.Packet.Render();
 
         Assert.Contains("Something you've been genuinely curious about", rendered);
-        Assert.Contains("What's your sister's name?", rendered);
+        Assert.Contains("What's your project partner's name?", rendered);
 
         // Offered once = spent, whether or not the model chose to raise it.
         Assert.Empty(await sp.GetRequiredService<IReflectionStore>().GetOpenCuriositiesAsync(User));

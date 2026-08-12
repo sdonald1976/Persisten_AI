@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Her Mind — Persistent Companion</title>
+  <title>Her Mind — Percoachtent Companion</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -229,7 +229,7 @@
           '<textarea id="personaText" rows="6" placeholder="e.g. You are Ava. Ava is the user\'s close friend; the user is …\nWrite roles in third person, both directions — never “my …”.">' +
           esc(persona.persona || '') + '</textarea>' +
           '<div class="row"><button class="save" id="savePersona">Save persona</button><span class="saved" id="savedPersona">✓ saved</span></div>' +
-          '<div class="meta" style="margin-top:6px">Tip: avoid first-person possessives (“my sister”) — small models flip who\'s who. ' +
+          '<div class="meta" style="margin-top:6px">Tip: avoid first-person possessives (“my mentor”) — small models flip who\'s who. ' +
           'State both directions explicitly. The roleplay guard reads this text live.</div>');
 
       wireSave('saveIdentity', 'savedIdentity', () => fetch('/identity', {
