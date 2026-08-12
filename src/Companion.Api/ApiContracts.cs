@@ -25,6 +25,13 @@ public sealed record FeedbackRequest(string ConversationId, string Rating, strin
 /// <summary>Text-to-speech request: the text to speak and an optional voice override.</summary>
 public sealed record SpeakRequest(string Text, string? Voice);
 
+/// <summary>Fold the source project into the target (aliases, events, loops, memories move over).</summary>
+public sealed record MergeProjectsRequest(string SourceId, string TargetId);
+
+/// <summary>Split a new project out of an existing one, optionally moving loops/aliases across.</summary>
+public sealed record SplitProjectRequest(
+    string SourceId, string NewName, IReadOnlyList<string>? LoopIds, IReadOnlyList<string>? Aliases);
+
 // ---- responses ----
 
 /// <summary>Wire form of <see cref="AgentReply"/> — what the brain decided to say/do.</summary>
@@ -80,9 +87,9 @@ public sealed record MemoryDto(string Id, string Kind, string Owner, string Cont
 
 public sealed record PromptEditRequest(string Text);
 
-public sealed record ProjectDto(string Name, string Status, string? Purpose)
+public sealed record ProjectDto(string Id, string Name, string Status, string? Purpose, DateTimeOffset LastActivityAt)
 {
-    public static ProjectDto From(Project p) => new(p.Name, p.Status.ToString(), p.Purpose);
+    public static ProjectDto From(Project p) => new(p.Id.ToString(), p.Name, p.Status.ToString(), p.Purpose, p.LastActivityAt);
 }
 
 public sealed record OpenLoopDto(string Id, string Description)
