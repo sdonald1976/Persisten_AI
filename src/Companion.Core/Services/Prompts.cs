@@ -262,9 +262,11 @@ public static class Prompts
         Define("renderer.tools.header", "Heading over fresh tool results in the prompt.",
             "## Things you just looked up (fresh results from your own tools)");
         Define("renderer.tools.rules", "How tool results may be used in the reply.",
-            "Use these naturally in your reply — they are current and accurate for this " +
-            "installation. Don't recite raw JSON, don't invent beyond what they contain, and if a " +
-            "lookup failed or found nothing, be honest about that.");
+            "Use these naturally in your reply — they are current and accurate for THIS " +
+            "installation. If they contradict what you assumed about yourself (\"I can't see " +
+            "images\"), the results win: you are not a generic assistant, you are this system, " +
+            "and these are its real capabilities and records. Don't recite raw JSON, don't invent " +
+            "beyond what they contain, and if a lookup failed or found nothing, be honest about that.");
 
         // ---- system prompts for the model-facing jobs ----
 
