@@ -88,6 +88,15 @@ public sealed class ProjectUpdater : IProjectUpdater
             }
         }
 
+        // Record explicit decisions the user voiced this turn ("we decided to use X") against
+        // the project. Only with a project to hang them on — a decision with no context is a
+        // fact for memory extraction, not project state.
+        if (project is not null)
+        {
+            var recorded = await RecordDecisionsAsync(userId, project, exchange, now, ct);
+            actions.AddRange(recorded.Select(d => $"recorded decision: {d}"));
+        }
+
         // Log activity against the resolved project.
         if (project is not null && episodic.Count > 0)
         {
@@ -155,6 +164,42 @@ public sealed class ProjectUpdater : IProjectUpdater
         actions.Add($"created project: {name}");
         _logger.LogInformation("Created project \"{Name}\" for {UserId} from an accepted memory.", name, userId);
         return project;
+    }
+
+    /// <summary>
+    /// Detects and stores decisions voiced in the user's messages this turn, deduped against
+    /// what's already recorded for the project (re-stating a decision isn't a new one).
+    /// </summary>
+    private async Task<List<string>> RecordDecisionsAsync(
+        string userId, Project project, IReadOnlyList<Message> exchange,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var recorded = new List<string>();
+        var existing = (await _projects.GetDecisionsAsync(userId, project.Id, ct))
+            .Select(d => d.Statement)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var message in exchange.Where(m => m.Role == MessageRole.User))
+        {
+            var statement = DecisionDetector.Detect(message.Content);
+            if (statement is null || !existing.Add(statement))
+                continue;
+
+            await _projects.AddDecisionAsync(new Decision
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                ProjectId = project.Id,
+                Statement = statement,
+                DecidedAt = now,
+                SourceMessageId = message.Id,
+            }, ct);
+            await LogEventAsync(userId, project.Id, ProjectEventKind.DecisionMade,
+                $"Decided: {statement}", message.Id, now, ct);
+            recorded.Add(statement);
+        }
+
+        return recorded;
     }
 
     private async Task OpenLoopAsync(

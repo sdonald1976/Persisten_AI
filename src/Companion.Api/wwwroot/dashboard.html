@@ -96,6 +96,7 @@
 
     const TABS = {
       mind: { label: '💭 Her mind', render: renderMind },
+      projects: { label: '🛠 Projects', render: renderProjects },
       tastes: { label: '❤️ Her tastes', render: renderTastes },
       memories: { label: '📚 Memories', render: renderMemories },
       moments: { label: '✨ Shared moments', render: renderMoments },
@@ -170,6 +171,55 @@
             'No upcoming events held.')) +
         card('Open loops — unfinished business she can recall',
           items(loops, l => '<div class="item">' + esc(l.description) + '</div>', 'No open loops.'));
+    }
+
+    // ---- projects: what she's tracking, plus merge for accidental duplicates ----
+
+    async function projectSummary(name, el) {
+      el.innerHTML = '<div class="empty">loading…</div>';
+      try {
+        const s = await get('/projects/' + encodeURIComponent(name));
+        el.innerHTML =
+          (s.purpose ? '<div class="meta">' + esc(s.purpose) + '</div>' : '') +
+          list('Decisions', s.decisions) + list('Open loops', s.openLoops) + list('Recent activity', s.recentActivity);
+      } catch (e) { el.innerHTML = '<div class="empty">' + esc(String(e.message || e)) + '</div>'; }
+    }
+    function list(title, items) {
+      if (!items || !items.length) return '';
+      return '<div class="meta" style="margin-top:6px"><strong>' + title + ':</strong></div>' +
+        items.map(x => '<div class="item">' + esc(x) + '</div>').join('');
+    }
+
+    async function mergeProjects() {
+      const source = document.getElementById('mergeSource').value;
+      const target = document.getElementById('mergeTarget').value;
+      if (!source || !target || source === target) { statusEl.textContent = 'pick two different projects'; return; }
+      const res = await fetch('/projects/merge', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ sourceId: source, targetId: target }),
+      });
+      statusEl.textContent = res.ok ? 'merged ✓' : 'merge failed (' + res.status + ')';
+      if (res.ok) await show();
+    }
+
+    async function renderProjects() {
+      const projects = await get('/projects');
+      const options = projects.map(p => '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>').join('');
+      mainEl.innerHTML =
+        card('Projects she\'s tracking (born from conversation — mention a new one and it appears)',
+          items(projects, p =>
+            '<div class="item"><a href="#" onclick="projectSummary(\'' + esc(p.name).replace(/'/g, "\\'") + '\',' +
+              ' this.parentElement.querySelector(\'.psum\')); return false;">' + esc(p.name) + '</a>' +
+            '<span class="badge">' + esc(p.status) + '</span>' +
+            '<div class="meta">last activity ' + when(p.lastActivityAt) + '</div>' +
+            '<div class="psum"></div></div>',
+            'No projects yet — tell her what you\'re working on and one will be born.')) +
+        (projects.length >= 2
+          ? card('Merge duplicates (folds the first into the second; the old name becomes an alias)',
+              '<div class="row"><select id="mergeSource">' + options + '</select>' +
+              '<span class="meta">into</span><select id="mergeTarget">' + options + '</select>' +
+              '<button class="save" onclick="mergeProjects()">Merge</button></div>')
+          : '');
     }
 
     // ---- her tastes ----

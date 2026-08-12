@@ -80,12 +80,52 @@ public sealed class CapabilityRegistry : ICapabilityRegistry
         await _db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Keeps the stored rows in step with the CURRENT model configuration, not just seeded once:
+    /// missing capabilities are added, obsolete ones removed, and a row whose provider/model no
+    /// longer matches the config is reset to the config's defaults — its old verification history
+    /// described a different backend and would be a lie about this one. Rows whose backing config
+    /// is unchanged are left alone, preserving MarkSuccess/MarkFailure history.
+    /// </summary>
     private async Task EnsureSeededAsync(CancellationToken ct)
     {
-        if (await _db.Capabilities.AnyAsync(ct))
-            return;
-        _db.Capabilities.AddRange(DefaultCapabilities());
-        await _db.SaveChangesAsync(ct);
+        var defaults = DefaultCapabilities().ToDictionary(c => c.Id);
+        var stored = await _db.Capabilities.ToListAsync(ct);
+        var dirty = false;
+
+        foreach (var row in stored)
+        {
+            if (!defaults.TryGetValue(row.Id, out var def))
+            {
+                _db.Capabilities.Remove(row); // no longer a capability this build knows
+                dirty = true;
+                continue;
+            }
+
+            if (row.Provider != def.Provider || row.Model != def.Model)
+            {
+                // The backend changed under this row (e.g. Mock → Ollama, or a new model name).
+                // Start over from the config's defaults; verification will rebuild trust.
+                row.Provider = def.Provider;
+                row.Model = def.Model;
+                row.Availability = def.Availability;
+                row.Confidence = def.Confidence;
+                row.LastVerifiedAt = null;
+                row.ConsecutiveFailures = 0;
+                dirty = true;
+            }
+        }
+
+        var known = stored.Select(r => r.Id).ToHashSet();
+        var missing = defaults.Values.Where(d => !known.Contains(d.Id)).ToList();
+        if (missing.Count > 0)
+        {
+            _db.Capabilities.AddRange(missing);
+            dirty = true;
+        }
+
+        if (dirty)
+            await _db.SaveChangesAsync(ct);
     }
 
     private IEnumerable<CapabilityDescriptor> DefaultCapabilities()
