@@ -9,16 +9,22 @@ using Microsoft.Extensions.Options;
 namespace Companion.Core.Services;
 
 /// <summary>
-/// The bounded tool-use loop: before her final reply, the chat model may look things up through
-/// the registered tools. Each iteration asks ONE question — "would a tool genuinely help answer
-/// this message, given what you already have?" — as strict JSON; deterministic code then decides
-/// everything else: whether the tool exists and is available, whether the arguments validate,
-/// which user it runs as (always the trusted one, never model-supplied). Hard bounds throughout:
-/// max calls per turn, identical-call dedupe, per-call timeout, bounded result sizes. The model's
-/// output is untrusted input; the worst it can achieve is a few wasted read-only lookups.
+/// The bounded tool-use loop, driven by the executive TOOL PLANNER — a model role that is
+/// deliberately not the companion (no personality, no prose, no reply): its only job is
+/// deciding what she should look up before the conversational model answers. Three tiers:
+/// deterministic nudges execute the extremely-clear cases outright; the planner (given a
+/// COMPACT context — recent messages, retrieval summary, hints — never the full packet) returns
+/// a structured plan of zero or more calls; a second planning round may follow up on results.
+/// Deterministic code still decides everything that matters: whether a tool exists and is
+/// available, whether arguments validate, which user it runs as (always the trusted one, never
+/// model-supplied). Hard bounds throughout: max calls per turn, max planning rounds,
+/// identical-call dedupe, per-call timeout, bounded result sizes. Planner output is untrusted;
+/// planner failure is benign — the turn simply proceeds without lookups.
 /// </summary>
 public sealed class ToolLoop
 {
+    /// <summary>Planning passes per turn: an initial plan plus one follow-up on its results.</summary>
+    public const int MaxPlanningRounds = 2;
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -54,26 +60,28 @@ public sealed class ToolLoop
         IReadOnlyList<string> AdvertisedTools,
         IReadOnlyList<ToolCallTrace> Calls,
         string? ResultsSection,
-        IReadOnlyList<string> Decisions);
+        IReadOnlyList<string> Decisions,
+        int PlanningRounds);
 
     public async Task<Outcome> RunAsync(
-        string userId, string renderedContext, string userMessage, CancellationToken ct = default)
+        string userId, string planningContext, string userMessage, CancellationToken ct = default)
     {
         var available = _tools.Where(t => t.Available).ToList();
         var advertised = available.Select(t => t.Name).ToList();
         if (!_options.EnableToolUse || available.Count == 0)
-            return new Outcome(advertised, Array.Empty<ToolCallTrace>(), null, Array.Empty<string>());
+            return new Outcome(advertised, Array.Empty<ToolCallTrace>(), null, Array.Empty<string>(), 0);
 
         var traces = new List<ToolCallTrace>();
         var resultBlocks = new List<string>();
         var decisions = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var budget = Math.Max(1, _options.MaxToolCallsPerTurn);
+        var executed = 0;
 
-        // 0. Rules first (the intent-parser philosophy, applied to lookups): an unambiguous
-        // phrasing — "can you see images?", "why did you say that?" — selects its tool
-        // deterministically and runs BEFORE the model is consulted, so the obvious cases work
-        // even when a small model would politely decline and then confabulate. The model loop
-        // below still runs for anything the rules can't see (dedupe prevents a repeat call).
+        // Tier 1 — deterministic nudges (the intent-parser philosophy applied to lookups): an
+        // extremely clear phrasing — "can you see images?", "why did you say that?" — selects
+        // its tool without any model judgment, so the obvious cases work even when every model
+        // declines. The match is also handed to the planner below as a hint for anything more.
         var nudge = ToolNudge.Detect(userMessage);
         if (nudge is not null)
         {
@@ -85,61 +93,88 @@ public sealed class ToolLoop
                 using var args = JsonDocument.Parse(nudge.ArgumentsJson);
                 await ExecuteAndRecordAsync(
                     nudged, args.RootElement, nudge.ArgumentsJson, userId, traces, resultBlocks, ct);
+                executed++;
             }
         }
 
-        for (var i = 0; i < Math.Max(1, _options.MaxToolCallsPerTurn); i++)
+        // Tier 2 — the executive planner: a structured plan of zero or more calls per round,
+        // with one optional follow-up round to chase what the first round's results revealed.
+        var rounds = 0;
+        for (var round = 0; round < MaxPlanningRounds && executed < budget; round++)
         {
             ct.ThrowIfCancellationRequested();
 
             string raw;
             try
             {
+                rounds++;
                 raw = (await _chat.CompleteAsync(
-                    DecisionPrompt(renderedContext, available, resultBlocks), userMessage, jsonMode: true, ct: ct)).Text;
+                    PlannerPrompt(planningContext, available, nudge, resultBlocks),
+                    userMessage, jsonMode: true, ct: ct)).Text;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogDebug(ex, "Tool decision call failed; answering without tools.");
+                // Planner failure is benign by contract: record it, answer without tools.
+                decisions.Add($"(planner failure) {ex.GetType().Name}");
+                _logger.LogDebug(ex, "Tool planner call failed; answering without further tools.");
                 break;
             }
 
-            // The verbatim decision (clipped) goes to diagnostics: "did she decline or ramble?"
-            // is the first question when tools never fire, and it must be answerable from data.
-            decisions.Add(Clip(raw.Trim(), 200));
+            // The verbatim plan (clipped) goes to diagnostics: "did it decline or ramble?" is
+            // the first question when tools never fire, and it must be answerable from data.
+            decisions.Add(Clip(raw.Trim(), 300));
 
-            var call = TryParseCall(raw);
-            if (call is null)
-                break; // "answer directly" (or unusable output — same safe outcome)
-
-            var tool = available.FirstOrDefault(
-                t => t.Name.Equals(call.Value.Tool, StringComparison.OrdinalIgnoreCase));
-            if (tool is null)
+            var plan = TryParsePlan(raw);
+            if (plan is null)
             {
-                // Asked for something this installation doesn't have — record the truth and stop.
-                traces.Add(new ToolCallTrace
-                {
-                    Tool = call.Value.Tool, Arguments = call.Value.ArgumentsJson,
-                    Ok = false, Code = "unavailable",
-                });
-                await _diagnostics.RecordToolCallAsync(new ToolCallRecord
-                {
-                    Id = Guid.NewGuid(), UserId = userId, Tool = call.Value.Tool,
-                    Ok = false, Code = "unavailable", Timestamp = _clock.GetUtcNow(),
-                }, CancellationToken.None);
+                decisions.Add("(planner output unusable — answering without further tools)");
                 break;
             }
+            if (plan.Count == 0)
+                break; // needsTools: false — the honest, common case
 
-            // The same call twice can only mean a loop — the result won't change.
-            if (!seen.Add(tool.Name + "|" + call.Value.ArgumentsJson))
+            var executedThisRound = 0;
+            foreach (var call in plan)
+            {
+                if (executed >= budget)
+                    break;
+
+                var tool = available.FirstOrDefault(
+                    t => t.Name.Equals(call.Tool, StringComparison.OrdinalIgnoreCase));
+                if (tool is null)
+                {
+                    // Asked for something this installation doesn't have — record the truth,
+                    // skip it, and let any remaining valid calls proceed.
+                    traces.Add(new ToolCallTrace
+                    {
+                        Tool = call.Tool, Arguments = call.ArgumentsJson,
+                        Ok = false, Code = "unavailable",
+                    });
+                    await _diagnostics.RecordToolCallAsync(new ToolCallRecord
+                    {
+                        Id = Guid.NewGuid(), UserId = userId, Tool = call.Tool,
+                        Ok = false, Code = "unavailable", Timestamp = _clock.GetUtcNow(),
+                    }, CancellationToken.None);
+                    continue;
+                }
+
+                // The same call twice can only mean a loop — the result won't change.
+                if (!seen.Add(tool.Name + "|" + call.ArgumentsJson))
+                    continue;
+
+                await ExecuteAndRecordAsync(
+                    tool, call.Arguments, call.ArgumentsJson, userId, traces, resultBlocks, ct);
+                executed++;
+                executedThisRound++;
+            }
+
+            // A round that ran nothing new can only repeat itself — stop planning.
+            if (executedThisRound == 0)
                 break;
-
-            await ExecuteAndRecordAsync(
-                tool, call.Value.Arguments, call.Value.ArgumentsJson, userId, traces, resultBlocks, ct);
         }
 
         var section = resultBlocks.Count == 0 ? null : Clip(string.Join("\n", resultBlocks), MaxSectionChars);
-        return new Outcome(advertised, traces, section, decisions);
+        return new Outcome(advertised, traces, section, decisions, rounds);
     }
 
     /// <summary>One mediated tool execution: timeout, trace, durable record, result block.</summary>
@@ -199,16 +234,22 @@ public sealed class ToolLoop
             "Tool {Tool} for {UserId}: {Code} in {Ms}ms", tool.Name, userId, result.Code, stopwatch.ElapsedMilliseconds);
     }
 
-    private static string DecisionPrompt(
-        string renderedContext, IReadOnlyList<ICompanionTool> tools, IReadOnlyList<string> resultsSoFar)
+    private static string PlannerPrompt(
+        string planningContext, IReadOnlyList<ICompanionTool> tools,
+        ToolNudge.Match? hint, IReadOnlyList<string> resultsSoFar)
     {
-        var sb = new StringBuilder(renderedContext);
+        var sb = new StringBuilder(Prompts.Get("planner.system"));
         sb.AppendLine().AppendLine();
-        sb.AppendLine(Prompts.Get("tools.system"));
-        sb.AppendLine();
         sb.AppendLine("Available tools:");
         foreach (var tool in tools)
             sb.AppendLine($"- {tool.Name}: {tool.Description} Arguments: {tool.ArgumentsHint}");
+        sb.AppendLine();
+        sb.AppendLine(planningContext);
+        if (hint is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Deterministic hint (already executed when its results appear below): {hint.Tool}");
+        }
         if (resultsSoFar.Count > 0)
         {
             sb.AppendLine();
@@ -219,7 +260,14 @@ public sealed class ToolLoop
         return sb.ToString();
     }
 
-    private static (string Tool, JsonElement Arguments, string ArgumentsJson)? TryParseCall(string raw)
+    private sealed record PlannedCall(string Tool, JsonElement Arguments, string ArgumentsJson);
+
+    /// <summary>
+    /// Parses a planner response into zero or more calls. Accepts the structured plan
+    /// ({"needsTools": …, "calls": […]}) and, for robustness with small models, the legacy
+    /// single-call dialect ({"tool": "name", …} / {"tool": null}). Null = unusable output.
+    /// </summary>
+    private static IReadOnlyList<PlannedCall>? TryParsePlan(string raw)
     {
         var text = StripFence(raw).Trim();
         if (text.Length == 0 || text[0] != '{')
@@ -228,23 +276,56 @@ public sealed class ToolLoop
         try
         {
             using var doc = JsonDocument.Parse(text);
-            if (!doc.RootElement.TryGetProperty("tool", out var toolProp)
-                || toolProp.ValueKind != JsonValueKind.String)
-                return null;
-            var tool = toolProp.GetString();
-            if (string.IsNullOrWhiteSpace(tool))
-                return null;
+            var root = doc.RootElement;
 
-            var args = doc.RootElement.TryGetProperty("arguments", out var argsProp)
-                && argsProp.ValueKind == JsonValueKind.Object
-                    ? argsProp.Clone()
-                    : JsonDocument.Parse("{}").RootElement.Clone();
-            return (tool!, args, args.GetRawText());
+            // Legacy single-call dialect.
+            if (root.TryGetProperty("tool", out var toolProp))
+            {
+                if (toolProp.ValueKind != JsonValueKind.String)
+                    return Array.Empty<PlannedCall>(); // {"tool": null} — answer directly
+                var single = ParseOneCall(root);
+                return single is null ? Array.Empty<PlannedCall>() : new[] { single };
+            }
+
+            // Structured plan.
+            if (root.TryGetProperty("needsTools", out var needs)
+                && needs.ValueKind == JsonValueKind.False)
+                return Array.Empty<PlannedCall>();
+
+            if (!root.TryGetProperty("calls", out var callsProp)
+                || callsProp.ValueKind != JsonValueKind.Array)
+                return root.TryGetProperty("needsTools", out _) ? Array.Empty<PlannedCall>() : null;
+
+            var calls = new List<PlannedCall>();
+            foreach (var element in callsProp.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.Object)
+                    continue;
+                var call = ParseOneCall(element);
+                if (call is not null)
+                    calls.Add(call);
+            }
+            return calls;
         }
         catch (JsonException)
         {
             return null;
         }
+    }
+
+    private static PlannedCall? ParseOneCall(JsonElement element)
+    {
+        if (!element.TryGetProperty("tool", out var toolProp) || toolProp.ValueKind != JsonValueKind.String)
+            return null;
+        var tool = toolProp.GetString();
+        if (string.IsNullOrWhiteSpace(tool))
+            return null;
+
+        var args = element.TryGetProperty("arguments", out var argsProp)
+            && argsProp.ValueKind == JsonValueKind.Object
+                ? argsProp.Clone()
+                : JsonDocument.Parse("{}").RootElement.Clone();
+        return new PlannedCall(tool!, args, args.GetRawText());
     }
 
     private static string StripFence(string text)
