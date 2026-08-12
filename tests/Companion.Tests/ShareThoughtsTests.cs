@@ -70,7 +70,7 @@ public class ShareThoughtsTests
             {
                 new Curiosity
                 {
-                    UserId = User, Question = "What's your sister's name?", About = "her sister",
+                    UserId = User, Question = "What's your project partner's name?", About = "the project partner",
                     Status = CuriosityStatus.Open, CreatedAt = Now.AddHours(-3),
                 },
             });
@@ -92,7 +92,7 @@ public class ShareThoughtsTests
 
         var reply = await agent.HandleAsync(User, conv, "penny for your thoughts");
 
-        Assert.Contains("What's your sister's name?", reply.Text);
+        Assert.Contains("What's your project partner's name?", reply.Text);
         Assert.Empty(await reflections.GetOpenCuriositiesAsync(User)); // spent by the sharing
     }
 

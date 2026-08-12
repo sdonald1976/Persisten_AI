@@ -33,9 +33,9 @@ public class AnticipationTests
     [Fact]
     public void Detects_MyEventIsOnAWeekday_AndSaysYour()
     {
-        var hit = AnticipationDetector.Detect("my sister's graduation is on Saturday!", Tuesday);
+        var hit = AnticipationDetector.Detect("my friend's graduation is on Saturday!", Tuesday);
         Assert.NotNull(hit);
-        Assert.Equal("your sister's graduation", hit!.Description);
+        Assert.Equal("your friend's graduation", hit!.Description);
         Assert.Equal(DayOfWeek.Saturday, hit.EventAt.Date.DayOfWeek);
         Assert.True(hit.EventAt.Date > Tuesday.Date);
     }

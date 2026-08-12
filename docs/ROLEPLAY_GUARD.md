@@ -1,20 +1,20 @@
 # The roleplay guard: enjoying the play without believing it
 
-If the persona casts the companion as "your sister" (or girlfriend, or anything relational),
-then "my sister" in conversation almost certainly means **her** — and without a guard, the
-extraction pipeline dutifully stores *"user has a sister"* as a biographical fact, the mood
+If the persona casts the companion as "your mentor" (or girlfriend, or anything relational),
+then "my mentor" in conversation almost certainly means **her** — and without a guard, the
+extraction pipeline dutifully stores *"user has a mentor"* as a biographical fact, the mood
 layer ties feelings to a fictional person, and reflection starts wondering about people who
 don't exist. That contamination then re-teaches the confusion on every later turn (it's how
-"who is whose sister" gets scrambled). The guard keeps fiction out of the fact store at three
+"who is whose mentor" gets scrambled). The guard keeps fiction out of the fact store at three
 layers:
 
 1. **The turn gate** (deterministic). `PersonaLexicon` scans the live composed persona for
-   relationship claims (with diminutives: sister→sis, mother→mom…); `InCharacterDetector`
+   relationship claims (with diminutives: mentor→coach, mother→mom…); `InCharacterDetector`
    flags a user message as in-character when it contains roleplay action markup (`*hugs*`) or
    any relationship word the persona has claimed. An in-character turn behaves exactly like a
    private turn: full reply with full context, but **no** extraction, mood signal,
    anticipation, project update, or commitment capture. When it's genuinely ambiguous
-   (persona-sister + "my sister called"), integrity wins over a maybe-fact — better to miss
+   (persona-mentor + "my mentor called"), integrity wins over a maybe-fact — better to miss
    one real fact than to store fiction as biography.
 2. **The pipeline filter** (belt and suspenders). Any candidate memory whose content mentions
    the companion's name or a claimed relationship is rejected with an audited reason

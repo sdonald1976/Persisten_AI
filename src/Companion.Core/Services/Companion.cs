@@ -251,7 +251,7 @@ public sealed class Companion : ICompanion
             _logger.LogInformation("Derived memory skipped for {UserId}: privacy classifier marked the turn sensitive.", userId);
 
         // Roleplay gate: an in-character turn (RP markup, or a relationship word the persona has
-        // claimed — if she IS "your sister", "my sister" means HER) gets a full reply but leaves
+        // claimed) gets a full reply but leaves
         // no durable derived memory, exactly like a private turn. Enjoying the play without
         // believing it is what keeps personas from leaking into the fact store.
         var profile = await _profiles.GetOrCreateAsync(userId, ct);

@@ -101,15 +101,15 @@ public class IdentityHardeningTests
         using var scope = host.CreateScope();
         var sp = scope.ServiceProvider;
         await SetDisplayNameAsync(sp, "Scott");
-        await sp.GetRequiredService<IProfileStore>().SetPersonaAsync(User, "You are my sister.");
+        await sp.GetRequiredService<IProfileStore>().SetPersonaAsync(User, "You are my mentor.");
         var conv = await StartAsync(sp);
 
         var rendered = (await sp.GetRequiredService<ICompanion>()
-            .RespondAsync(User, conv, "hi sis")).Packet.Render();
+            .RespondAsync(User, conv, "hi coach")).Packet.Render();
 
         Assert.Contains("# AUTHORITATIVE RELATIONSHIP", rendered);
-        Assert.Contains("Ava is Scott's sister.", rendered);
-        Assert.Contains("Scott is Ava's brother.", rendered);
+        Assert.Contains("Ava is Scott's mentor.", rendered);
+        Assert.Contains("Scott is Ava's student.", rendered);
         Assert.Contains("# AVA PERSONALITY / STYLE", rendered);
     }
 

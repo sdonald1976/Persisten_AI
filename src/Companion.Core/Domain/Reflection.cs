@@ -3,7 +3,7 @@ namespace Companion.Core.Domain;
 /// <summary>
 /// One entry in the companion's private diary — a thought it had <em>between</em> conversations,
 /// produced by the reflection pass while the user was away. A musing is the companion's own
-/// interior voice ("she's mentioned the sister twice now; I still don't know her name"), never a
+/// interior voice ("she's mentioned the project partner twice now; I still don't know their name"), never a
 /// fact about the user: it is surfaced to the model under an explicit "your own thought — hold
 /// loosely" label and must never be laundered into semantic memory or asserted back as something
 /// the user said.

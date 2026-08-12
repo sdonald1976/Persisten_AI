@@ -15,32 +15,32 @@ namespace Companion.Tests;
 /// The roleplay guard: she can enjoy in-character play without believing it. Turns flagged as
 /// in-character (RP markup, or relationship words the persona has claimed) leave no durable
 /// derived memory; candidates that reference the persona are rejected at the pipeline; and with
-/// no persona claims, ordinary family talk stays ordinary biography.
+/// no persona claims, ordinary relationship talk stays ordinary biography.
 /// </summary>
 public class RoleplayGuardTests
 {
     private static readonly DateTimeOffset Now = new(2026, 1, 10, 12, 0, 0, TimeSpan.Zero);
     private const string User = CompanionSeeder.DemoUserId;
-    private const string SisterPersona = "You are Ava. Ava is the user's sister; the user is her brother.";
+    private const string MentorPersona = "You are Ava. Ava is the user's mentor; the user is her student.";
 
     // ---- the lexicon + detector (pure) ----
 
     [Fact]
-    public void TheLexicon_FindsClaimedRelationships_WithDiminutives()
+    public void TheLexicon_FindsClaimedRelationships()
     {
-        var lexicon = PersonaLexicon.From("Ava", SisterPersona);
+        var lexicon = PersonaLexicon.From("Ava", MentorPersona);
         Assert.True(lexicon.HasRelationshipNouns);
-        Assert.True(lexicon.MentionsRelationship("hey sis, missed you"));
-        Assert.True(lexicon.MentionsRelationship("my sister is the best"));
+        Assert.True(lexicon.MentionsRelationship("hey coach, missed you"));
+        Assert.True(lexicon.MentionsRelationship("my mentor is the best"));
         Assert.True(lexicon.MentionsCompanion("Ava promised me"));
         Assert.False(lexicon.MentionsRelationship("I deployed the service today"));
     }
 
     [Fact]
-    public void WithoutPersonaClaims_FamilyTalk_IsJustBiography()
+    public void WithoutPersonaClaims_RelationshipTalk_IsJustBiography()
     {
         var lexicon = PersonaLexicon.From("Ava", "You are a warm, genuinely curious companion.");
-        Assert.False(InCharacterDetector.IsInCharacter("my sister called me today", lexicon));
+        Assert.False(InCharacterDetector.IsInCharacter("my mentor called me today", lexicon));
     }
 
     [Fact]
@@ -51,12 +51,12 @@ public class RoleplayGuardTests
     }
 
     [Fact]
-    public void WithASisterPersona_SisterTalk_IsInCharacter()
+    public void WithAMentorPersona_MentorTalk_IsInCharacter()
     {
-        var lexicon = PersonaLexicon.From("Ava", SisterPersona);
-        Assert.True(InCharacterDetector.IsInCharacter("I'm so happy to see you sis!", lexicon));
-        // Ambiguous by design — when she IS "your sister", integrity wins over a maybe-fact.
-        Assert.True(InCharacterDetector.IsInCharacter("my sister always knows what to say", lexicon));
+        var lexicon = PersonaLexicon.From("Ava", MentorPersona);
+        Assert.True(InCharacterDetector.IsInCharacter("I'm so happy to see you coach!", lexicon));
+        // Ambiguous by design — when she IS "your mentor", integrity wins over a maybe-fact.
+        Assert.True(InCharacterDetector.IsInCharacter("my mentor always knows what to say", lexicon));
         Assert.False(InCharacterDetector.IsInCharacter("I have an interview tomorrow", lexicon));
     }
 
@@ -68,12 +68,12 @@ public class RoleplayGuardTests
         await using var host = new TestHost(Now);
         using var scope = host.CreateScope();
         var sp = scope.ServiceProvider;
-        await sp.GetRequiredService<IProfileStore>().SetPersonaAsync(User, SisterPersona);
+        await sp.GetRequiredService<IProfileStore>().SetPersonaAsync(User, MentorPersona);
         var conv = (await sp.GetRequiredService<IConversationStore>()
             .StartConversationAsync(User, "t", "mock", "test")).Id;
 
         var trace = await sp.GetRequiredService<ICompanion>()
-            .RespondAsync(User, conv, "I'm so happy to see you sis! today was amazing");
+            .RespondAsync(User, conv, "I'm so happy to see you coach! today was amazing");
 
         // Full reply, zero derived memory: no extraction, no mood signal, nothing.
         Assert.False(string.IsNullOrWhiteSpace(trace.Response));
@@ -87,7 +87,7 @@ public class RoleplayGuardTests
         await using var host = new TestHost(Now);
         using var scope = host.CreateScope();
         var sp = scope.ServiceProvider;
-        await sp.GetRequiredService<IProfileStore>().SetPersonaAsync(User, SisterPersona);
+        await sp.GetRequiredService<IProfileStore>().SetPersonaAsync(User, MentorPersona);
         var conv = (await sp.GetRequiredService<IConversationStore>()
             .StartConversationAsync(User, "t", "mock", "test")).Id;
 
@@ -115,24 +115,24 @@ public class RoleplayGuardTests
         await using var host = new TestHost(Now);
         using var scope = host.CreateScope();
         var sp = scope.ServiceProvider;
-        await sp.GetRequiredService<IProfileStore>().SetPersonaAsync(User, SisterPersona);
+        await sp.GetRequiredService<IProfileStore>().SetPersonaAsync(User, MentorPersona);
 
         var conv = (await sp.GetRequiredService<IConversationStore>()
             .StartConversationAsync(User, "t", "mock", "test")).Id;
         var message = new Message
         {
             Id = Guid.NewGuid(), ConversationId = conv, UserId = User,
-            Role = MessageRole.User, Content = "my sister always knows what to say", Timestamp = Now,
+            Role = MessageRole.User, Content = "my mentor always knows what to say", Timestamp = Now,
         };
         await sp.GetRequiredService<IConversationStore>().AddMessageAsync(message);
 
         // Even if an extractor proposes it (this one is forced to), the fact never lands.
         var candidate = new MemoryCandidate
         {
-            Kind = MemoryKind.Semantic, Subject = "user", Predicate = "has_sister",
-            Value = "a sister", Content = "The user has a sister.",
+            Kind = MemoryKind.Semantic, Subject = "user", Predicate = "has_mentor",
+            Value = "a mentor", Content = "The user has a mentor.",
             ProposedConfidence = 0.9, Importance = 0.7,
-            Evidence = new List<CandidateEvidence> { new(message.Id, "my sister always knows what to say") },
+            Evidence = new List<CandidateEvidence> { new(message.Id, "my mentor always knows what to say") },
         };
         var pipeline = new MemoryPipeline(
             new FixedExtractor(new[] { candidate }),

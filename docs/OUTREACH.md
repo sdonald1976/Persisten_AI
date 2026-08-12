@@ -54,7 +54,7 @@ Every gate must pass, in order:
    - **Post-event follow-up** *(requires you've been away `AwayHours`)* — the event passed and
      was never asked about in-app: *"Been thinking of you — how did your interview go?"*
    - **A held curiosity** *(requires away)* — a question minted by her reflection pass:
-     *"You crossed my mind. What's your sister's name?"*
+     *"You crossed my mind. What's your mentor's name?"*
 
    Nothing to say → no message; she never sends an empty "hey" because a timer fired.
 
