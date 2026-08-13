@@ -1,5 +1,16 @@
 # A world for the companion: place, roaming, and dreams
 
+> **⚠ SUPERSEDED — being rewritten. Do not build from this yet.**
+>
+> This draft assumed the world would be state *inside* this solution. It should not be. The world
+> is a **separate application** — a 3D environment that both the user and the companion connect to
+> as participants — and this repo stays the brain, with no notion of place in it at all.
+>
+> What survives the change: dreams as a walk over the memory-association graph (that lives here and
+> is unaffected), the model-lease prerequisite, and the rule that world events must never enter the
+> memory store. What does not: every section below that puts places, occupancy, or a tick in this
+> codebase.
+
 Everything the companion knows is indexed by **time**. `TemporalNote`, `RelativeTime`,
 `TimePrecision`, `EnergyAt(hour)`, the reflection watermark, anticipation dates, memory validity —
 the temporal axis is modelled richly and used everywhere. The **spatial axis does not exist at all**:
