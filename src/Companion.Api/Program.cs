@@ -21,6 +21,9 @@ builder.Services.AddHostedService<OutreachWorker>();
 // log and on /health instead of as a 503 on the user's first sentence.
 builder.Services.AddHostedService<ModelPreflightWorker>();
 
+// Keep her in her world, if she has one. No-ops entirely when none is configured.
+builder.Services.AddHostedService<WorldWorker>();
+
 var apiOptions = builder.Configuration.GetSection(ApiOptions.SectionName).Get<ApiOptions>() ?? new ApiOptions();
 
 // Bind to loopback by default. The API is never exposed on LAN interfaces unless the host
