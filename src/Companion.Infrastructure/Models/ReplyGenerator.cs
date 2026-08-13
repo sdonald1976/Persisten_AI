@@ -95,7 +95,9 @@ public sealed class ReplyGenerator : IReplyGenerator
         // shape of her own context packet. Stop sequences normally prevent this being generated at
         // all; this is the net for a provider that ignores them. It runs here rather than in the
         // chat model because the structured roles return JSON, which must never be trimmed.
-        var text = PromptEchoFilter.Trim(full.ToString());
+        // Fabricated turns first: everything after an invented "user:" line is not hers, so the
+        // structural trim should only ever see her own words.
+        var text = PromptEchoFilter.Trim(PromptEchoFilter.TrimFabricatedTurns(full.ToString()));
         var truncated = string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase);
         return new ChatCompletion
         {

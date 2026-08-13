@@ -40,6 +40,46 @@ internal static partial class PromptEchoFilter
     [GeneratedRegex(@"^[ \t]*[-*•][ \t]+\S", RegexOptions.Multiline)]
     private static partial Regex Bullet();
 
+    /// <summary>
+    /// A line that opens somebody else's turn: a bare role name, a "User:"/"Assistant:" prefix, or
+    /// one of the packet's speaker labels.
+    /// </summary>
+    [GeneratedRegex(@"^[ \t]*(user|assistant|system)\b[ \t]*:?[ \t]*$|^[ \t]*(User|Assistant|System)[ \t]*:|^[ \t]*\[(USER|COMPANION|SYSTEM)\]",
+        RegexOptions.Multiline)]
+    private static partial Regex RoleMarker();
+
+    /// <summary>
+    /// Cuts a reply at the point the model started writing somebody else's turn.
+    ///
+    /// This is the severe form of the same failure. Left alone, the model does not stop at the end
+    /// of her turn: it writes the user's next line, then its own reply, and continues — turning one
+    /// message into an invented dialogue that escalates with no input at all. The fabrication is
+    /// then stored as her reply, fed back as context, and can reach extraction as though the user
+    /// had said it.
+    ///
+    /// Stop sequences are the real defence, since they prevent the text existing. This catches a
+    /// provider that ignores them.
+    /// </summary>
+    public static string TrimFabricatedTurns(string reply)
+    {
+        if (string.IsNullOrWhiteSpace(reply))
+            return reply;
+
+        var lines = reply.Replace("\r\n", "\n").Split('\n');
+
+        for (var i = 1; i < lines.Length; i++)
+        {
+            if (!RoleMarker().IsMatch(lines[i]))
+                continue;
+
+            var before = string.Join("\n", lines.Take(i)).TrimEnd();
+            // Never return nothing: a reply that is only a role marker is strange but hers.
+            return before.Length > 0 ? before : reply;
+        }
+
+        return reply;
+    }
+
     public static string Trim(string reply)
     {
         if (string.IsNullOrWhiteSpace(reply))

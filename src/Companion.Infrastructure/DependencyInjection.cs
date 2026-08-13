@@ -359,12 +359,27 @@ public static class DependencyInjection
         new(StringComparer.OrdinalIgnoreCase) { "Mock", "OpenAiCompatible", "Ollama", "LMStudio" };
 
     /// <summary>
-    /// Shapes that only ever appear in her context packet, never in speech: a horizontal rule and a
-    /// markdown heading, each at the start of a line. Deliberately not bullets — she writes lists
-    /// legitimately — and deliberately not the section labels themselves, because the observed leak
-    /// invented a heading no prompt contains. It is the *form* she copies, not the words.
+    /// Shapes that only ever appear in her context packet, never in speech.
+    ///
+    /// Two families. Document structure — a horizontal rule, a markdown heading — which she copies
+    /// from the packet's form rather than its words. And conversational role markers, which are the
+    /// dangerous ones: without them the model does not stop at the end of *her* turn, and writes
+    /// the user's next line, then its own reply, then continues — inventing an entire dialogue from
+    /// a single message and escalating it without any input at all. One observed completion ran to
+    /// several fabricated turns and arrived somewhere far worse than anything that was asked.
+    ///
+    /// Fabricated turns are not merely wrong output: they are stored as her reply, fed back as
+    /// context next turn, and can reach extraction as though the user had said them.
+    ///
+    /// Deliberately not bullets — she writes lists legitimately.
     /// </summary>
-    private static readonly string[] ConversationStopSequences = { "\n---", "\n## " };
+    private static readonly string[] ConversationStopSequences =
+    {
+        "\n---", "\n## ",
+        "\nuser", "\nUser:", "\nUSER:",
+        "\nassistant", "\nAssistant:", "\nASSISTANT:",
+        "\n<|", "\n[USER]", "\n[COMPANION]",
+    };
 
     private static void ValidateModelOptions(ModelOptions options)
     {
