@@ -35,6 +35,16 @@ public sealed class Reflector : IReflector
     private const int PriorMusings = 3;
     private const int RecentSignals = 5;
 
+    /// <summary>Most of her own experiences one pass will read. Bounds the prompt.</summary>
+    private const int MaxExperiences = 40;
+
+    /// <summary>
+    /// How much has to have happened to her for a pass to be worth running with nothing said. Set
+    /// above a couple of idle wanders: a day in which she crossed one room is not a day worth
+    /// writing about, and a diary that records every doorway becomes noise she reads back forever.
+    /// </summary>
+    private const int MinExperiencesAlone = 6;
+
     // Per-pass caps on what reflection may persist beyond the diary itself.
     private const int MaxSharedMoments = 2;
     private const int MaxPreferenceSignals = 3;
@@ -53,6 +63,7 @@ public sealed class Reflector : IReflector
     private readonly IMemoryAssociationStore _associations;
     private readonly IProcedureStore _procedures;
     private readonly ISharedPerspectiveStore _sharedPerspectives;
+    private readonly IExperienceStore _experiences;
     private readonly IChatModel _chat;
     private readonly IEmbeddingModel _embeddings;
     private readonly CompanionOptions _options;
@@ -70,6 +81,7 @@ public sealed class Reflector : IReflector
         IMemoryAssociationStore associations,
         IProcedureStore procedures,
         ISharedPerspectiveStore sharedPerspectives,
+        IExperienceStore experiences,
         IChatModel chat,
         IEmbeddingModel embeddings,
         IOptions<CompanionOptions> options,
@@ -86,6 +98,7 @@ public sealed class Reflector : IReflector
         _associations = associations;
         _procedures = procedures;
         _sharedPerspectives = sharedPerspectives;
+        _experiences = experiences;
         _chat = chat;
         _embeddings = embeddings;
         _options = options.Value;
@@ -103,12 +116,23 @@ public sealed class Reflector : IReflector
         var messages = await _conversations.GetRememberableMessagesSinceAsync(
             userId, latest?.CoveredThrough, _options.ReflectionMaxMessages, ct);
 
+        // Her own experiences since the same watermark. This is the point of her having a world:
+        // until now every thought she could have was derived from something the user said, which
+        // is a closed loop with one source. A day she spent somewhere is material too.
+        var experiences = await _experiences.GetSinceAsync(
+            userId, latest?.CoveredThrough, MaxExperiences, ct);
+
         var newUserMessages = messages.Count(m => m.Role == MessageRole.User);
-        if (newUserMessages < _options.ReflectionMinNewMessages)
+        var enoughSaid = newUserMessages >= _options.ReflectionMinNewMessages;
+        var enoughHappened = experiences.Count >= MinExperiencesAlone;
+
+        if (!enoughSaid && !enoughHappened)
         {
             _logger.LogDebug(
-                "No reflection for {UserId}: only {Count} new user messages (need {Min}).",
-                userId, newUserMessages, _options.ReflectionMinNewMessages);
+                "No reflection for {UserId}: {Messages} new user messages (need {MinMessages}) "
+                + "and {Experiences} experiences (need {MinExperiences}).",
+                userId, newUserMessages, _options.ReflectionMinNewMessages,
+                experiences.Count, MinExperiencesAlone);
             return ReflectionOutcome.Skipped(ReflectionSkipReason.NotEnoughMaterial);
         }
 
@@ -118,7 +142,7 @@ public sealed class Reflector : IReflector
         var priorMusings = await RelevantPriorMusingsAsync(userId, messages, ct);
 
         var now = _clock.GetUtcNow();
-        var material = ComposeMaterial(messages, priorMusings, held, openLoops, signals, now);
+        var material = ComposeMaterial(messages, experiences, priorMusings, held, openLoops, signals, now);
 
         var raw = (await _chat.CompleteAsync(SystemPrompt, material, jsonMode: true, ct: ct)).Text;
         if (raw.Length > MaxRawChars)
@@ -137,7 +161,10 @@ public sealed class Reflector : IReflector
             Id = Guid.NewGuid(),
             UserId = userId,
             CreatedAt = now,
-            CoveredThrough = messages[^1].Timestamp,
+            // The watermark has to cover both sources, or whichever one it ignores is read again
+            // forever. It also cannot assume there were any messages: a day she spent in her world
+            // without being spoken to is exactly the case this step exists to make reflectable.
+            CoveredThrough = Latest(messages, experiences, now),
             MessagesReflected = messages.Count,
         };
 
@@ -482,6 +509,27 @@ public sealed class Reflector : IReflector
     /// Finds the real message the cited evidence came from: an exact (case-insensitive) quote, or
     /// the strongest token-overlap match above the threshold. Null = unverifiable = not persisted.
     /// </summary>
+    /// <summary>
+    /// The furthest point this pass has accounted for, across both sources. Falls back to now when
+    /// neither has anything, which the gate above makes impossible but which would otherwise be a
+    /// crash rather than a quiet day.
+    /// </summary>
+    private static DateTimeOffset Latest(
+        IReadOnlyList<Message> messages, IReadOnlyList<Experience> experiences, DateTimeOffset now)
+    {
+        var lastSaid = messages.Count > 0 ? messages[^1].Timestamp : (DateTimeOffset?)null;
+        var lastHappened = experiences.Count > 0 ? experiences[^1].At : (DateTimeOffset?)null;
+
+        if (lastSaid is null && lastHappened is null)
+            return now;
+        if (lastSaid is null)
+            return lastHappened!.Value;
+        if (lastHappened is null)
+            return lastSaid.Value;
+
+        return lastSaid.Value > lastHappened.Value ? lastSaid.Value : lastHappened.Value;
+    }
+
     private static Message? ResolveEvidence(string? excerpt, IReadOnlyList<Message> messages)
     {
         if (string.IsNullOrWhiteSpace(excerpt))
@@ -708,6 +756,7 @@ public sealed class Reflector : IReflector
 
     private static string ComposeMaterial(
         IReadOnlyList<Message> messages,
+        IReadOnlyList<Experience> experiences,
         IReadOnlyList<Reflection> priorMusings,
         IReadOnlyList<Curiosity> held,
         IReadOnlyList<OpenLoop> openLoops,
@@ -754,7 +803,20 @@ public sealed class Reflector : IReflector
             sb.AppendLine();
         }
 
+        // Her own day, kept separate from the conversation so the two can never be confused. These
+        // happened to HER; nothing here is a fact about the user, and the heading says so because
+        // the model is the thing that would otherwise blur it.
+        if (experiences.Count > 0)
+        {
+            sb.AppendLine("## Your own day (things you did, not things they told you)");
+            foreach (var e in experiences)
+                sb.AppendLine($"- {e.At.ToLocalTime():HH:mm} {e.Text}");
+            sb.AppendLine();
+        }
+
         sb.AppendLine("## What happened since you last thought things over");
+        if (messages.Count == 0)
+            sb.AppendLine("(You weren't spoken to. Whatever you have to think about is your own.)");
         foreach (var m in messages)
             sb.AppendLine($"{m.Role}: {m.Content}");
 

@@ -28,6 +28,7 @@ public sealed class WebSocketWorldLink : IWorldLink, IAsyncDisposable
 
     private ClientWebSocket? _socket;
     private Task? _pump;
+    private int _disposed;
     private volatile IReadOnlyList<WorldPlace> _places = Array.Empty<WorldPlace>();
 
     public WebSocketWorldLink(WorldOptions options, ILogger<WebSocketWorldLink> logger)
@@ -261,6 +262,12 @@ public sealed class WebSocketWorldLink : IWorldLink, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Disposal must be safe to repeat. A host that shuts down and is disposed again — which
+        // the API test factory does routinely — otherwise gets an ObjectDisposedException from the
+        // cancellation source, turning an orderly shutdown into a failure.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
         await _stopping.CancelAsync();
         try
         {

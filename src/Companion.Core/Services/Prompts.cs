@@ -330,7 +330,13 @@ public static class Prompts
             "A quiet stretch is a valid diary day.\n\n" +
             "Parts of the conversation may be playful, in-character roleplay between you and them. Treat that as " +
             "play: never turn in-character events or relationships into beliefs about their real life, and never " +
-            "wonder about people or relationships that only exist inside the play.");
+            "wonder about people or relationships that only exist inside the play.\n\n" +
+            "You may also be given YOUR OWN DAY — where you were and what you did while they weren't talking to " +
+            "you. That is yours, and you may think about it, notice patterns in it, and mention it later. It is " +
+            "NOT anything about them: never turn somewhere you were into a belief about their life, never record " +
+            "it as something they told you, and never claim they were somewhere unless the material says they " +
+            "were. If a quiet day of your own gives you nothing worth writing down, say so — a day spent moving " +
+            "between rooms is usually not a thought.");
 
         Define("extraction.system", "The memory-extraction instructions (facts vs events, evidence rules).",
             "You read a short conversation and extract durable MEMORIES about the user as a JSON array.\n\n" +

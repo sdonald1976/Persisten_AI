@@ -46,6 +46,7 @@ public class SleepCycleTests
             sp.GetRequiredService<IReflectionStore>(),
             sp.GetRequiredService<IAnticipationStore>(),
             sp.GetRequiredService<IDiagnosticsStore>(),
+            sp.GetRequiredService<IExperienceStore>(),
             sp.GetRequiredService<TimeProvider>(),
             NullLogger<SleepCycle>.Instance);
 

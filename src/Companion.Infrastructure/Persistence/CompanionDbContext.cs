@@ -30,6 +30,9 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<EmotionalSignal> EmotionalSignals => Set<EmotionalSignal>();
     public DbSet<Reflection> Reflections => Set<Reflection>();
     public DbSet<Curiosity> Curiosities => Set<Curiosity>();
+
+    /// <summary>Her own experiences — what happened to her, never facts about the user.</summary>
+    public DbSet<Experience> Experiences => Set<Experience>();
     public DbSet<OutboundMessage> OutboundMessages => Set<OutboundMessage>();
     public DbSet<Anticipation> Anticipations => Set<Anticipation>();
     public DbSet<CompanionPreference> CompanionPreferences => Set<CompanionPreference>();
@@ -110,6 +113,17 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Topic).HasMaxLength(120);
             // The tracker reads a user's most recent signals in time order.
             e.HasIndex(x => new { x.UserId, x.Timestamp });
+        });
+
+        b.Entity<Experience>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Source).HasMaxLength(50);
+            e.Property(x => x.Kind).HasMaxLength(50);
+            e.Property(x => x.Text).HasMaxLength(500);
+            // Read as a window since the last reflection watermark, and pruned by age.
+            e.HasIndex(x => new { x.UserId, x.At });
         });
 
         b.Entity<Reflection>(e =>

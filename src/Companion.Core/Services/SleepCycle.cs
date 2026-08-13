@@ -25,11 +25,19 @@ public sealed class SleepCycle : ISleepCycle
     /// <summary>How long model/tool call telemetry is kept before the sleep pass sweeps it.</summary>
     public static readonly TimeSpan DiagnosticsRetention = TimeSpan.FromDays(30);
 
+    /// <summary>
+    /// How long her own experiences are kept. Long enough to reflect on a week she barely spoke
+    /// during, short enough that a world running for a year does not accumulate a million rows of
+    /// doorways. What survives beyond this is whatever reflection actually made of them.
+    /// </summary>
+    public static readonly TimeSpan ExperienceRetention = TimeSpan.FromDays(30);
+
     private readonly IReflector _reflector;
     private readonly IMemoryConsolidator _consolidator;
     private readonly IReflectionStore _reflections;
     private readonly IAnticipationStore _anticipations;
     private readonly IDiagnosticsStore _diagnostics;
+    private readonly IExperienceStore _experiences;
     private readonly TimeProvider _clock;
     private readonly ILogger<SleepCycle> _logger;
 
@@ -39,6 +47,7 @@ public sealed class SleepCycle : ISleepCycle
         IReflectionStore reflections,
         IAnticipationStore anticipations,
         IDiagnosticsStore diagnostics,
+        IExperienceStore experiences,
         TimeProvider clock,
         ILogger<SleepCycle> logger)
     {
@@ -47,6 +56,7 @@ public sealed class SleepCycle : ISleepCycle
         _reflections = reflections;
         _anticipations = anticipations;
         _diagnostics = diagnostics;
+        _experiences = experiences;
         _clock = clock;
         _logger = logger;
     }
@@ -72,6 +82,7 @@ public sealed class SleepCycle : ISleepCycle
         // Sweep old telemetry while tidying — a month of model/tool history is plenty for
         // debugging and model comparisons, and the tables stay bounded without a separate job.
         await _diagnostics.PruneAsync(_clock.GetUtcNow() - DiagnosticsRetention, ct);
+        await _experiences.PruneAsync(_clock.GetUtcNow() - ExperienceRetention, ct);
 
         var result = new SleepCycleResult
         {
