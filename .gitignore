@@ -23,6 +23,8 @@ obj/
 # Secrets / local config
 *.env
 appsettings.*.local.json
+# Machine-local overrides: her world's address and token live here. Loaded in every environment.
+appsettings.local.json
 
 # OS
 .DS_Store
