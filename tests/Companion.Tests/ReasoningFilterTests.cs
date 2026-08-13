@@ -55,4 +55,63 @@ public class ReasoningFilterTests
 
         Assert.Equal("Hello world.", visible);
     }
+
+    // ---- special-token spans (<|…|>) ----
+    //
+    // A conversational fine-tune shown a tool-call protocol will sometimes imitate its shape in
+    // prose. These are verbatim from a real Stheno reply: the protocol leaked into what the user
+    // saw. Llama-family models also use this delimiter for their own control tokens.
+
+    [Fact]
+    public void StripAll_RemovesALeakedToolProtocolSpan()
+        => Assert.Equal(
+            "Based on our previous conversations, you mentioned preferring your coffee as dark roast.",
+            ReasoningFilter.StripAll(
+                "Based on our previous conversations, you mentioned preferring your coffee as dark roast."
+                + " <|\"memory.confirmed\".code=\"ok\", \"data\":{\"confidence\":0.95}|>"));
+
+    [Fact]
+    public void StripAll_RemovesAControlTokenMidSentence()
+        => Assert.Equal("Good evening. How are you?",
+            ReasoningFilter.StripAll("Good evening.<|eot_id|> How are you?"));
+
+    [Fact]
+    public void StripAll_UnclosedSpecialSpan_IsDropped()
+        => Assert.Equal("All done.", ReasoningFilter.StripAll("All done.<|never closed"));
+
+    [Fact]
+    public void StripAll_LeavesAnOrdinaryPipeAlone()
+        => Assert.Equal("Use a | b for alternation, and a < b for less-than.",
+            ReasoningFilter.StripAll("Use a | b for alternation, and a < b for less-than."));
+
+    [Fact]
+    public void StripAll_HandlesBothKindsTogether()
+        => Assert.Equal("Hello there!",
+            ReasoningFilter.StripAll("<think>be warm</think>Hello there!<|eot_id|>"));
+
+    [Fact]
+    public void Streaming_SplitSpecialSpanAcrossChunks_IsStillStripped()
+    {
+        var filter = new ReasoningFilter();
+        // Both the opener and the closer are split mid-delimiter, which is the case a naive
+        // post-hoc regex on each chunk would miss entirely.
+        var chunks = new[] { "The answer.", "<", "|tool.call code=\"ok\"", "|", "> Anything else?" };
+
+        var visible = string.Concat(chunks.Select(filter.Feed)) + filter.Flush();
+
+        Assert.Equal("The answer. Anything else?", visible);
+    }
+
+    [Fact]
+    public void Streaming_LoneAngleThenPipe_DoesNotSwallowTheReply()
+    {
+        // "<" arriving alone must be held (it could start either opener) but then released once
+        // the next chunk proves it was just punctuation.
+        var filter = new ReasoningFilter();
+        var chunks = new[] { "If a <", " b then stop." };
+
+        var visible = string.Concat(chunks.Select(filter.Feed)) + filter.Flush();
+
+        Assert.Equal("If a < b then stop.", visible);
+    }
 }
