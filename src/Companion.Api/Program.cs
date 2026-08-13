@@ -9,6 +9,17 @@ using Companion.Infrastructure.Seeding;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Machine-local settings that must never be committed: her world's address and token, and
+// anything else specific to this box. Loaded in EVERY environment on purpose — the obvious
+// alternative, appsettings.Development.json, silently stops applying the moment something runs
+// without ASPNETCORE_ENVIRONMENT set, and the failure mode is a companion that comes back up
+// quietly disconnected from her world with nothing in the log to say why.
+//
+// Environment variables are re-added afterwards so they still win, which keeps them usable as a
+// one-off override without editing the file.
+builder.Configuration.AddJsonFile("appsettings.local.json", optional: true, reloadOnChange: true);
+builder.Configuration.AddEnvironmentVariables();
+
 var dbPath = builder.Configuration["Database:Path"] ?? "companion.db";
 builder.Services.AddCompanion(builder.Configuration, $"Data Source={dbPath}");
 
