@@ -3,22 +3,33 @@ using System.Text;
 namespace Companion.Infrastructure.Models;
 
 /// <summary>
-/// Strips a model's chain-of-thought reasoning (<c>&lt;think&gt;…&lt;/think&gt;</c>, also
-/// <c>&lt;thinking&gt;</c>) from its output, leaving only the actual reply. Reasoning is ephemeral
-/// scratch: it must never be shown, stored, or — critically — fed back into the next turn's context,
-/// because a small model that sees its own prior reasoning and replies replayed verbatim collapses
-/// into repeating itself.
+/// Strips a model's machinery out of its output, leaving only the actual reply. Two kinds:
 ///
-/// Works incrementally so it can filter a token stream: tags may be split across chunks, so a
-/// possible partial tag at a chunk boundary is held back until the next chunk resolves it.
+/// <list type="bullet">
+/// <item>Chain-of-thought reasoning (<c>&lt;think&gt;…&lt;/think&gt;</c>, also <c>&lt;thinking&gt;</c>).
+/// Reasoning is ephemeral scratch: it must never be shown, stored, or — critically — fed back into
+/// the next turn's context, because a small model that sees its own prior reasoning and replies
+/// replayed verbatim collapses into repeating itself.</item>
+/// <item>Special-token spans (<c>&lt;|…|&gt;</c>). A conversational fine-tune that has been shown a
+/// tool-call protocol will sometimes imitate the shape of it in prose — an observed reply ended
+/// <c>&lt;|"memory.confirmed".code="ok", …|&gt;</c> — and Llama-family models use this delimiter for
+/// their own control tokens. Either way it is protocol leaking into the conversation, and the user
+/// should never see it.</item>
+/// </list>
+///
+/// Works incrementally so it can filter a token stream: a delimiter may be split across chunks, so
+/// a possible partial one at a chunk boundary is held back until the next chunk resolves it.
 /// </summary>
 internal sealed class ReasoningFilter
 {
     private const string Open = "<think";   // matches <think> and <thinking>
-    private const string Close = "</think>"; // closing form; we match up to the '>'
     private const string ClosePrefix = "</think";
+    private const string OpenSpecial = "<|";
+    private const string CloseSpecial = "|>";
 
-    private bool _inThink;
+    private enum Mode { Visible, Reasoning, Special }
+
+    private Mode _mode = Mode.Visible;
     private string _carry = "";
 
     /// <summary>Feed a chunk; returns the visible text to emit now (may be empty).</summary>
@@ -30,54 +41,80 @@ internal sealed class ReasoningFilter
 
         while (buffer.Length > 0)
         {
-            if (!_inThink)
+            if (_mode == Mode.Visible)
             {
-                var idx = buffer.IndexOf(Open, StringComparison.OrdinalIgnoreCase);
-                if (idx >= 0)
+                var thinkAt = buffer.IndexOf(Open, StringComparison.OrdinalIgnoreCase);
+                var specialAt = buffer.IndexOf(OpenSpecial, StringComparison.Ordinal);
+
+                if (thinkAt < 0 && specialAt < 0)
                 {
-                    output.Append(buffer, 0, idx);
-                    var gt = buffer.IndexOf('>', idx);
-                    if (gt < 0) { _carry = buffer[idx..]; break; } // incomplete open tag; wait
-                    buffer = buffer[(gt + 1)..];
-                    _inThink = true;
+                    // Nothing opens here. Emit everything except a trailing run that could still
+                    // grow into either opener once the next chunk arrives.
+                    var hold = Math.Max(PartialSuffix(buffer, Open), PartialSuffix(buffer, OpenSpecial));
+                    output.Append(buffer, 0, buffer.Length - hold);
+                    if (hold > 0) _carry = buffer[^hold..];
+                    break;
+                }
+
+                var specialFirst = thinkAt < 0 || (specialAt >= 0 && specialAt < thinkAt);
+                var idx = specialFirst ? specialAt : thinkAt;
+                output.Append(buffer, 0, idx);
+
+                if (specialFirst)
+                {
+                    buffer = buffer[(idx + OpenSpecial.Length)..];
+                    _mode = Mode.Special;
                     continue;
                 }
 
-                // No open tag. Emit everything except a trailing run that could start one.
-                var hold = PartialSuffix(buffer, Open);
-                output.Append(buffer, 0, buffer.Length - hold);
-                if (hold > 0) _carry = buffer[^hold..];
-                break;
+                var gt = buffer.IndexOf('>', idx);
+                if (gt < 0) { _carry = buffer[idx..]; break; } // incomplete open tag; wait
+                buffer = buffer[(gt + 1)..];
+                _mode = Mode.Reasoning;
+                continue;
             }
-            else
+
+            if (_mode == Mode.Special)
             {
-                var idx = buffer.IndexOf(ClosePrefix, StringComparison.OrdinalIgnoreCase);
-                if (idx >= 0)
+                var closeAt = buffer.IndexOf(CloseSpecial, StringComparison.Ordinal);
+                if (closeAt >= 0)
                 {
-                    var gt = buffer.IndexOf('>', idx);
-                    if (gt < 0) { _carry = buffer[idx..]; break; } // incomplete close tag; wait
-                    buffer = buffer[(gt + 1)..];
-                    _inThink = false;
+                    buffer = buffer[(closeAt + CloseSpecial.Length)..];
+                    _mode = Mode.Visible;
                     continue;
                 }
 
-                // Still inside reasoning; hold only a possible partial close tag.
-                var hold = PartialSuffix(buffer, ClosePrefix);
+                var hold = PartialSuffix(buffer, CloseSpecial);
                 _carry = hold > 0 ? buffer[^hold..] : "";
                 break;
             }
+
+            var close = buffer.IndexOf(ClosePrefix, StringComparison.OrdinalIgnoreCase);
+            if (close >= 0)
+            {
+                var gt = buffer.IndexOf('>', close);
+                if (gt < 0) { _carry = buffer[close..]; break; } // incomplete close tag; wait
+                buffer = buffer[(gt + 1)..];
+                _mode = Mode.Visible;
+                continue;
+            }
+
+            // Still inside reasoning; hold only a possible partial close tag.
+            var held = PartialSuffix(buffer, ClosePrefix);
+            _carry = held > 0 ? buffer[^held..] : "";
+            break;
         }
 
         return output.ToString();
     }
 
-    /// <summary>Emit any safely-buffered trailing text. Unclosed reasoning is dropped.</summary>
+    /// <summary>Emit any safely-buffered trailing text. An unclosed span is dropped.</summary>
     public string Flush()
     {
-        // Inside an unterminated <think> → the reasoning never closed; drop it entirely.
-        // Otherwise the carry is a held partial-open-tag prefix that never completed → also drop.
+        // Inside an unterminated <think> or <| → it never closed; drop it entirely. Otherwise the
+        // carry is a held partial-opener that never completed → also drop.
         _carry = "";
-        _inThink = false;
+        _mode = Mode.Visible;
         return "";
     }
 
