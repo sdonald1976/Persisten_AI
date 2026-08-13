@@ -312,8 +312,18 @@ app.Map("/ws", async (HttpContext ctx, IUserContext user, IServiceScopeFactory s
 
     using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
 
-    // Each connection gets its own conversation. The user comes from trusted context, not the query.
-    var conv = await conversations.StartConversationAsync(user.UserId, "WebSocket session", null, "ws", ct);
+    // Rejoin the recent thread rather than opening an empty one. A connection is not a
+    // conversation: the client reconnects ~1.5s after any drop (sleep, wifi, a server restart),
+    // and recent-turn context is scoped to one conversation — so starting fresh on every socket
+    // meant "I am ready" could arrive with the question that prompted it already out of scope,
+    // and she would answer "ready for what?". The user still comes from trusted context, never
+    // the query, and the lookup is user-scoped, so this cannot join someone else's thread.
+    var resumeWindow = apiOptions.ConversationResumeHours;
+    var conv = resumeWindow > 0
+        ? await conversations.GetResumableConversationAsync(
+            user.UserId, "ws", DateTimeOffset.UtcNow - TimeSpan.FromHours(resumeWindow), ct)
+        : null;
+    conv ??= await conversations.StartConversationAsync(user.UserId, "WebSocket session", null, "ws", ct);
 
     // Open with memory-grounded starters so the client can show them and the user needn't initiate.
     // Deliberately the deterministic Greeter, not IGreeter: the ready frame must be instant, and a

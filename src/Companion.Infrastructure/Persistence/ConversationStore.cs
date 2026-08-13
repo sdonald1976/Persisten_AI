@@ -54,6 +54,16 @@ public sealed class ConversationStore : IConversationStore
         Guid conversationId, string userId, CancellationToken ct = default)
         => await _db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId, ct);
 
+    public async Task<Conversation?> GetResumableConversationAsync(
+        string userId, string source, DateTimeOffset activeSince, CancellationToken ct = default)
+        => await _db.Conversations
+            .Where(c => c.UserId == userId
+                && c.Source == source
+                && !c.DoNotRemember
+                && c.LastActivityAt >= activeSince)
+            .OrderByDescending(c => c.LastActivityAt)
+            .FirstOrDefaultAsync(ct);
+
     public async Task SetDoNotRememberAsync(
         Guid conversationId, string userId, bool value, CancellationToken ct = default)
     {

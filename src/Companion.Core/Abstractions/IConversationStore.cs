@@ -13,6 +13,17 @@ public interface IConversationStore
     /// <summary>The conversation, scoped to its owner (null if not found or not owned).</summary>
     Task<Conversation?> GetConversationAsync(Guid conversationId, string userId, CancellationToken ct = default);
 
+    /// <summary>
+    /// The user's most recently active conversation from <paramref name="source"/>, if it was
+    /// still active at or after <paramref name="activeSince"/>. Lets a client that reconnects
+    /// rejoin the thread it was in instead of starting an empty one — recent-turn context is
+    /// scoped to a single conversation, so a new one means the companion loses the thread mid-
+    /// sentence. Never returns a do-not-remember conversation: privacy is chosen for a session,
+    /// and silently re-entering it later would hide that the mode is still on.
+    /// </summary>
+    Task<Conversation?> GetResumableConversationAsync(
+        string userId, string source, DateTimeOffset activeSince, CancellationToken ct = default);
+
     /// <summary>Sets the privacy flag: when true, the conversation creates no durable derived memory.</summary>
     Task SetDoNotRememberAsync(Guid conversationId, string userId, bool value, CancellationToken ct = default);
 
