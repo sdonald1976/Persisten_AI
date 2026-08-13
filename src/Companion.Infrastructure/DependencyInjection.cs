@@ -2,6 +2,7 @@ using Companion.Core;
 using Companion.Core.Abstractions;
 using Companion.Core.Services;
 using Companion.Infrastructure.Models;
+using Companion.Infrastructure.World;
 using Companion.Infrastructure.Persistence;
 using Companion.Infrastructure.Vector;
 using Microsoft.EntityFrameworkCore;
@@ -88,6 +89,14 @@ public static class DependencyInjection
         // Model HTTP access goes through Microsoft's IHttpClientFactory: one named client per role,
         // per-role timeout/base-url, managed handler lifetime, and a Polly transient-retry policy.
         services.AddModelHttpClients(modelOptions);
+
+        // Her world, if she has one. Absent by default — a companion with no world is the normal
+        // case, and nothing else here depends on having one. This is a connection and nothing
+        // more: no places are stored, so deleting the world leaves nothing behind in companion.db.
+        var worldOptions = configuration.GetSection(WorldOptions.SectionName).Get<WorldOptions>() ?? new WorldOptions();
+        services.AddSingleton(worldOptions);
+        services.AddSingleton<WebSocketWorldLink>();
+        services.AddSingleton<IWorldLink>(sp => sp.GetRequiredService<WebSocketWorldLink>());
 
         // A model name is the one setting nothing else validates — a typo or an un-pulled tag
         // builds, starts, and tests clean, then 503s on the first real sentence. The preflight

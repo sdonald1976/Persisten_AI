@@ -206,6 +206,42 @@ fixes that on any hardware — it just stops being urgent enough to block the wo
 - A handful of hand-authored places beats generated terrain. What makes a world feel inhabited is
   consequence and persistence — the basil you saw wilting yesterday is dead today — not extent.
 
+## What is built
+
+Steps one to five are done. The world is [a separate repo](https://github.com/sdonald1976/AvaWorld):
+a headless Godot server that keeps running unwatched, five connected places, a client to walk around
+in, Ava living there, and a WebSocket wire the companion drives her over.
+
+In *this* repo, the whole footprint is three things, exactly as scoped above:
+
+| Piece | Where |
+|---|---|
+| The outbound client | `Companion.Infrastructure/World/WebSocketWorldLink.cs` |
+| The roaming policy | `Companion.Core/Services/RoamingPolicy.cs` |
+| The clock that applies it | `Companion.Api/WorldWorker.cs` |
+
+Configure it with the `World` section in `appsettings.json`. An empty `Url` means no world, and
+nothing about her changes.
+
+### The boundary held
+
+`IWorldLink.Places` is what the world last said, and it is emptied the moment the connection drops.
+Nothing about the world reaches `companion.db` — no place table, no position, no cached menu. The
+test still applies: delete the world application and this repo's database contains nothing that
+refers to it.
+
+`RoamingPolicy` is a pure function of her state and the menu she was just handed. It hard-codes no
+room names — it reads the world's own words for each place — so a completely different world works
+unchanged. And every choice carries the reason that produced it:
+
+```
+She's heading to the greenhouse — she has the energy for something.
+She's heading to the greenhouse — she's been wondering about the tomatoes.
+```
+
+That reason is the point. A move she cannot explain is decoration, which the vision doc's non-goals
+rule out; a move she *can* explain is continuity.
+
 ## Suggested order
 
 Each step is worth having alone, and the first three don't touch this repo at all.
