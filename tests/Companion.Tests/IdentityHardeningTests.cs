@@ -68,6 +68,7 @@ public class IdentityHardeningTests
             sp.GetRequiredService<IMemoryAssociationStore>(),
             sp.GetRequiredService<IProcedureStore>(),
             sp.GetRequiredService<ISharedPerspectiveStore>(),
+            sp.GetRequiredService<IExperienceStore>(),
             new CannedChatModel(cannedResponse),
             sp.GetRequiredService<IEmbeddingModel>(),
             sp.GetRequiredService<IOptions<CompanionOptions>>(),

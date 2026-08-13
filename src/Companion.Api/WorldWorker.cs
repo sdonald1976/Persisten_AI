@@ -1,4 +1,5 @@
 using Companion.Core.Abstractions;
+using Companion.Core.Domain;
 using Companion.Core.Services;
 using Companion.Infrastructure.World;
 
@@ -114,10 +115,39 @@ public sealed class WorldWorker : BackgroundService
     }
 
     /// <summary>
-    /// Perception, for now, only reaches the log. Feeding it into memory and reflection is the
-    /// next step, and it needs its own provenance so world events are never mistaken for facts
-    /// about the user's real life.
+    /// Records what happened to her, so reflection can read it later.
+    ///
+    /// It goes to her experience log and nowhere near the memory store. A world event is not a
+    /// fact about the user's life — an afternoon in the greenhouse says nothing about them — and
+    /// the separation is structural rather than a rule someone has to remember.
+    ///
+    /// Fire-and-forget: perception must never stall the connection, and a lost line is a lost
+    /// line rather than a broken world.
     /// </summary>
     private void OnPerceived(WorldPerception perception)
-        => _logger.LogInformation("World: {Text}", perception.Text);
+    {
+        _logger.LogInformation("World: {Text}", perception.Text);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _scopes.CreateScope();
+                await scope.ServiceProvider.GetRequiredService<IExperienceStore>().AddAsync(
+                    new Experience
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = _user.UserId,
+                        At = perception.At,
+                        Source = "world",
+                        Kind = perception.Kind,
+                        Text = perception.Text,
+                    });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not record a world experience.");
+            }
+        });
+    }
 }

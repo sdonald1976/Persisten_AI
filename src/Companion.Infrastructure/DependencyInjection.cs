@@ -46,6 +46,7 @@ public static class DependencyInjection
         services.AddScoped<IPendingClarificationStore, PendingClarificationStore>();
         services.AddScoped<IEmotionStore, EmotionStore>();
         services.AddScoped<IReflectionStore, ReflectionStore>();
+        services.AddScoped<IExperienceStore, ExperienceStore>();
         services.AddScoped<IAnticipationStore, AnticipationStore>();
         services.AddScoped<IPreferenceStore, PreferenceStore>();
         services.AddScoped<IAttentionStore, AttentionStore>();

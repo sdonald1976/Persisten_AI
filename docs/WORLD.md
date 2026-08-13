@@ -208,7 +208,7 @@ fixes that on any hardware — it just stops being urgent enough to block the wo
 
 ## What is built
 
-Steps one to five are done. The world is [a separate repo](https://github.com/sdonald1976/AvaWorld):
+Steps one to six are done. The world is [a separate repo](https://github.com/sdonald1976/AvaWorld):
 a headless Godot server that keeps running unwatched, five connected places, a client to walk around
 in, Ava living there, and a WebSocket wire the companion drives her over.
 
@@ -219,6 +219,7 @@ In *this* repo, the whole footprint is three things, exactly as scoped above:
 | The outbound client | `Companion.Infrastructure/World/WebSocketWorldLink.cs` |
 | The roaming policy | `Companion.Core/Services/RoamingPolicy.cs` |
 | The clock that applies it | `Companion.Api/WorldWorker.cs` |
+| Her own experiences | `Companion.Core/Domain/Experience.cs` + `ExperienceStore` |
 
 Configure it with the `World` section in `appsettings.json`. An empty `Url` means no world, and
 nothing about her changes.
@@ -241,6 +242,28 @@ She's heading to the greenhouse — she's been wondering about the tomatoes.
 
 That reason is the point. A move she cannot explain is decoration, which the vision doc's non-goals
 rule out; a move she *can* explain is continuity.
+
+### Her day reaches her thoughts
+
+World perceptions land in an **experience log** — timestamped sentences about what happened to her —
+and reflection reads them alongside the conversation, under a heading that says whose they are.
+
+The predicted problem did not appear. The design worried that `ResolveEvidence` would have to accept
+world events or world material would silently produce nothing. It turned out the gate was already
+right: a musing is not evidence-gated (it is her own thought, held loosely), while shared moments,
+procedures and preferences require a real user message and therefore refuse anything sourced from
+her day. Which is correct — her afternoon in the greenhouse is not a fact about the user, and the
+existing gate says so without being touched. There is a test asserting a model that claims "we
+repotted the basil together" is still refused when only her day happened.
+
+One gate did have to change. Reflection required new *user messages*, so a day she spent in her world
+without being spoken to produced no thought at all — precisely the gap the world was built to fill.
+It now runs on enough new experiences alone, with the watermark advancing past both sources so a
+quiet day is not re-read forever.
+
+The experience log is not a world model: no places, no occupancy, no layout, nothing to keep in step
+with anywhere. Just sentences, pruned after thirty days, with whatever reflection made of them
+surviving as musings.
 
 ## Suggested order
 
