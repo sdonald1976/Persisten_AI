@@ -99,6 +99,39 @@ public sealed class WorldWorker : BackgroundService
             .Where(t => t.Length > 0)
             .ToList();
 
+        // Something that actually needs doing outranks where she feels like being.
+        //
+        // The first attempt fed concerns to the roaming policy as ordinary preoccupations, which
+        // was wrong in a way that only showed up when watching: a stove going cold scored 0.5 for
+        // the kitchen while the study scored 0.4 on her energy, a gap under the move threshold, so
+        // she sat in the study while the fire went out. A need is not a preference, and making it
+        // compete as one means it loses to a mood.
+        var concerns = _link.Concerns;
+
+        // Already where it is: do it. Tending is not a journey.
+        if (concerns.FirstOrDefault(c =>
+                string.Equals(c.PlaceId, _link.CurrentPlace, StringComparison.OrdinalIgnoreCase)) is { } here)
+        {
+            if (await _link.TendAsync(here.ThingId, ct))
+                _logger.LogInformation("She's seeing to {Thing} — {Text}.", here.Name, here.Text);
+            return;
+        }
+
+        // Otherwise go to it. The reason is the concern itself, which is a better answer to "why
+        // are you in the kitchen?" than anything a mood could give.
+        if (concerns.Count > 0)
+        {
+            var errand = concerns[0];
+            var leaving = _link.CurrentPlace;
+            if (await _link.GoToAsync(errand.PlaceId, ct))
+            {
+                _previousPlace = leaving;
+                _logger.LogInformation(
+                    "She's heading to the {Place} — {Text}.", errand.PlaceId, errand.Text);
+            }
+            return;
+        }
+
         var choice = RoamingPolicy.Choose(
             _link.Places, _link.CurrentPlace, _previousPlace, state, preoccupations);
 
