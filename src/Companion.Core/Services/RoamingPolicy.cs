@@ -33,11 +33,11 @@ public static class RoamingPolicy
     /// <summary>
     /// How much better somewhere else must be before she actually gets up. Without a margin she
     /// paces — every tiny change of mood would move her, which reads as agitation rather than life.
-    /// </summary>
-    /// <summary>
-    /// How much better somewhere else must be before she actually gets up. This is the *only*
-    /// hysteresis: an earlier version also gave the current room a bonus, which double-counted the
-    /// same idea and made the two cancel out so precisely that she never moved at all.
+    ///
+    /// This is the *only* hysteresis. An earlier version also gave the current room a bonus, which
+    /// double-counted the same idea and made the two cancel out so precisely that she never moved.
+    /// It relaxes as she settles, so the guard against pacing does not become a guard against ever
+    /// leaving.
     /// </summary>
     public const double MoveThreshold = 0.25;
 
@@ -52,6 +52,25 @@ public static class RoamingPolicy
 
     /// <summary>Penalty for the room she just left, so she doesn't oscillate between two doors.</summary>
     private const double JustLeftPenalty = 0.5;
+
+    /// <summary>
+    /// How long she can be somewhere before staying becomes its own reason to leave.
+    ///
+    /// Without this she is a statue. Her energy has a handful of levels across a day, so once she
+    /// is in the place that suits the current one she has no reason to move again for hours, and
+    /// anyone looking in sees nothing happen. People do not sit in one room for a working day, and
+    /// "she'd been in the study a while" is a reason a person would actually give.
+    ///
+    /// It is deliberately the weakest signal: anything real — something on her mind, somewhere that
+    /// suits her better — moves her long before this does.
+    /// </summary>
+    public static readonly TimeSpan Restless = TimeSpan.FromMinutes(45);
+
+    /// <summary>
+    /// How much a long stay counts against staying. Small: it is meant to break a tie between
+    /// rooms that are otherwise equal, not to override a real preference.
+    /// </summary>
+    private const double SettledDrift = 0.2;
 
     /// <summary>Matching words needed before a place counts as fully suiting a mood.</summary>
     private const double AffinityMatchesForFull = 2.0;
@@ -78,18 +97,31 @@ public static class RoamingPolicy
     /// What is on her mind — open curiosities, attention items. Free text; only the content words
     /// matter, matched against what the world says each place is.
     /// </param>
+    /// <param name="timeInPlace">
+    /// How long she has been where she is. Staying somewhere becomes its own mild reason to move,
+    /// which is the difference between a companion who is at rest and one who is inert.
+    /// </param>
+    /// <param name="restlessAfter">
+    /// How long that takes. Configurable because it is a judgement about how a person behaves at
+    /// home rather than anything the code can determine, and the right answer is the one that
+    /// looks right to whoever lives with her.
+    /// </param>
     public static RoamingChoice? Choose(
         IReadOnlyList<WorldPlace> places,
         string? currentPlace,
         string? previousPlace,
         CompanionStateSnapshot state,
-        IReadOnlyList<string> preoccupations)
+        IReadOnlyList<string> preoccupations,
+        TimeSpan? timeInPlace = null,
+        TimeSpan? restlessAfter = null)
     {
         if (places.Count == 0)
             return null;
 
+        var settled = Settledness(timeInPlace, restlessAfter ?? Restless);
+
         var scored = places
-            .Select(place => Score(place, currentPlace, previousPlace, state, preoccupations))
+            .Select(place => Score(place, currentPlace, previousPlace, state, preoccupations, settled))
             .OrderByDescending(c => c.Score)
             .ThenBy(c => c.PlaceId, StringComparer.Ordinal) // ties resolve the same way every time
             .ToList();
@@ -102,18 +134,33 @@ public static class RoamingPolicy
         var here = scored.FirstOrDefault(c =>
             currentPlace is not null && string.Equals(c.PlaceId, currentPlace, StringComparison.OrdinalIgnoreCase));
 
-        if (here is not null && best.Score - here.Score < MoveThreshold)
+        // Getting up is hard at first and easier the longer she has been sitting. The margin that
+        // keeps her from pacing over a trivial difference should not also keep her in one room all
+        // day.
+        var threshold = MoveThreshold * (1 - settled);
+
+        if (here is not null && best.Score - here.Score < threshold)
             return null; // not enough in it to be worth getting up
 
         return best;
     }
+
+    /// <summary>
+    /// How settled she is, from 0 (just arrived) to 1 (been here long enough that moving needs no
+    /// justification beyond having been here).
+    /// </summary>
+    private static double Settledness(TimeSpan? timeInPlace, TimeSpan restlessAfter) =>
+        timeInPlace is null || restlessAfter <= TimeSpan.Zero
+            ? 0
+            : Math.Clamp(timeInPlace.Value / restlessAfter, 0, 1);
 
     private static RoamingChoice Score(
         WorldPlace place,
         string? currentPlace,
         string? previousPlace,
         CompanionStateSnapshot state,
-        IReadOnlyList<string> preoccupations)
+        IReadOnlyList<string> preoccupations,
+        double settled)
     {
         var about = $"{place.Name} {place.Description}";
         var score = 0.0;
@@ -128,40 +175,60 @@ public static class RoamingPolicy
             reason = $"she's been wondering about {matched}";
         }
 
-        // 2. Does this place suit her energy? Low energy seeks somewhere restful, high energy
-        //    somewhere with something to do.
+        // 2. Does this place suit her energy? Continuous rather than banded: her energy has only a
+        //    few levels across a day, and thresholds turned those into two moods and therefore two
+        //    moves — active all afternoon, restful all night, and dead zones between where nothing
+        //    pulled at all. A gradual lean means the best place drifts through the day as she does.
         var restful = Affinity(about, Restful);
         var active = Affinity(about, Active);
-        var energyFit = state.Energy >= 0.65 ? active - restful
-            : state.Energy <= 0.4 ? restful - active
-            : 0.0;
+        var lean = (state.Energy - 0.5) * 2;                 // -1 (spent) … +1 (lively)
+        var energyFit = (active - restful) * lean;
 
         if (energyFit > 0)
         {
             score += energyFit * EnergyWeight;
-            reason ??= state.Energy >= 0.65
+            reason ??= lean > 0
                 ? "she has the energy for something"
                 : "it's a low hour and this is somewhere quiet";
         }
 
-        // 3. Do her spirits suit it? Low spirits draw inward, bright ones outward.
+        // 3. Do her spirits suit it? Low spirits draw inward, bright ones outward — again as a
+        //    lean rather than a switch.
         var openness = Affinity(about, Open);
-        var spiritsFit = state.Spirits >= 0.3 ? openness
-            : state.Spirits <= -0.3 ? restful - openness
-            : 0.0;
+        var mood = Math.Clamp(state.Spirits, -1, 1);
+        var spiritsFit = (openness - restful) * mood;
 
         if (spiritsFit > 0)
         {
             score += spiritsFit * SpiritsWeight;
-            reason ??= state.Spirits >= 0.3
-                ? "she's in bright spirits and this is somewhere open"
-                : "things have felt heavy and this is somewhere enclosed";
+
+            // Only claim a mood when there is really one to claim. Making the lean continuous meant
+            // the faintest positive nudge — one friendly message — started reporting itself as
+            // "bright spirits", which is the kind of small overstatement the whole design is
+            // supposed to refuse. A slight pull gets a slight reason.
+            reason ??= mood switch
+            {
+                >= 0.3 => "she's in bright spirits and this is somewhere open",
+                <= -0.3 => "things have felt heavy and this is somewhere enclosed",
+                > 0 => "somewhere open appealed",
+                _ => "somewhere enclosed appealed",
+            };
         }
 
         if (previousPlace is not null && string.Equals(place.Id, previousPlace, StringComparison.OrdinalIgnoreCase))
             score -= JustLeftPenalty;
 
-        return new RoamingChoice(place.Id, reason ?? "no particular reason", Math.Round(score, 4));
+        // Having been here a long time counts slightly against here — otherwise, when nothing
+        // distinguishes anywhere, she stays put forever on a tie and the day never turns over.
+        if (settled > 0
+            && currentPlace is not null
+            && string.Equals(place.Id, currentPlace, StringComparison.OrdinalIgnoreCase))
+        {
+            score -= settled * SettledDrift;
+            reason ??= "she'd been here a while";
+        }
+
+        return new RoamingChoice(place.Id, reason ?? "a change of room", Math.Round(score, 4));
     }
 
     /// <summary>

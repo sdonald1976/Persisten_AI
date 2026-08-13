@@ -28,6 +28,14 @@ public sealed class WorldWorker : BackgroundService
 
     private string? _previousPlace;
 
+    /// <summary>
+    /// Where she was last seen and when she got there, so the policy can know how long she has been
+    /// sitting. Transient: it is about her, not about the world, and a restart simply means she has
+    /// only just arrived wherever she is.
+    /// </summary>
+    private string? _settledIn;
+    private DateTimeOffset _settledAt;
+
     public WorldWorker(
         IWorldLink link, WorldOptions options, IUserContext user, IServiceScopeFactory scopes,
         TimeProvider clock, ILogger<WorldWorker> logger)
@@ -132,8 +140,19 @@ public sealed class WorldWorker : BackgroundService
             return;
         }
 
+        // How long she has been here. Tracked rather than asked for, because the world reports
+        // arrivals and does not keep a stopwatch on her behalf.
+        var now = _clock.GetUtcNow();
+        if (!string.Equals(_settledIn, _link.CurrentPlace, StringComparison.OrdinalIgnoreCase))
+        {
+            _settledIn = _link.CurrentPlace;
+            _settledAt = now;
+        }
+
         var choice = RoamingPolicy.Choose(
-            _link.Places, _link.CurrentPlace, _previousPlace, state, preoccupations);
+            _link.Places, _link.CurrentPlace, _previousPlace, state, preoccupations,
+            _settledIn is null ? null : now - _settledAt,
+            TimeSpan.FromMinutes(Math.Max(0, _options.RestlessMinutes)));
 
         if (choice is null)
             return;

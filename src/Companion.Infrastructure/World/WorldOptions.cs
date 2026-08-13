@@ -27,6 +27,15 @@ public sealed class WorldOptions
     /// </summary>
     public double RoamCheckMinutes { get; set; } = 2;
 
+    /// <summary>
+    /// How long she can be in one room before staying becomes its own reason to leave.
+    ///
+    /// Her mood changes only a few times a day, so without this she settles into whichever room
+    /// suits the hour and does not move again — at rest, but indistinguishable from inert to
+    /// anyone looking in. Zero switches it off entirely.
+    /// </summary>
+    public double RestlessMinutes { get; set; } = 45;
+
     /// <summary>How long to wait before reconnecting after the world goes away.</summary>
     public double ReconnectSeconds { get; set; } = 15;
 
