@@ -132,6 +132,50 @@ Three things, none of which is a world model:
 
 That is the whole footprint. Anything beyond it is drift.
 
+## Presence, without the neediness
+
+Seeing the user arrive and leave is information the companion has never had. It is also the fastest
+route to something unpleasant, because a normal week looks like dozens of departures. The user is not
+at their desk all day, and the world must not treat that as a series of events requiring comment.
+
+Four rules, all mechanical rather than tonal — asking a model to "not be clingy" in a prompt is not a
+control:
+
+1. **Absence is the resting state, not an event.** The world is mostly unattended. Departure is a
+   transition to normal, and nothing that returns to normal is notable.
+2. **Presence is never an outreach trigger.** `OutreachService` has a deliberate priority ladder —
+   a dated anticipation, then a passed anticipation, then the freshest open curiosity, and *no
+   curiosity means no message*. Presence must not be added to that ladder. "You haven't visited in
+   three days" is the exact failure being avoided, and it can only exist if something makes it
+   possible.
+3. **No accounting.** Visit frequency, session length, and time-since-last-seen are not tracked, not
+   totalled, and not surfaced. The moment a number exists, some prompt will eventually cite it.
+4. **One absence clock, not two.** The companion already answers "how long has it been?" gracefully
+   through `TemporalNote` and `GetLastMessageAtAsync`, at conversational granularity. World presence
+   must not create a second, finer-grained tracker beside it.
+
+What presence *is* good for: colouring a reply when you are both in the same place, and knowing
+whether to speak aloud or wait. That is the whole remit.
+
+## Restarts: she doesn't know
+
+A restart is invisible to her. The world resumes from its last save, and the downtime leaves a hole
+in the event log that is never explained, apologised for, or filled.
+
+**Nothing generates activity for a gap.** The temptation is real — a plausible eight hours is easy to
+synthesise and makes her seem more alive. It is also precisely the confabulation this entire design
+exists to prevent, and it would be undetectable once written, because it would look exactly like a
+real event. If there are no world events for Tuesday afternoon, she has nothing to say about Tuesday
+afternoon.
+
+This also retires the deterministic-replay idea from the earlier draft. An always-running server
+never needs to catch up, and a restarted one must not.
+
+The world clock tracks wall-clock time and simply skips the downtime. The alternative — pausing world
+time while the server is down — avoids the hole but drifts world time away from the user's real
+time-of-day, and then "this morning" stops meaning the same thing to both of them. A shared,
+literal sense of when it is matters more than an unbroken log.
+
 ## Running it
 
 Four processes: the world server, a world client, the companion, and Ollama. Development is on one
@@ -184,20 +228,17 @@ Each step is worth having alone, and the first three don't touch this repo at al
 7. **Voice and co-presence.** She speaks in-world with lip-sync; being in the same room colours how
    she talks.
 
-## Open questions
+## Settled
 
-- **What happens over a server restart?** Always-running removes the need to simulate gaps while
-  nobody is home, but not the need to survive a reboot or a redeploy. Simplest honest answer: save
-  periodically, resume from the save, and let her treat the gap as unremembered rather than
-  inventing it. Fabricating a plausible eight hours is exactly the confabulation this whole design
-  exists to prevent.
-- **How fast does world time run?** Leaning 1:1, because every other temporal claim she makes is
-  literal. A faster clock makes returning more eventful at the cost of her being able to say "this
-  morning" and mean it.
-- **Does she know it's a world?** She must never assert it as fact about the user's real life. But
-  whether she treats it as lived experience or acknowledged imagination is a persona decision with
-  direct consequences for the roleplay guard.
-- **What does she do about you being away?** She can see you leave and return, which is presence
-  information she has never had before. It could feed anticipation and greeting naturally — or
-  become clingy. Worth deciding deliberately rather than discovering.
-- **Where does this document live** once `AvaWorld` exists? Probably there, with a pointer here.
+- **World time runs 1:1 with wall-clock time.** Every other temporal claim she makes is literal, and
+  "this morning" should mean the same morning to both of them.
+- **Presence never becomes neediness** — see the four rules above.
+- **Restarts are invisible and gaps are never filled.**
+
+## Still open
+
+- **Does she know it's a world?** She must never assert it as fact about the user's real life, but
+  whether she treats it as lived experience or as acknowledged imagination is a persona decision, and
+  it changes what the roleplay guard has to allow. This one can wait until she is actually in there
+  and the right answer is obvious from hearing her talk.
+- **Where this document lives** once `AvaWorld` exists — probably there, with a pointer here.
