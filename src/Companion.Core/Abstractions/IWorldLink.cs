@@ -2,6 +2,29 @@ using Companion.Core.Services;
 
 namespace Companion.Core.Abstractions;
 
+/// <summary>
+/// Something in her world that wants looking after, as the world last described it.
+/// </summary>
+/// <param name="ThingId">What to name when asking to tend it.</param>
+/// <param name="PlaceId">Where it is — she has to be there.</param>
+/// <param name="Name">What it is called: "the basil".</param>
+/// <param name="Condition">The shared state, for deciding: "dry", "wilting".</param>
+/// <param name="Text">
+/// The world's own words for it — "the stove is burning low". Used whenever this is said out loud,
+/// because the state names are a plant's vocabulary and a stove is never "dry".
+/// </param>
+public sealed record WorldConcern(
+    string ThingId, string PlaceId, string Name, string Condition, string Text)
+{
+    /// <summary>
+    /// A noun phrase, because this is fed to the roaming policy as something on her mind and comes
+    /// back inside the sentence explaining where she went. "the basil in the greenhouse" reads;
+    /// a whole sentence spliced into another one does not.
+    /// </summary>
+    public string Subject => $"{Name} in the {PlaceId}";
+
+}
+
 /// <summary>Something that happened somewhere she is, as the world reported it.</summary>
 /// <param name="Kind">"arrived", "presence", or "refusal" — whatever the world chose to say.</param>
 /// <param name="Body">Who it concerns. "ava" is her; anything else is somebody else.</param>
@@ -39,6 +62,19 @@ public interface IWorldLink
 
     /// <summary>Asks her to go somewhere. A place name from <see cref="Places"/>, never a direction.</summary>
     Task<bool> GoToAsync(string placeId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Asks her to look after something. Still a goal, not an action — the world decides whether
+    /// she is close enough and whether it would achieve anything.
+    /// </summary>
+    Task<bool> TendAsync(string thingId, CancellationToken ct = default);
+
+    /// <summary>
+    /// What the world last said needs attention, as sentences. Transient like everything else here
+    /// — a remembered to-do list about somewhere else would be exactly the model this must not
+    /// become.
+    /// </summary>
+    IReadOnlyList<WorldConcern> Concerns { get; }
 
     /// <summary>Raised for everything the world reports. Handlers must not throw.</summary>
     event Action<WorldPerception>? Perceived;

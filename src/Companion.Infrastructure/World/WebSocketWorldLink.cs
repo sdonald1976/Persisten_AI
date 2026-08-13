@@ -30,6 +30,7 @@ public sealed class WebSocketWorldLink : IWorldLink, IAsyncDisposable
     private Task? _pump;
     private int _disposed;
     private volatile IReadOnlyList<WorldPlace> _places = Array.Empty<WorldPlace>();
+    private volatile IReadOnlyList<WorldConcern> _concerns = Array.Empty<WorldConcern>();
 
     public WebSocketWorldLink(WorldOptions options, ILogger<WebSocketWorldLink> logger)
     {
@@ -78,6 +79,7 @@ public sealed class WebSocketWorldLink : IWorldLink, IAsyncDisposable
 
             // Forget everything the world told us. A stale menu is the beginning of a model.
             _places = Array.Empty<WorldPlace>();
+            _concerns = Array.Empty<WorldConcern>();
             CurrentPlace = null;
 
             try
@@ -149,6 +151,7 @@ public sealed class WebSocketWorldLink : IWorldLink, IAsyncDisposable
         {
             case "hello":
                 _places = ReadPlaces(root);
+                _concerns = ReadConcerns(root);
                 CurrentPlace = root.TryGetProperty("place", out var p) ? p.GetString() : null;
                 _logger.LogInformation(
                     "Her world has {Count} places; she is in the {Place}.",
@@ -173,6 +176,28 @@ public sealed class WebSocketWorldLink : IWorldLink, IAsyncDisposable
                 var place = root.TryGetProperty("place", out var pl) ? pl.GetString() : null;
                 Raise(new WorldPerception(at, "presence", body, place,
                     state == "joined" ? $"{body} came into the world." : $"{body} left."));
+                break;
+            }
+
+            case "noticed":
+            {
+                var place = root.TryGetProperty("place", out var pl) ? pl.GetString() : null;
+                var thing = root.TryGetProperty("thing", out var th) ? th.GetString() : null;
+                var text = root.TryGetProperty("text", out var tx) ? tx.GetString() : null;
+
+                // The menu she was handed on connecting is a snapshot. Things change afterwards,
+                // and without folding those changes in here she would only ever act on what was
+                // true the moment she arrived — which for a world that changes over hours is
+                // almost never.
+                if (!string.IsNullOrWhiteSpace(thing) && !string.IsNullOrWhiteSpace(place))
+                {
+                    var needs = root.TryGetProperty("needsAttention", out var n) && n.ValueKind == JsonValueKind.True;
+                    var condition = root.TryGetProperty("condition", out var c) ? c.GetString() ?? "" : "";
+                    UpdateConcern(thing!, place!, condition, text ?? "", needs);
+                }
+
+                if (!string.IsNullOrWhiteSpace(text))
+                    Raise(new WorldPerception(at, "noticed", thing, place, text!));
                 break;
             }
 
@@ -211,6 +236,70 @@ public sealed class WebSocketWorldLink : IWorldLink, IAsyncDisposable
         return list;
     }
 
+    /// <summary>
+    /// Folds one change into what she knows wants attention. Still not a stored model: this is the
+    /// running total of what the world has said since it connected, and it goes when it does.
+    /// </summary>
+    private void UpdateConcern(
+        string thingId, string placeId, string condition, string text, bool needsAttention)
+    {
+        var without = _concerns
+            .Where(c => !string.Equals(c.ThingId, thingId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (needsAttention)
+        {
+            // Keep the name from the menu if we have it, so it still reads as a thing rather than
+            // an identifier.
+            var name = _concerns
+                .FirstOrDefault(c => string.Equals(c.ThingId, thingId, StringComparison.OrdinalIgnoreCase))
+                ?.Name ?? thingId;
+            without.Add(new WorldConcern(
+                thingId, placeId, name, condition,
+                string.IsNullOrWhiteSpace(text) ? $"{name} needs attention" : text));
+        }
+
+        _concerns = without;
+    }
+
+    /// <summary>
+    /// What the world says wants looking after, read straight out of the menu it just sent. Like
+    /// the places themselves, this is never stored — it is what she was told, not what she knows.
+    /// </summary>
+    private static IReadOnlyList<WorldConcern> ReadConcerns(JsonElement root)
+    {
+        if (!root.TryGetProperty("places", out var places) || places.ValueKind != JsonValueKind.Array)
+            return Array.Empty<WorldConcern>();
+
+        var concerns = new List<WorldConcern>();
+        foreach (var place in places.EnumerateArray())
+        {
+            var placeId = place.TryGetProperty("id", out var pid) ? pid.GetString() : null;
+            if (string.IsNullOrWhiteSpace(placeId))
+                continue;
+            if (!place.TryGetProperty("things", out var things) || things.ValueKind != JsonValueKind.Array)
+                continue;
+
+            foreach (var thing in things.EnumerateArray())
+            {
+                var needs = thing.TryGetProperty("needsAttention", out var n) && n.ValueKind == JsonValueKind.True;
+                if (!needs)
+                    continue;
+
+                var id = thing.TryGetProperty("id", out var tid) ? tid.GetString() : null;
+                if (string.IsNullOrWhiteSpace(id))
+                    continue;
+
+                var name = thing.TryGetProperty("name", out var nm) ? nm.GetString() ?? id : id;
+                var condition = thing.TryGetProperty("condition", out var c) ? c.GetString() ?? "" : "";
+                var text = thing.TryGetProperty("text", out var tx) ? tx.GetString() : null;
+                concerns.Add(new WorldConcern(
+                    id!, placeId!, name!, condition, text ?? $"{name} needs attention"));
+            }
+        }
+        return concerns;
+    }
+
     private void Raise(WorldPerception perception)
     {
         try
@@ -221,6 +310,17 @@ public sealed class WebSocketWorldLink : IWorldLink, IAsyncDisposable
         {
             _logger.LogError(ex, "A world perception handler threw; ignoring it.");
         }
+    }
+
+    public IReadOnlyList<WorldConcern> Concerns => _concerns;
+
+    public async Task<bool> TendAsync(string thingId, CancellationToken ct = default)
+    {
+        if (_socket?.State != WebSocketState.Open)
+            return false;
+
+        await SendAsync(new { type = "tend", thing = thingId });
+        return true;
     }
 
     public async Task<bool> GoToAsync(string placeId, CancellationToken ct = default)
