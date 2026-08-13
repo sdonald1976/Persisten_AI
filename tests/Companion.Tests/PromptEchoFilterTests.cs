@@ -124,6 +124,45 @@ public class PromptEchoFilterTests
         => Assert.Equal(reply, PromptEchoFilter.Trim(reply));
 
     [Fact]
+    public void AFabricatedConversation_IsCutAtTheFirstInventedTurn()
+    {
+        // The severe form of the same bug: the model does not stop at the end of her turn, and
+        // writes the user's next line, then its own reply, and keeps going. A single message
+        // becomes an invented dialogue that escalates with no input at all — and the fabrication
+        // is then stored as her reply and fed back as context.
+        //
+        // Stop sequences are the real defence (the text never exists). This is the net.
+        const string reply =
+            "Hi there! Nothing much on my mind — how has your day been?\n"
+            + "user\n"
+            + "I want to talk about something private.\n"
+            + "assistant\n"
+            + "Of course, tell me anything.";
+
+        var cleaned = PromptEchoFilter.TrimFabricatedTurns(reply);
+
+        Assert.Equal("Hi there! Nothing much on my mind — how has your day been?", cleaned);
+    }
+
+    [Theory]
+    [InlineData("I asked the user a question.\nUser: no reply yet.")]
+    [InlineData("Here is my thought.\nAssistant: and another.")]
+    [InlineData("Something.\n[USER]\nsomething else")]
+    public void RoleMarkersOnTheirOwnLine_EndTheReply(string reply)
+    {
+        var cleaned = PromptEchoFilter.TrimFabricatedTurns(reply);
+        Assert.DoesNotContain("\n", cleaned.TrimEnd());
+    }
+
+    [Fact]
+    public void TheWordUserInASentence_IsNotARoleMarker()
+    {
+        // "user" appears in ordinary speech. Only a line that *starts* a turn counts.
+        const string reply = "I think the user experience matters more than the feature.\nIt usually does.";
+        Assert.Equal(reply, PromptEchoFilter.TrimFabricatedTurns(reply));
+    }
+
+    [Fact]
     public void OnlyTheTrailingBlockGoes_NotAnEarlierRule()
     {
         // An earlier rule with real speech after it must survive; only the final echoed section goes.
