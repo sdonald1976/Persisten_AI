@@ -38,6 +38,29 @@ Roles are then assigned to whichever tier fits their job. That's the real design
 Three chat models resident (Stheno + Qwen 7B + Qwen 3B) plus embeddings. Compared to the previous
 llama3.1:8b / llama3.2:3b split this is a like-for-like swap, not an extra load.
 
+### Pull them before you start
+
+Configuring a model does not install it. A name that Ollama doesn't have builds, starts, and passes
+every test, then fails on your first sentence — so the API checks the provider's catalog at startup
+and says exactly what's missing:
+
+```
+Model 'qwen2.5:7b-instruct' is configured for extraction, summarizer, safety but the server at
+http://localhost:11434/v1 does not have it — those calls will fail until you pull it or correct
+the configured name. Try: ollama pull qwen2.5:7b-instruct
+```
+
+The same verdict is on `GET /health` (`status` is `degraded` while anything is missing, with a
+`modelCheck.missing` list), and missing models mark their capabilities `Unavailable` rather than
+letting `/capabilities` claim something it has never checked. A provider it can't reach is reported
+as *unverified*, never as missing.
+
+To pull the whole recommended roster:
+
+```bash
+ollama pull hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M && ollama pull qwen2.5:7b-instruct && ollama pull qwen2.5:3b-instruct && ollama pull nomic-embed-text
+```
+
 ## Why each role gets what it gets
 
 **Chat — the RP fine-tune, unchanged.** This is the one role where "instruction-following

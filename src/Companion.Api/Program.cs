@@ -17,6 +17,10 @@ builder.Services.AddCompanion(builder.Configuration, $"Data Source={dbPath}");
 builder.Services.AddHostedService<ReflectionWorker>();
 builder.Services.AddHostedService<OutreachWorker>();
 
+// Verify the configured models actually exist on the provider, so a wrong name surfaces in the
+// log and on /health instead of as a 503 on the user's first sentence.
+builder.Services.AddHostedService<ModelPreflightWorker>();
+
 var apiOptions = builder.Configuration.GetSection(ApiOptions.SectionName).Get<ApiOptions>() ?? new ApiOptions();
 
 // Bind to loopback by default. The API is never exposed on LAN interfaces unless the host
@@ -128,12 +132,17 @@ app.Use(async (ctx, next) =>
 
 // ---- health / status ----
 
-app.MapGet("/health", (ModelOptions models) =>
+app.MapGet("/health", (ModelOptions models, ModelPreflightState preflight) =>
 {
     var provider = models.UsesRealModel ? models.Provider : "Mock (offline)";
+    var report = preflight.Report;
+
+    // "ok" means the API is up; it should not imply the models behind it are usable. A configured
+    // model the provider doesn't have is reported here because this is where someone looks first.
+    var missing = report.Missing;
     return Results.Ok(new
     {
-        status = "ok",
+        status = missing.Count == 0 ? "ok" : "degraded",
         provider,
         models = models.UsesRealModel
             ? new
@@ -147,6 +156,12 @@ app.MapGet("/health", (ModelOptions models) =>
                 speech = models.Speech?.Model,
             }
             : null,
+        modelCheck = new
+        {
+            checkedAt = report.CheckedAt,
+            missing = missing.Select(r => new { r.Role, r.Model, r.BaseUrl }),
+            unverified = report.Unchecked.Select(r => new { r.Role, r.Model, r.BaseUrl }),
+        },
     });
 });
 

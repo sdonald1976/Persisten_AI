@@ -53,13 +53,13 @@ public sealed class SleepCycle : ISleepCycle
 
     public async Task<SleepCycleResult> RunAsync(string userId, CancellationToken ct = default)
     {
-        // 1. Think (the inner monologue). Null = nothing new enough, or the model's output was
-        // unusable — either way there is no fresh material behind it.
+        // 1. Think (the inner monologue). It may skip — too little new material, or the model's
+        // output was unusable — and either way there is no fresh material behind it.
         var reflection = await _reflector.ReflectAsync(userId, ct);
 
         // 2. Tidy memory, but only after a real pass over new material.
         var consolidated = 0;
-        if (reflection is not null)
+        if (reflection.Reflected)
             consolidated = (await _consolidator.ConsolidateAsync(userId, ct)).Created.Count;
 
         // 3. Let stale things go, regardless — staleness is about time, not new material:
@@ -75,7 +75,7 @@ public sealed class SleepCycle : ISleepCycle
 
         var result = new SleepCycleResult
         {
-            Reflection = reflection,
+            Reflection = reflection.Result,
             ConsolidatedGroups = consolidated,
             StaleCuriositiesDismissed = dismissed,
             StaleAnticipationsExpired = expired,
@@ -88,8 +88,9 @@ public sealed class SleepCycle : ISleepCycle
                 "{Consolidated} groups consolidated, {Dismissed} stale curiosities dismissed, " +
                 "{Expired} stale anticipations expired.",
                 userId,
-                reflection is null ? "no reflection" : reflection.Reflection.HasMusing ? "musing written" : "quiet day",
-                reflection?.Curiosities.Count ?? 0, consolidated, dismissed, expired);
+                reflection.Result is not { } r ? $"no reflection ({reflection.SkipReason})"
+                    : r.Reflection.HasMusing ? "musing written" : "quiet day",
+                reflection.Result?.Curiosities.Count ?? 0, consolidated, dismissed, expired);
         }
 
         return result;

@@ -81,6 +81,58 @@ public sealed class CapabilityRegistry : ICapabilityRegistry
     }
 
     /// <summary>
+    /// Applies a provider model probe. A missing model is the one failure we can state with
+    /// certainty before any call is made, so it goes straight to Unavailable rather than through
+    /// the three-strikes degradation used for live call failures.
+    ///
+    /// A present model only restores the row to its seeded expectation — it proves the model is
+    /// installed, not that a call succeeds — and never overwrites live failure history, which is
+    /// stronger evidence than a catalog listing.
+    /// </summary>
+    public async Task ApplyModelProbeAsync(
+        IReadOnlyDictionary<string, bool> presenceByModel, DateTimeOffset now, CancellationToken ct = default)
+    {
+        if (presenceByModel.Count == 0)
+            return;
+
+        await EnsureSeededAsync(ct);
+        var defaults = DefaultCapabilities().ToDictionary(c => c.Id);
+        var rows = await _db.Capabilities.ToListAsync(ct);
+        var dirty = false;
+
+        foreach (var row in rows)
+        {
+            if (row.Model is null || !presenceByModel.TryGetValue(row.Model, out var present))
+                continue; // not a probed model — leave whatever we already knew
+
+            if (!present)
+            {
+                row.Availability = CapabilityAvailability.Unavailable;
+                row.Confidence = 0;
+                row.LastVerifiedAt = now;
+                dirty = true;
+                continue;
+            }
+
+            if (row.ConsecutiveFailures > 0)
+                continue; // a real call failed here; a catalog entry doesn't overturn that
+
+            if (row.Availability == CapabilityAvailability.Unavailable
+                && defaults.TryGetValue(row.Id, out var def))
+            {
+                row.Availability = def.Availability;
+                row.Confidence = def.Confidence;
+            }
+
+            row.LastVerifiedAt = now;
+            dirty = true;
+        }
+
+        if (dirty)
+            await _db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
     /// Keeps the stored rows in step with the CURRENT model configuration, not just seeded once:
     /// missing capabilities are added, obsolete ones removed, and a row whose provider/model no
     /// longer matches the config is reset to the config's defaults — its old verification history

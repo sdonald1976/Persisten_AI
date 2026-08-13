@@ -10,9 +10,9 @@ namespace Companion.Core.Abstractions;
 public interface IReflector
 {
     /// <summary>
-    /// Runs one reflection pass. Returns what was produced and persisted, or null when the pass
-    /// didn't run at all (not enough new material, or the model's output was unusable —
-    /// distinguishable by logs; callers only need "nothing new happened").
+    /// Runs one reflection pass. Returns what was produced and persisted, or — when nothing was —
+    /// which of the several very different reasons applied. Callers that only care whether
+    /// anything happened can read <see cref="ReflectionOutcome.Reflected"/>.
     /// </summary>
-    Task<ReflectionResult?> ReflectAsync(string userId, CancellationToken ct = default);
+    Task<ReflectionOutcome> ReflectAsync(string userId, CancellationToken ct = default);
 }

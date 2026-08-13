@@ -22,8 +22,10 @@ public class SleepCycleTests
     {
         private readonly ReflectionResult? _result;
         public FakeReflector(ReflectionResult? result) => _result = result;
-        public Task<ReflectionResult?> ReflectAsync(string userId, CancellationToken ct = default)
-            => Task.FromResult(_result);
+        public Task<ReflectionOutcome> ReflectAsync(string userId, CancellationToken ct = default)
+            => Task.FromResult(_result is null
+                ? ReflectionOutcome.Skipped(ReflectionSkipReason.NotEnoughMaterial)
+                : ReflectionOutcome.From(_result));
     }
 
     private sealed class CountingConsolidator : IMemoryConsolidator

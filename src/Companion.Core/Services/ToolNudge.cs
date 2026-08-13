@@ -76,18 +76,48 @@ public static partial class ToolNudge
             return new Match("project.get", "{}");
         if (ProcedureRx().IsMatch(userMessage))
             return new Match("procedure.search",
-                System.Text.Json.JsonSerializer.Serialize(
-                    new { query = userMessage.Length <= 200 ? userMessage : userMessage[..200] }));
+                System.Text.Json.JsonSerializer.Serialize(new { query = Whole(userMessage) }));
 
         var memory = MemoryRx().Match(userMessage);
         if (memory.Success)
         {
             var topic = memory.Groups["topic"].Value.Trim().TrimEnd('?', '.', '!', ',');
-            if (topic.Length >= 3)
+
+            // The topic is only the text to the RIGHT of the trigger, so an anaphoric tail
+            // ("…the Stirling engine tonight. What do you remember about it?") yields "about it" —
+            // all stopwords, which scores zero against every memory and retrieves noise. When the
+            // captured topic carries no content word, search the whole message instead: the
+            // referent is almost always in the same message, just earlier in it.
+            var query = HasContentWord(topic) ? topic : Whole(userMessage);
+            if (query.Length >= 3)
                 return new Match("memory.search",
-                    System.Text.Json.JsonSerializer.Serialize(new { query = topic }));
+                    System.Text.Json.JsonSerializer.Serialize(new { query }));
         }
 
         return null;
     }
+
+    /// <summary>
+    /// Quantifiers and placeholder nouns that survive the shared tokenizer but name nothing —
+    /// "any of that", "some of those things". Kept local to the nudge rather than added to
+    /// <see cref="Text.Tokenizer"/>: this only decides which query string to send, whereas widening
+    /// the shared stopword list would silently re-score every memory in the store.
+    /// Compared against stemmed tokens, so "things" and "lots" are already "thing" and "lot".
+    /// </summary>
+    private static readonly HashSet<string> Filler = new(StringComparer.Ordinal)
+    {
+        "any", "some", "all", "anything", "something", "everything", "nothing",
+        "much", "many", "lot", "thing", "stuff", "one", "ones", "bit",
+    };
+
+    /// <summary>
+    /// True when the text has at least one word the retriever can actually match on. Uses the same
+    /// tokenizer as keyword scoring, so a token dropped here is exactly a token that would have
+    /// scored zero there rather than a second, drifting opinion about what a stopword is.
+    /// </summary>
+    private static bool HasContentWord(string text)
+        => Text.Tokenizer.Tokenize(text).Any(t => !Filler.Contains(t));
+
+    private static string Whole(string userMessage)
+        => userMessage.Length <= 200 ? userMessage : userMessage[..200];
 }
