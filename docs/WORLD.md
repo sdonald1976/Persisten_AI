@@ -1,241 +1,154 @@
-# A world for the companion: place, roaming, and dreams
+# Ava's world — a separate Godot application
 
-> **⚠ SUPERSEDED — being rewritten. Do not build from this yet.**
->
-> This draft assumed the world would be state *inside* this solution. It should not be. The world
-> is a **separate application** — a 3D environment that both the user and the companion connect to
-> as participants — and this repo stays the brain, with no notion of place in it at all.
->
-> What survives the change: dreams as a walk over the memory-association graph (that lives here and
-> is unaffected), the model-lease prerequisite, and the rule that world events must never enter the
-> memory store. What does not: every section below that puts places, occupancy, or a tick in this
-> codebase.
+The world is **not part of this solution**. It is its own application, in its own repo, with its own
+authority over space and time. The user is a participant in it. Ava is a participant whose decisions
+come from the brain in *this* repo, over a connection.
 
-Everything the companion knows is indexed by **time**. `TemporalNote`, `RelativeTime`,
-`TimePrecision`, `EnergyAt(hour)`, the reflection watermark, anticipation dates, memory validity —
-the temporal axis is modelled richly and used everywhere. The **spatial axis does not exist at all**:
-there is no place, room, scene, or location anywhere in the domain, and nothing in the three.js
-avatar reaches the backend.
+This is the project's existing "split the brain from the face" principle taken one step further. A
+web page is a face with a text box; the world is a face with a body, a position, and weather.
 
-This document designs that missing axis, and the two things it makes possible: **roaming** (she is
-somewhere, and moves for reasons) and **dreaming** (associative recombination while she rests).
+```
+  AvaWorld  (new solution — Godot 4 + C#)          Persisten_AI  (this repo)
+  ─────────────────────────────────────            ──────────────────────────
+  geometry · collision · navmesh                   identity · persona
+  bodies · positions · pathfinding      ◀───ws───  memory · retrieval
+  objects · day/night · weather                    reflection · curiosity · dreams
+  the user's presence                              the decision to go somewhere
+```
 
-> Guiding principle, inherited from the project: **build continuity, not consciousness.** The
-> vision doc's non-goals rule out "emotion simulators", "cognitive subsystems", and "speculative
-> multi-subsystem architecture", and require every component to *earn its place by directly serving
-> the companion experience*. A world clears that bar as a **continuity instrument** and fails it as
-> a simulation for its own sake. Every section below is written against that test.
+## The boundary rule
 
-## Why a world serves continuity
+> **The companion may hold a connection, but never a model.**
 
-Today her entire inner life is derived from the user's conversation. Reflection reads messages;
-musings are about the user; curiosities are questions for the user. That is a closed loop with one
-source, and it has an observable failure mode: asked what she'd been doing when she had no context,
-she produced *"we were in the middle of discussing your coding project"* — fluent and invented.
+No `Place`, `Position`, or `Occupancy` entity. No tick. Nothing about the world persisted in
+`companion.db`. On connect, the world **advertises what exists** — a menu of place names and
+available actions — and the companion chooses from that menu. It does not remember the menu between
+connections; it asks again.
 
-A world gives the reflection loop **material that isn't the user**. "What have you been up to?"
-stops being a prompt for confabulation and becomes a question with a true, checkable answer. That is
-the whole justification. A world that doesn't feed the loop is scenery.
+The test for whether this has been violated: *delete the world application entirely, and the
+companion's database should contain nothing that refers to it* — except conversation and reflection
+text, which are just words she said and thought.
 
-## Decisions taken
+This matters because the drift is subtle and one-directional. Caching the place list "for
+performance", storing her last position "so she resumes", adding a `WorldEvent` table "just for
+reflection" — each is individually reasonable and collectively rebuilds the world model inside the
+brain.
 
-| Question | Decision |
+## Who owns what
+
+| Concern | Owner |
 |---|---|
-| What is the world for? | **A place you're both in** — the user has a location too, can move, and can meet her somewhere. |
-| Does world time run while away? | **Yes, continuously.** She has genuinely been somewhere doing something. |
-| What drives roaming? | **Her state, by deterministic rules** — mood, energy, curiosities. No model call to decide where she goes. |
+| Geometry, collision, navmesh, pathfinding | **World** |
+| Where any body is, and how it gets there | **World** |
+| Objects and their state over time | **World** |
+| Day/night, weather, ambience | **World** |
+| The user's presence and position | **World** |
+| Who she is, her mood, spirits, energy | **Companion** |
+| Memory, retrieval, reflection, dreams | **Companion** |
+| *Where she chooses to go, and why* | **Companion** |
+| What she says | **Companion** |
 
-### The two that combine unusually well
+The interesting row is the choice of destination. It belongs to the companion because it is a
+function of her state — spirits, energy by hour, open curiosities, attention items — all of which
+live here. But its *output* is only a place name selected from the menu the world advertised. The
+companion decides **where and why**; the world decides **how to get there**.
 
-"Continuous" and "deterministic" sound like they trade off — continuous implies always-on cost. They
-don't, and the reason shapes the whole build:
+## The wire
 
-**If the tick is a pure function of `(state, elapsed time)`, you never have to run it on a clock.**
-Store `LastTickedAt`; when anyone asks about the world, replay every tick from then to now. Eight
-hours of world time is a few thousand integer steps — microseconds, no GPU, no background thread
-competing with anything. The world is *continuous in semantics* and *lazy in execution*.
+Godot runs a WebSocket server; the companion connects out to it as a client. Both sides already
+speak WebSocket, and Godot 4 has `WebSocketPeer` built in.
 
-This is the single most important constraint to preserve. The moment a tick needs a model call, the
-world stops being replayable, has to run on a real clock, and starts competing with chat for the one
-GPU. **Keep the tick pure.** The language model narrates the world; it never decides it.
-
-## Architecture: the world is headless
-
-The repo's existing split is brain (`IAgent`) / faces (web, avatar, CLI). The world takes the same
-shape:
+**Perception** (world → companion) — the world *describes*; the companion never parses geometry.
 
 ```
-FACES:    web chat  ·  three.js scene  ·  voice
-                    │  local HTTP + WebSocket
-BRAIN:    IAgent ──── reads world state, never owns it
-WORLD:    IWorld  ──  places · occupancy · objects · events · clock
+{ "type": "arrived",   "place": "greenhouse", "notable": "the basil has wilted" }
+{ "type": "presence",  "who": "user", "state": "joined", "place": "kitchen" }
+{ "type": "ambient",   "text": "rain has started against the glass" }
 ```
 
-The three.js scene is a **view of the world, not the world**. If world state lives in the browser,
-nothing else can reason about it — reflection can't read it, memory can't cite it, and it dies on
-refresh. Everything below assumes `IWorld` is server-side and persisted.
+**Intention** (companion → world) — goals, never motion.
 
-### State
+```
+{ "type": "goto",   "place": "greenhouse" }
+{ "type": "look",   "at": "user" }
+{ "type": "speak",  "text": "…" }
+```
 
-- **Place** — a node with a name, a description, and connections. A graph, not coordinates. Ten
-  hand-authored places beat a generated terrain: what makes a world feel real is *consequence*, not
-  size.
-- **Occupancy** — where she is, where the user is. Both first-class, because presence is shared.
-- **Object** — a thing in a place with state that changes on a schedule (the basil needs water; the
-  fire burns down). This is what turns a map into a world you can have news about.
-- **WorldEvent** — an append-only log of what happened, where, and when. *This is the load-bearing
-  table*: it is what reflection reads and what she can truthfully cite.
-- **Clock** — `LastTickedAt`, plus the world-time-to-wall-time ratio.
+`{"type":"goto","place":"greenhouse"}` — never `move x+0.1`. Pathfinding is the engine's job and the
+main reason to use one. If the companion ever sends coordinates, the boundary rule has already been
+broken.
 
-### The tick
+## What this repo actually needs
 
-Pure, deterministic, no I/O beyond the store:
+Three things, none of which is a world model:
 
-1. Advance object state by elapsed time.
-2. Decide whether she moves, and where.
-3. Append the resulting `WorldEvent`s.
+1. **An outbound client**, behind an interface in `Companion.Infrastructure` — the same shape as the
+   model, TTS, and transcription providers. Absent or unreachable is a normal state, not an error:
+   she simply isn't in the world right now.
 
-Movement is chosen from state she already has. Nothing new needs inventing:
+2. **A non-user experience input.** Every input path today is user-authored, and world perceptions
+   entering as chat would be attributed to the user and reach the fact store. They need different
+   provenance. The machinery already exists — `MemoryOwner.Companion` / `Shared`, and the roleplay
+   guard that already rejects candidates mentioning her persona. Reuse it; do not add a world
+   concept to the memory pipeline.
 
-| Existing signal | Where it lives | How it reads spatially |
-|---|---|---|
-| Energy by hour | `CompanionStateTracker.EnergyAt` (23–05 → 0.25) | Low energy → somewhere restful; high → somewhere active |
-| Spirits | `UserProfile.CompanionSpirits`, decaying | Low → a quiet place; buoyant → the garden |
-| Open curiosities | `Curiosity` table | A curiosity about your project sends her to the workshop |
-| Attention items | `AttentionItem`, TTL'd | What's on her mind picks the room |
-| Anticipations | `Anticipation`, dated | Your interview tomorrow → she's somewhere she can think about it |
+3. **A roaming policy** — a pure function from her existing state to a place name. No model call, no
+   world dependency, testable without Godot running.
 
-The payoff of deterministic rules isn't only cost. It makes location an **expression of inner
-state** rather than a random walk, which means "why are you in the workshop?" has a real answer, and
-the answer is auditable in exactly the way the rest of this codebase insists on.
+That is the whole footprint. Anything beyond it is drift.
 
-## Where the world meets the thoughts loop
+## Local-only realities
 
-`Reflector` already reads new messages, prior musings, held curiosities, open loops, and the recent
-emotional read. **World events since the watermark become one more material source** — a small
-change to `ComposeMaterial`, not a new subsystem. The reflection thread machinery, the quiet-day
-watermark, and the skip reasons all work unchanged.
+Both applications and Ollama share one machine and one GPU.
 
-### The load-bearing change: evidence
+**VRAM is the binding constraint.** The current roster is ~10.7 GB resident (Stheno 4.58 + Qwen 7B
+4.36 + Qwen 3B 1.8), before Godot renders anything. On a 12–16 GB card, adding a real-time renderer
+means either model eviction — a ~5 s swap landing mid-sentence — or dropped frames. Two mitigations,
+both cheap: keep the world stylised and light (few dynamic lights, baked where possible), and use the
+two-model roster in [`MODELS.md`](MODELS.md) while the world is running.
 
-`Reflector.ResolveEvidence` is the gate that makes *"reflection cannot invent history"* true — a
-cited phrase must actually appear in a real message (exact substring, else ≥ 0.5 token overlap) or
-the derived item is dropped. Shared moments, procedures, and associations all depend on it.
+**The model lease is now a prerequisite, not a nicety.** `ReflectionWorker`'s idle check is a check
+at tick time, not a hold: if it passes and the user speaks a second later, a reflection pass and a
+live turn issue model calls concurrently against the same server. Today that is occasional. With a
+renderer on the same GPU and a companion that is *always connected to somewhere*, it stops being
+occasional. Build the lease — a gate background work acquires and a user turn preempts — before any
+of this.
 
-World events must become a **first-class evidence source** in that same resolver. If they aren't,
-one of two failures follows:
+## Godot specifics
 
-- she can't cite what she did, so world material silently produces nothing; or
-- the gate is loosened to let it through, and the property that stops her inventing history is gone
-  for *everything*, not just the world.
-
-Extending the resolver to match against `WorldEvent` text keeps the invariant and widens what counts
-as history. This is the piece to get right first, and the one to test hardest.
-
-### The world does not go in the memory store
-
-Worth stating plainly, because it looks like it should. `MemoryPipeline`'s second roleplay layer
-rejects any candidate whose content trips `lexicon.MentionsCompanion` — reason: *"references the
-companion's persona — in-character, not biography"*. World events are inherently about her, so the
-existing guard would reject them, **and it would be right to**. The fact store is a model of the
-user's real life; her afternoon in the garden is not a fact about the user.
-
-So: `WorldEvent` is its own store with its own retention. The one exception already has a home —
-when the user is *present* for something, that's a **shared moment**, which reflection already
-mints as `Owner = Shared`, `Confidence = 0.7`, `Actor = "reflection"`, evidence-verified. Shared
-presence in the world should flow down that existing path and no other.
-
-## Dreams
-
-A dream must be a different kind of object from a musing, or it is just a musing with worse
-epistemics.
-
-| | Musing | Dream |
-|---|---|---|
-| Material | Real conversation + world events | Existing memories, loosely associated |
-| Evidence-gated | Yes — `ResolveEvidence` | No — it isn't claiming anything |
-| Can become memory | Shared moments only, verified | **Never**, by construction |
-| Presented as | "a thought, hold loosely" | "a dream — explicitly not a claim" |
-| When | Reflection pass, on idle | Low-energy hours |
-
-### How dreaming earns its place
-
-Not as atmosphere. `IMemoryAssociationStore` already exists, and reflection already mints links
-between memories. **A dream is a walk over the association graph**: pick two or three memories that
-are weakly or not-yet connected, recombine them, and let the pass propose new associations.
-
-That is real retrieval work — surfacing an unexpected link between two old memories is exactly the
-"say something oblique and be understood" capability the vision doc is built around. The dream is
-the *expressive surface* of an associative pass that would be worth running anyway. It clears the
-non-goals bar because the mechanism is memory work, not consciousness theater.
-
-The hook already exists: `CompanionStateTracker` models energy by hour (23–05 → 0.25) and a `Rested`
-flag set by a reflection within 12 hours. Dreaming belongs at low energy, and `Rested` is already
-its natural output.
-
-## Prerequisite: nothing currently yields to a live turn
-
-`ReflectionWorker` checks idleness at tick time — `if (now - lastSeen < idle) return;` — but that is
-**a check, not a hold**. If the check passes at T and the user types at T+1s, the reflection pass and
-the live turn issue model calls concurrently against the same Ollama server. There is no lease, no
-busy flag, no priority, and no cancellation of in-flight background work. Today this is survivable
-because reflection is occasional.
-
-A continuously-available world plus a thoughts loop plus dreams makes it much less survivable. A warm
-turn is already ~74s on the current roster with three resident models; a background pass landing
-mid-turn competes for the same GPU and can force a model swap.
-
-**Build the lease first.** A single gate that background work must acquire, that a user turn
-preempts, and that cancels in-flight background generation. It is small, it is testable, and every
-feature in this document makes its absence worse.
-
-## Shared presence
-
-This is the most demanding decision, because it turns the world into a second interactive surface
-next to chat. Two guardrails:
-
-**Conversation stays the UI.** The roadmap's principle — *"every action is something you can say"* —
-applies here. "Come find me in the garden", "where are you?", "stay with me" should be intents
-routed by `IIntentParser`, not buttons. The existing rule-based-then-LLM parser is the right seam.
-
-**Low affordance on purpose.** Location and a handful of objects, no inventory, no crafting, no
-goals. The moment it rewards *playing*, it stops serving continuity and starts competing with it.
-Co-presence should mostly change how she talks — referencing where you both are, or noting that
-you're not together — rather than giving you things to do.
-
-On the wire, the roadmap already anticipates this: *"the WebSocket frame types are already the place
-to add them."* World state and movement are new frame types alongside `token` / `reply` / `confirm`.
-
-## Prompt cost
-
-The context packet is already budget-warned (`PacketTokenWarningThreshold`), and world state is
-exactly the kind of section that grows without anyone noticing. Budget it explicitly and keep it to
-a line or two of the *current* situation — where she is, what's notable, what she was just doing.
-The event log is material for reflection, not for every turn's prompt.
+- **Requires the .NET/Mono build of Godot 4**, not the standard build. Not currently installed;
+  nothing else is missing (.NET 8, 9 and 10 SDKs are present).
+- Ava's body: `CharacterBody3D` + `NavigationAgent3D` over a baked `NavigationRegion3D`.
+- **The avatar work is not wasted.** The `.glb`/VRM model from [`AVATAR.md`](AVATAR.md) loads in
+  Godot too. The amplitude-driven lip-sync port cleanly: `AudioStreamPlayer` plus a spectrum analyzer
+  driving the same blend shapes.
+- A handful of hand-authored places beats generated terrain. What makes a world feel inhabited is
+  consequence and persistence — the basil you saw wilting yesterday is dead today — not extent.
 
 ## Suggested order
 
-Each step is useful alone and testable without the next.
+Each step is worth having alone, and the first three don't touch this repo at all.
 
-0. **Model lease / preemption.** Prerequisite. Background work yields to a live turn.
-1. **World state, tick, and replay.** No LLM at all — pure logic, fully unit-testable. Assert that
-   replaying N ticks equals ticking N times.
-2. **World events into reflection**, with `ResolveEvidence` extended to cite them. She can now
-   truthfully answer "what have you been up to?".
-3. **Shared presence** — user location, movement intents, WebSocket frames.
-4. **Dreams** — associative pass at low energy, never promoted to fact.
-5. **The 3D view** — a face over state that already exists and already works headless.
+1. **The world, empty.** Godot scene, a few connected places, your own controller. Walk around it.
+2. **A body for her.** NPC with navmesh pathfinding, driven by a hardcoded script. No brain yet.
+3. **The wire.** WebSocket server in Godot plus a throwaway console client that sends `goto`. This
+   proves the protocol without touching the companion, which is the point.
+4. **The companion connects.** Outbound client and roaming policy. She now moves for reasons, and
+   you can ask her why.
+5. **Perception reaches her thoughts.** World events enter through the non-user input path and
+   become material for reflection — the first point at which the world improves continuity rather
+   than just existing.
+6. **Voice and co-presence.** She speaks in-world with lip-sync; being in the same room colours how
+   she talks.
 
 ## Open questions
 
-- **World time ratio.** Does an hour away equal an hour there? A faster clock makes returning
-  eventful; a 1:1 clock makes it honest. Leaning 1:1, because every other temporal claim she makes
-  is literal.
-- **Does she know it isn't real?** She must never assert the world as physical fact about the user's
-  life, but whether she treats it as her lived experience or as acknowledged imagination is a
-  persona decision with real consequences for the roleplay guard.
-- **Retention.** `WorldEvent` grows forever at one row per tick. Needs the same treatment
-  diagnostics got (`PruneAsync`, 30 days) — or aggressive summarisation into "yesterday, mostly the
-  garden".
-- **Multiple faces, one world.** Two browser tabs now resume the same conversation; they'd also
-  share one world position. Probably correct for a single-user companion, worth confirming.
+- **Does the world exist when Godot is closed?** Local-only and Godot-hosted means no — and then
+  "what were you doing this afternoon?" has no answer while the app was shut. If it should, the
+  world needs either a headless mode or a deterministic clock it can replay forward on launch. That
+  replay trick is cheap and worth building in from the start, but it belongs to the world app now.
+- **Does the world persist across restarts?** Saved state, or a fresh morning each launch.
+- **Does she know it's a world?** She must never assert it as fact about the user's real life. But
+  whether she treats it as lived experience or acknowledged imagination is a persona decision with
+  direct consequences for the roleplay guard.
+- **Where does this document live** once `AvaWorld` exists? Probably there, with a pointer here.
