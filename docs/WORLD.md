@@ -8,13 +8,23 @@ This is the project's existing "split the brain from the face" principle taken o
 web page is a face with a text box; the world is a face with a body, a position, and weather.
 
 ```
-  AvaWorld  (new solution — Godot 4 + C#)          Persisten_AI  (this repo)
-  ─────────────────────────────────────            ──────────────────────────
-  geometry · collision · navmesh                   identity · persona
-  bodies · positions · pathfinding      ◀───ws───  memory · retrieval
-  objects · day/night · weather                    reflection · curiosity · dreams
-  the user's presence                              the decision to go somewhere
+                    AvaWorld.Server  (Godot 4 --headless, always running)
+                    ───────────────────────────────────────────────────
+                    geometry · collision · navmesh · pathfinding
+                    bodies · positions · objects · day/night · weather
+                              ▲                        ▲
+                     ENet     │                        │  WebSocket
+                              ▼                        ▼
+        AvaWorld.Client                          Persisten_AI  (this repo)
+        ───────────────                          ────────────────────────
+        renders the world                        identity · persona · memory
+        your keyboard and mouse                  reflection · curiosity · dreams
+        connects and disconnects                 the decision to go somewhere
 ```
+
+**The world is a server, not a window.** It keeps running when nothing is watching it — that is the
+whole point of her being somewhere. The Godot client is a viewer that attaches to a world already in
+progress, and closing it changes nothing except who is present.
 
 ## The boundary rule
 
@@ -53,10 +63,35 @@ function of her state — spirits, energy by hour, open curiosities, attention i
 live here. But its *output* is only a place name selected from the menu the world advertised. The
 companion decides **where and why**; the world decides **how to get there**.
 
-## The wire
+## Headless first, or not at all
 
-Godot runs a WebSocket server; the companion connects out to it as a client. Both sides already
-speak WebSocket, and Godot 4 has `WebSocketPeer` built in.
+"Always running" is a requirement that decays quietly if it isn't designed for. Godot makes the
+wrong thing easy: simulation logic drifts into `_process` on visual nodes, and one day the world only
+advances while someone is looking at it.
+
+So the same discipline this repo already applies to the brain applies inside the world app:
+
+- **Simulation** is plain C# with no dependency on rendering. It runs under `--headless` and is
+  testable without a display.
+- **Presentation** is the scene tree — meshes, cameras, animation. It renders state it is given and
+  decides nothing.
+
+The check is the same shape as the boundary rule: the server must produce identical world history
+with no client ever connected. If closing the viewer changes what happened, presentation has
+absorbed logic that belongs to simulation.
+
+This is also what makes the world portable. A headless, network-addressable server moves to another
+machine as a deployment change rather than a rewrite.
+
+## Two channels
+
+The server accepts two different kinds of participant, and they want different transports.
+
+- **Rendering clients** — your Godot client, over Godot's built-in multiplayer (`ENetMultiplayerPeer`).
+  It gets state replication, interpolation, and the engine's own synchronisation for free.
+- **The brain** — over plain WebSocket. The companion renders nothing and needs no state
+  replication; it needs events in and intentions out. Keeping it off the game-networking stack means
+  the companion never links a Godot assembly, and the protocol stays readable and loggable.
 
 **Perception** (world → companion) — the world *describes*; the companion never parses geometry.
 
@@ -97,22 +132,24 @@ Three things, none of which is a world model:
 
 That is the whole footprint. Anything beyond it is drift.
 
-## Local-only realities
+## Running it
 
-Both applications and Ollama share one machine and one GPU.
+Four processes: the world server, a world client, the companion, and Ollama. Development is on one
+machine; the target is a dedicated system, which the headless split already accommodates — the
+server's address is configuration, not architecture.
 
-**VRAM is the binding constraint.** The current roster is ~10.7 GB resident (Stheno 4.58 + Qwen 7B
-4.36 + Qwen 3B 1.8), before Godot renders anything. On a 12–16 GB card, adding a real-time renderer
-means either model eviction — a ~5 s swap landing mid-sentence — or dropped frames. Two mitigations,
-both cheap: keep the world stylised and light (few dynamic lights, baked where possible), and use the
-two-model roster in [`MODELS.md`](MODELS.md) while the world is running.
+While developing on the workstation, the current roster is ~10.7 GB resident (Stheno 4.58 + Qwen 7B
+4.36 + Qwen 3B 1.8) before Godot renders a frame, so expect either model eviction mid-sentence or
+dropped frames on a 12–16 GB card. Both mitigations are cheap and temporary: keep the world stylised,
+or use the two-model roster in [`MODELS.md`](MODELS.md) while the client is open. Neither should
+shape the design, since the deployment target is different hardware.
 
-**The model lease is now a prerequisite, not a nicety.** `ReflectionWorker`'s idle check is a check
-at tick time, not a hold: if it passes and the user speaks a second later, a reflection pass and a
-live turn issue model calls concurrently against the same server. Today that is occasional. With a
-renderer on the same GPU and a companion that is *always connected to somewhere*, it stops being
-occasional. Build the lease — a gate background work acquires and a user turn preempts — before any
-of this.
+**The model lease is still worth building, for latency rather than memory.** `ReflectionWorker`'s
+idle check is a check at tick time, not a hold: if it passes and the user speaks a second later, a
+reflection pass and a live turn issue model calls concurrently against the same server. More VRAM
+keeps models resident and removes the swap, but two inferences still split throughput, so the user
+waits on thinking they didn't ask for. A gate that background work acquires and a live turn preempts
+fixes that on any hardware — it just stops being urgent enough to block the world on.
 
 ## Godot specifics
 
@@ -129,26 +166,38 @@ of this.
 
 Each step is worth having alone, and the first three don't touch this repo at all.
 
-1. **The world, empty.** Godot scene, a few connected places, your own controller. Walk around it.
-2. **A body for her.** NPC with navmesh pathfinding, driven by a hardcoded script. No brain yet.
-3. **The wire.** WebSocket server in Godot plus a throwaway console client that sends `goto`. This
-   proves the protocol without touching the companion, which is the point.
-4. **The companion connects.** Outbound client and roaming policy. She now moves for reasons, and
+1. **A headless server that survives being ignored.** Before any geometry: a Godot project running
+   under `--headless` with a world clock, saving and restoring state, logging that time passed. Run
+   it overnight and confirm the morning looks like eight hours later. Doing this first is what makes
+   "always running" true rather than aspirational — retrofitting it once logic lives in the scene
+   tree is the expensive version.
+2. **The world, empty.** Places, collision, navmesh. A Godot client that connects over ENet and lets
+   you walk around a world the server already owns.
+3. **A body for her.** NPC with navmesh pathfinding, driven by a hardcoded script. No brain yet.
+4. **The wire.** WebSocket endpoint on the server plus a throwaway console client that sends `goto`.
+   This proves the protocol without touching the companion, which is the point.
+5. **The companion connects.** Outbound client and roaming policy. She now moves for reasons, and
    you can ask her why.
-5. **Perception reaches her thoughts.** World events enter through the non-user input path and
+6. **Perception reaches her thoughts.** World events enter through the non-user input path and
    become material for reflection — the first point at which the world improves continuity rather
    than just existing.
-6. **Voice and co-presence.** She speaks in-world with lip-sync; being in the same room colours how
+7. **Voice and co-presence.** She speaks in-world with lip-sync; being in the same room colours how
    she talks.
 
 ## Open questions
 
-- **Does the world exist when Godot is closed?** Local-only and Godot-hosted means no — and then
-  "what were you doing this afternoon?" has no answer while the app was shut. If it should, the
-  world needs either a headless mode or a deterministic clock it can replay forward on launch. That
-  replay trick is cheap and worth building in from the start, but it belongs to the world app now.
-- **Does the world persist across restarts?** Saved state, or a fresh morning each launch.
+- **What happens over a server restart?** Always-running removes the need to simulate gaps while
+  nobody is home, but not the need to survive a reboot or a redeploy. Simplest honest answer: save
+  periodically, resume from the save, and let her treat the gap as unremembered rather than
+  inventing it. Fabricating a plausible eight hours is exactly the confabulation this whole design
+  exists to prevent.
+- **How fast does world time run?** Leaning 1:1, because every other temporal claim she makes is
+  literal. A faster clock makes returning more eventful at the cost of her being able to say "this
+  morning" and mean it.
 - **Does she know it's a world?** She must never assert it as fact about the user's real life. But
   whether she treats it as lived experience or acknowledged imagination is a persona decision with
   direct consequences for the roleplay guard.
+- **What does she do about you being away?** She can see you leave and return, which is presence
+  information she has never had before. It could feed anticipation and greeting naturally — or
+  become clingy. Worth deciding deliberately rather than discovering.
 - **Where does this document live** once `AvaWorld` exists? Probably there, with a pointer here.
