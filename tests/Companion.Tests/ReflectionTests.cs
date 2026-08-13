@@ -79,7 +79,7 @@ public class ReflectionTests
         var sp = scope.ServiceProvider;
         await SeedConversationAsync(sp, userMessages: 2); // below the default minimum of 3
 
-        var result = await BuildReflector(sp, MusingJson).ReflectAsync(User);
+        var result = await BuildReflector(sp, MusingJson).ReflectResultAsync(User);
 
         Assert.Null(result);
         Assert.Null(await sp.GetRequiredService<IReflectionStore>().GetLatestAsync(User));
@@ -93,7 +93,7 @@ public class ReflectionTests
         var sp = scope.ServiceProvider;
         await SeedConversationAsync(sp, userMessages: 4);
 
-        var result = await BuildReflector(sp, MusingJson).ReflectAsync(User);
+        var result = await BuildReflector(sp, MusingJson).ReflectResultAsync(User);
 
         Assert.NotNull(result);
         Assert.True(result!.Reflection.HasMusing);
@@ -116,7 +116,7 @@ public class ReflectionTests
         var sp = scope.ServiceProvider;
         await SeedConversationAsync(sp, userMessages: 6, doNotRemember: true);
 
-        var result = await BuildReflector(sp, MusingJson).ReflectAsync(User);
+        var result = await BuildReflector(sp, MusingJson).ReflectResultAsync(User);
 
         // Plenty of messages exist — but none are rememberable, so the companion never thinks
         // about them: no musing, no watermark, nothing.
@@ -133,10 +133,10 @@ public class ReflectionTests
         await SeedConversationAsync(sp, userMessages: 4);
         var reflector = BuildReflector(sp, MusingJson);
 
-        Assert.NotNull(await reflector.ReflectAsync(User));
+        Assert.NotNull(await reflector.ReflectResultAsync(User));
 
         // Nothing new since the pass — the same material must not produce a second thought.
-        Assert.Null(await reflector.ReflectAsync(User));
+        Assert.Null(await reflector.ReflectResultAsync(User));
     }
 
     [Fact]
@@ -148,14 +148,14 @@ public class ReflectionTests
         await SeedConversationAsync(sp, userMessages: 4);
         var reflector = BuildReflector(sp, QuietJson);
 
-        var result = await reflector.ReflectAsync(User);
+        var result = await reflector.ReflectResultAsync(User);
 
         Assert.NotNull(result);
         Assert.False(result!.Reflection.HasMusing);
         Assert.Empty(result.Curiosities);
 
         // The quiet pass still advanced the watermark: the material is not re-read.
-        Assert.Null(await reflector.ReflectAsync(User));
+        Assert.Null(await reflector.ReflectResultAsync(User));
     }
 
     [Fact]
@@ -166,12 +166,34 @@ public class ReflectionTests
         var sp = scope.ServiceProvider;
         await SeedConversationAsync(sp, userMessages: 4);
 
-        Assert.Null(await BuildReflector(sp, "I had a lovely think about her project partner.").ReflectAsync(User));
+        Assert.Null(await BuildReflector(sp, "I had a lovely think about her project partner.").ReflectResultAsync(User));
         Assert.Null(await sp.GetRequiredService<IReflectionStore>().GetLatestAsync(User));
 
         // A model failure is not a quiet day: the watermark did not move, so a later pass with a
         // working model still sees the material and the thought is not lost.
-        Assert.NotNull(await BuildReflector(sp, MusingJson).ReflectAsync(User));
+        Assert.NotNull(await BuildReflector(sp, MusingJson).ReflectResultAsync(User));
+    }
+
+    [Fact]
+    public async Task ASkippedPass_SaysWhichKindOfNothingHappened()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+
+        // Too little to think about — the system working as designed.
+        await SeedConversationAsync(sp, userMessages: 1);
+        Assert.Equal(
+            ReflectionSkipReason.NotEnoughMaterial,
+            (await BuildReflector(sp, MusingJson).ReflectAsync(User)).SkipReason);
+
+        // A model that answers with prose instead of JSON is a broken model or prompt, and it
+        // will keep failing. Reporting both as "nothing new to think about" hid that entirely.
+        await SeedConversationAsync(sp, userMessages: 4);
+        var broken = await BuildReflector(sp, "I had a lovely think about her project partner.").ReflectAsync(User);
+
+        Assert.Equal(ReflectionSkipReason.ModelOutputUnusable, broken.SkipReason);
+        Assert.False(broken.Reflected);
     }
 
     [Fact]
@@ -183,11 +205,11 @@ public class ReflectionTests
         await SeedConversationAsync(sp, userMessages: 4);
         var reflector = BuildReflector(sp, MusingJson);
 
-        Assert.NotNull(await reflector.ReflectAsync(User));
+        Assert.NotNull(await reflector.ReflectResultAsync(User));
 
         // More conversation (after the watermark), and the model proposes the SAME wondering again.
         await SeedConversationAsync(sp, userMessages: 4, startAt: Now.AddMinutes(10));
-        var second = await reflector.ReflectAsync(User);
+        var second = await reflector.ReflectResultAsync(User);
 
         Assert.NotNull(second);
         Assert.Empty(second!.Curiosities); // deduped against what's already held
@@ -206,7 +228,7 @@ public class ReflectionTests
 
         const string threeCuriosities =
             """{"musing":"So much I wonder about.","curiosities":[{"question":"A?","about":"a"},{"question":"B?","about":"b"},{"question":"C?","about":"c"}]}""";
-        var result = await BuildReflector(sp, threeCuriosities).ReflectAsync(User);
+        var result = await BuildReflector(sp, threeCuriosities).ReflectResultAsync(User);
 
         // Wonder about a couple of things, not everything (default cap is 2).
         Assert.Equal(2, result!.Curiosities.Count);

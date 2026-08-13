@@ -89,6 +89,15 @@ public static class DependencyInjection
         // per-role timeout/base-url, managed handler lifetime, and a Polly transient-retry policy.
         services.AddModelHttpClients(modelOptions);
 
+        // A model name is the one setting nothing else validates — a typo or an un-pulled tag
+        // builds, starts, and tests clean, then 503s on the first real sentence. The preflight
+        // checks the provider's catalog once at startup and reports what's actually missing.
+        // Registered even offline (where it no-ops) so the host doesn't need to branch; the bare
+        // AddHttpClient keeps IHttpClientFactory resolvable when no named clients were registered.
+        services.AddHttpClient();
+        services.AddSingleton<ModelPreflight>();
+        services.AddSingleton<ModelPreflightState>();
+
         // Optional multimodal models — registered only when configured.
         if (modelOptions.UsesRealModel && modelOptions.Vision is { } visionEndpoint)
         {

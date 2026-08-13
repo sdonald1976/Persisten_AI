@@ -300,6 +300,48 @@ public class ToolLayerTests
         => Assert.Null(ToolNudge.Detect(message));
 
     [Fact]
+    public void Nudge_WhenTheTopicIsAPronoun_SearchesTheWholeMessage()
+    {
+        // The captured topic is only what follows the trigger, so this yields "about it" — all
+        // stopwords, which scores zero against every memory and retrieves noise. The referent
+        // ("the Persisten_AI companion") is in the same message, just earlier in it.
+        var match = ToolNudge.Detect(
+            "Hi Ava - I'm back working on the Persisten_AI companion tonight. What do you remember about it?");
+
+        Assert.NotNull(match);
+        Assert.Equal("memory.search", match!.Tool);
+        Assert.Contains("Persisten_AI", match.ArgumentsJson);
+    }
+
+    [Theory]
+    [InlineData("So, do you remember that?")]
+    [InlineData("Anyway — do you remember it?")]        // too short to even match; no nudge is fine
+    [InlineData("Right, do you remember any of that?")]
+    public void Nudge_ContentlessTopic_NeverBecomesTheQuery(string message)
+    {
+        // Not firing is an acceptable outcome — a missed nudge costs nothing, since the model loop
+        // still runs. What is never acceptable is searching for the bare anaphor: those tokens are
+        // all stopwords, so they match nothing and the retriever returns noise ranked as relevant.
+        var match = ToolNudge.Detect(message);
+        if (match is null)
+            return;
+
+        Assert.DoesNotContain("\"query\":\"that\"", match.ArgumentsJson);
+        Assert.DoesNotContain("\"query\":\"it\"", match.ArgumentsJson);
+        Assert.DoesNotContain("\"query\":\"any of that\"", match.ArgumentsJson);
+    }
+
+    [Fact]
+    public void Nudge_WellFormedTopic_IsStillUsedVerbatim()
+    {
+        // The fallback must not swallow the narrow, correct case: a real topic stays the query.
+        var match = ToolNudge.Detect("Quick one — do you remember the greenhouse sensor debacle?");
+
+        Assert.NotNull(match);
+        Assert.Contains("\"query\":\"the greenhouse sensor debacle\"", match!.ArgumentsJson);
+    }
+
+    [Fact]
     public async Task Nudge_RunsTheTool_EvenWhenTheModelDeclines()
     {
         // The model always says no — the deterministic nudge must carry the obvious case anyway.

@@ -144,9 +144,26 @@ internal static class CompanionStateEndpoints
         // Run a reflection pass right now (demo/debug; the worker normally does this while you're away).
         app.MapPost("/reflect", async (IUserContext user, IReflector reflector, CancellationToken ct) =>
         {
-            var result = await reflector.ReflectAsync(user.UserId, ct);
-            if (result is null)
-                return Results.Ok(new { reflected = false, reason = "Nothing new enough to think about (or the model's output was unusable — see logs)." });
+            var outcome = await reflector.ReflectAsync(user.UserId, ct);
+            if (outcome.Result is not { } result)
+            {
+                return Results.Ok(new
+                {
+                    reflected = false,
+                    skipReason = outcome.SkipReason,
+                    reason = outcome.SkipReason switch
+                    {
+                        ReflectionSkipReason.Disabled =>
+                            "Reflection is turned off in configuration (Companion:EnableReflection).",
+                        ReflectionSkipReason.NotEnoughMaterial =>
+                            "Nothing new enough to think about since the last pass.",
+                        ReflectionSkipReason.ModelOutputUnusable =>
+                            "The model replied, but not with anything usable — nothing was stored, so the same "
+                            + "material will be retried. Check the summarizer model and see the logs.",
+                        _ => "No reflection was produced.",
+                    },
+                });
+            }
 
             return Results.Ok(new
             {

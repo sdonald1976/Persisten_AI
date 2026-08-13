@@ -52,7 +52,7 @@ public class ReflectionThreadTests
                 });
             }
             host.Clock.Advance(TimeSpan.FromHours(1));
-            await reflector.ReflectAsync(User);
+            await reflector.ReflectResultAsync(User);
         }
 
         return (await sp.GetRequiredService<IReflectionStore>().GetRecentAsync(User, 20))

@@ -20,11 +20,17 @@ public sealed partial class RuleBasedMemoryExtractor : IMemoryExtractor
         // Only the user's own statements produce memories, never the assistant's text.
         foreach (var message in exchange.Where(m => m.Role == MessageRole.User))
         {
+            // A project named anywhere in the message tags every candidate the message produces:
+            // "I'm working on Halyard. I need to finish the export job." is two sentences about
+            // one project, and only the first one says so.
+            var project = DetectProject(message.Content);
+
             foreach (var sentence in SplitSentences(message.Content))
             {
                 var candidate = MatchSentence(sentence, message.Id);
-                if (candidate is not null)
-                    candidates.Add(candidate);
+                if (candidate is null)
+                    continue;
+                candidates.Add(project is null ? candidate : candidate with { RelatedProject = project });
             }
         }
 
@@ -92,6 +98,24 @@ public sealed partial class RuleBasedMemoryExtractor : IMemoryExtractor
             }
         }
 
+        // Ongoing work. This is the phrasing that names a project, so without it the project-birth
+        // path has nothing to attach a name to — the sentence that says what the user is working
+        // on produced no candidate at all, and the project stayed invisible.
+        var working = WorkingOn().Match(sentence);
+        if (working.Success)
+        {
+            var what = Clean(working.Groups[1].Value);
+            return new MemoryCandidate
+            {
+                Kind = MemoryKind.Episodic,
+                Content = $"The user is working on {what}.",
+                EpisodeStatus = EpisodeStatus.InProgress,
+                ProposedConfidence = 0.7,
+                Importance = 0.6,
+                Evidence = evidence,
+            };
+        }
+
         // Preference / durable fact.
         var pref = Preference().Match(sentence);
         if (pref.Success)
@@ -131,6 +155,33 @@ public sealed partial class RuleBasedMemoryExtractor : IMemoryExtractor
         return null;
     }
 
+    /// <summary>
+    /// Pulls a project name out of an explicit naming phrase ("a project called X", "working on X").
+    /// Deliberately narrow: this feeds the project-birth path, and inventing a project from a vague
+    /// mention is far worse than missing one — the LLM extractor is the path that generalizes.
+    /// </summary>
+    private static string? DetectProject(string text)
+    {
+        var match = ProjectCalled().Match(text);
+        if (!match.Success)
+            match = ProjectWorkingOn().Match(text);
+        if (!match.Success)
+            return null;
+
+        // "Halyard — it's a C# service" names the project and then describes it. A spaced dash
+        // separates the two; an unspaced one can be part of the name ("claude-code").
+        var name = DashSeparator().Split(match.Groups["name"].Value, 2)[0];
+        name = Clean(name).TrimEnd('-', ':', ';').Trim();
+
+        // "working on it" / "working on the thing" is a reference, not a name.
+        if (name.Length < MinProjectName || name.Length > MaxProjectName)
+            return null;
+        return NonName().IsMatch(name) ? null : name;
+    }
+
+    private const int MinProjectName = 3;
+    private const int MaxProjectName = 60;
+
     private static IEnumerable<string> SplitSentences(string text)
         => SentenceSplit().Split(text)
             .Select(s => s.Trim())
@@ -162,4 +213,29 @@ public sealed partial class RuleBasedMemoryExtractor : IMemoryExtractor
 
     [GeneratedRegex(@"\bI (?:plan to|planned to|am going to|will|need to|want to)\s+(.+)", RegexOptions.IgnoreCase)]
     private static partial Regex Planned();
+
+    [GeneratedRegex(@"\b(?:I(?:'m| am)|we(?:'re| are)) working on\s+(.+)", RegexOptions.IgnoreCase)]
+    private static partial Regex WorkingOn();
+
+    // Tried in this order, not as one alternation: "I'm working on a project called X" contains
+    // both triggers, and the leftmost match would otherwise win and capture "a project called X".
+    [GeneratedRegex(
+        @"\bprojects? (?:called|named)\s+(?<name>[^.,;!?\n]{3,60})",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ProjectCalled();
+
+    // "the" is excluded so "working on the export job" doesn't become a project of its own.
+    [GeneratedRegex(
+        @"\b(?:I(?:'m| am)|we(?:'re| are)) working on\s+(?!the\b)(?<name>[^.,;!?\n]{3,60})",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ProjectWorkingOn();
+
+    [GeneratedRegex(@"\s+[-–—]\s+")]
+    private static partial Regex DashSeparator();
+
+    // Pronouns and generic nouns that follow the trigger without naming anything.
+    [GeneratedRegex(
+        @"^(?:it|that|this|them|those|stuff|things?|something|anything|work|a lot|my project|the project)$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NonName();
 }

@@ -313,7 +313,7 @@ public class BehaviorExpansionTests
              "settled":[]}
             """;
 
-        var result = await BuildReflector(sp, reflection).ReflectAsync(User);
+        var result = await BuildReflector(sp, reflection).ReflectResultAsync(User);
 
         Assert.Single(result!.AttentionItems);
         Assert.Single(result.Associations);

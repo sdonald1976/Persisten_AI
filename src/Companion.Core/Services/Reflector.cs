@@ -93,10 +93,10 @@ public sealed class Reflector : IReflector
         _logger = logger;
     }
 
-    public async Task<ReflectionResult?> ReflectAsync(string userId, CancellationToken ct = default)
+    public async Task<ReflectionOutcome> ReflectAsync(string userId, CancellationToken ct = default)
     {
         if (!_options.EnableReflection)
-            return null;
+            return ReflectionOutcome.Skipped(ReflectionSkipReason.Disabled);
 
         // Everything new since the last pass. The store already excludes private conversations.
         var latest = await _reflections.GetLatestAsync(userId, ct);
@@ -109,7 +109,7 @@ public sealed class Reflector : IReflector
             _logger.LogDebug(
                 "No reflection for {UserId}: only {Count} new user messages (need {Min}).",
                 userId, newUserMessages, _options.ReflectionMinNewMessages);
-            return null;
+            return ReflectionOutcome.Skipped(ReflectionSkipReason.NotEnoughMaterial);
         }
 
         var held = await _reflections.GetOpenCuriositiesAsync(userId, ct);
@@ -129,7 +129,7 @@ public sealed class Reflector : IReflector
         {
             // A model failure is not a quiet day: store nothing so this material is retried.
             _logger.LogWarning("Reflection for {UserId} produced unparseable output; nothing stored.", userId);
-            return null;
+            return ReflectionOutcome.Skipped(ReflectionSkipReason.ModelOutputUnusable);
         }
 
         var reflection = new Reflection
@@ -175,7 +175,7 @@ public sealed class Reflector : IReflector
             userId, messages.Count, musing is null ? "quiet day" : "musing written",
             curiosities.Count, sharedMoments.Count, preferences.Count, satisfied);
 
-        return new ReflectionResult
+        return ReflectionOutcome.From(new ReflectionResult
         {
             Reflection = reflection,
             Curiosities = curiosities,
@@ -186,7 +186,7 @@ public sealed class Reflector : IReflector
             Procedures = procedures,
             SharedPerspectives = sharedPerspectives,
             SatisfiedCuriosities = satisfied,
-        };
+        });
     }
 
     /// <summary>

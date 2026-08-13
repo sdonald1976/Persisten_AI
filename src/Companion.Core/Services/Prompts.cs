@@ -342,6 +342,11 @@ public static class Prompts
             "happened).\n\n" +
             "Rule of thumb: if it will still be true next week, it is SEMANTIC. A stated fact or preference is " +
             "semantic, NOT episodic — do not log lasting facts as events.\n\n" +
+            "IMPORTANT — \"relatedProject\": whenever a memory concerns a named piece of ongoing work (a codebase, " +
+            "a build, a renovation, a paper, a trip they are planning), put that work's name in \"relatedProject\", " +
+            "exactly as the user writes it. Use it for every memory that belongs to the same work, not just the " +
+            "first one. This is how the companion learns what the user is working on — leave it out and the project " +
+            "is invisible to it. If the memory has nothing to do with a named project, omit the field.\n\n" +
             "Return ONLY a JSON array. Each item: {\"kind\":\"semantic\"|\"episodic\", \"subject\":string?, " +
             "\"predicate\":string?, \"value\":string?, \"content\":string, " +
             "\"validity\":\"Current\"|\"Temporary\"|\"Historical\"?, " +
@@ -361,11 +366,24 @@ public static class Prompts
             "User: \"I finally deployed the service to the Jetson yesterday.\"\n" +
             "[{\"kind\":\"episodic\",\"content\":\"The user deployed the service to the Jetson.\"," +
             "\"episodeStatus\":\"Occurred\",\"importance\":0.5,\"confidence\":0.8," +
-            "\"excerpt\":\"I finally deployed the service to the Jetson yesterday\"}]\n\n" +
+            "\"excerpt\":\"I finally deployed the service to the Jetson yesterday\"}]\n" +
+            "User: \"I'm working on a project called Halyard — it's a C# service with a SQLite store. " +
+            "Tonight I need to finish the export job.\"\n" +
+            "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"works_on\",\"value\":\"Halyard\"," +
+            "\"content\":\"The user is working on Halyard, a C# service with a SQLite store.\"," +
+            "\"relatedProject\":\"Halyard\",\"importance\":0.7,\"confidence\":0.9," +
+            "\"excerpt\":\"I'm working on a project called Halyard\"}," +
+            "{\"kind\":\"episodic\",\"content\":\"The user intends to finish the export job tonight.\"," +
+            "\"episodeStatus\":\"InProgress\",\"relatedProject\":\"Halyard\",\"importance\":0.6,\"confidence\":0.85," +
+            "\"excerpt\":\"Tonight I need to finish the export job\"}]\n\n" +
             "Only include things the user actually stated. Do not invent. If nothing is worth remembering, return [].\n\n" +
             "The user is talking WITH an AI companion and may speak in-character or playfully roleplay with it. " +
             "Statements addressed to the companion, about the companion, or about the user's relationship with the " +
             "companion are NOT durable facts about the user's real life — skip them entirely. Extract only facts " +
-            "about the user's own life outside this conversation.");
+            "about the user's own life outside this conversation.\n\n" +
+            "That exclusion is about YOU, the companion they are speaking to — not about the subject matter. " +
+            "Software the user is building is their work even when the software happens to be an AI, a chatbot, or " +
+            "a companion of its own. \"I'm building a companion app with durable memory\" is a fact about the user's " +
+            "project and MUST be extracted, with the project named in \"relatedProject\".");
     }
 }

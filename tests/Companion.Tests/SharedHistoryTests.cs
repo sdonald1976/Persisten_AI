@@ -95,7 +95,7 @@ public class SharedHistoryTests
         var sp = scope.ServiceProvider;
         await SeedPokerEveningAsync(sp);
 
-        var result = await BuildReflector(sp, PokerReflection).ReflectAsync(User);
+        var result = await BuildReflector(sp, PokerReflection).ReflectResultAsync(User);
 
         var episode = Assert.Single(result!.SharedMoments);
         Assert.Equal(MemoryOwner.Shared, episode.Owner);
@@ -122,7 +122,7 @@ public class SharedHistoryTests
                                "significance":0.9}],
              "preferences":[],"settled":[]}
             """;
-        var result = await BuildReflector(sp, fabricated).ReflectAsync(User);
+        var result = await BuildReflector(sp, fabricated).ReflectResultAsync(User);
 
         // Reflection cannot invent history: unverifiable evidence = no episode.
         Assert.Empty(result!.SharedMoments);
@@ -137,7 +137,7 @@ public class SharedHistoryTests
         using var scope = host.CreateScope();
         var sp = scope.ServiceProvider;
         await SeedPokerEveningAsync(sp);
-        await BuildReflector(sp, PokerReflection).ReflectAsync(User);
+        await BuildReflector(sp, PokerReflection).ReflectResultAsync(User);
         var conv = (await sp.GetRequiredService<IConversationStore>()
             .StartConversationAsync(User, "t2", "mock", "test")).Id;
 
@@ -156,7 +156,7 @@ public class SharedHistoryTests
         using var scope = host.CreateScope();
         var sp = scope.ServiceProvider;
         await SeedPokerEveningAsync(sp);
-        await BuildReflector(sp, PokerReflection).ReflectAsync(User);
+        await BuildReflector(sp, PokerReflection).ReflectResultAsync(User);
         var conv = (await sp.GetRequiredService<IConversationStore>()
             .StartConversationAsync(User, "t2", "mock", "test")).Id;
 
@@ -254,7 +254,7 @@ public class SharedHistoryTests
 
         const string settles =
             """{"musing":"He finally told me about the buoy.","curiosities":[],"sharedMoments":[],"preferences":[],"settled":["the buoy deployment"]}""";
-        var result = await BuildReflector(sp, settles).ReflectAsync(User);
+        var result = await BuildReflector(sp, settles).ReflectResultAsync(User);
 
         Assert.Equal(1, result!.SatisfiedCuriosities);
         Assert.Empty(await reflections.GetOpenCuriositiesAsync(User)); // closed with satisfaction, not silence
@@ -303,7 +303,7 @@ public class SharedHistoryTests
         await SeedPokerEveningAsync(sp, doNotRemember: true);
 
         // The reflector never even sees the private messages, so nothing it could persist exists.
-        var result = await BuildReflector(sp, PokerReflection).ReflectAsync(User);
+        var result = await BuildReflector(sp, PokerReflection).ReflectResultAsync(User);
 
         Assert.Null(result);
         Assert.Empty((await sp.GetRequiredService<IMemoryStore>().GetRetrievableMemoriesAsync(User))

@@ -224,7 +224,7 @@ public class IdentityHardeningTests
              "settled":[]}
             """;
 
-        var result = await BuildReflector(sp, reflection).ReflectAsync(User);
+        var result = await BuildReflector(sp, reflection).ReflectResultAsync(User);
 
         var pref = Assert.Single(result!.Preferences);
         Assert.Equal("Alien", pref.Subject);
