@@ -121,6 +121,21 @@ public sealed class EndpointOptions
     public int? MaxTokens { get; set; }
 
     /// <summary>
+    /// Sequences that end generation (OpenAI-compatible <c>stop</c>; honored by Ollama and LM Studio).
+    ///
+    /// The conversational endpoint gets defaults it would not otherwise need. Her context arrives as
+    /// a structured document — headings, rules, labelled sections — and a roleplay fine-tune shown a
+    /// document will sometimes *continue* it instead of answering, appending a plausible-looking
+    /// section of its own. One real reply ended with a horizontal rule followed by "Remembered items
+    /// about the user so far: - None (first conversation)", which appears nowhere in any prompt: she
+    /// invented a packet-shaped section because the packet taught her the shape.
+    ///
+    /// Stopping on the shape is the only fix that acts before the text exists. Applied to
+    /// conversation only — the structured roles return JSON and must never be cut short.
+    /// </summary>
+    public string[]? Stop { get; set; }
+
+    /// <summary>
     /// Penalizes tokens by how often they've already appeared (OpenAI-compatible; honored by Ollama
     /// and LM Studio). The main lever against a model repeating itself — small local/abliterated
     /// models loop without it. Try ~0.3–0.8. Null = use the server's default.

@@ -91,7 +91,11 @@ public sealed class ReplyGenerator : IReplyGenerator
                 break;
         }
 
-        var text = full.ToString();
+        // Conversation only, and only at the very end: strip a trailing section she copied from the
+        // shape of her own context packet. Stop sequences normally prevent this being generated at
+        // all; this is the net for a provider that ignores them. It runs here rather than in the
+        // chat model because the structured roles return JSON, which must never be trimmed.
+        var text = PromptEchoFilter.Trim(full.ToString());
         var truncated = string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase);
         return new ChatCompletion
         {

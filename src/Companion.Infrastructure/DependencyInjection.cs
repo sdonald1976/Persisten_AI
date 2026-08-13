@@ -85,6 +85,13 @@ public static class DependencyInjection
         // local server. When a real model is configured, extraction and summarization use it too.
         var modelOptions = configuration.GetSection(ModelOptions.SectionName).Get<ModelOptions>() ?? new ModelOptions();
         ValidateModelOptions(modelOptions);
+
+        // Stop sequences for conversation, unless the config sets its own. A default rather than a
+        // documented setting on purpose: an existing installation should get this without editing
+        // anything, because the failure it prevents — her continuing the context packet's structure
+        // into the reply — looks like the model being broken rather than a missing option.
+        modelOptions.Chat.Stop ??= ConversationStopSequences;
+
         services.AddSingleton(modelOptions); // so the CLI can see which optional models are configured
 
         // Model HTTP access goes through Microsoft's IHttpClientFactory: one named client per role,
@@ -350,6 +357,14 @@ public static class DependencyInjection
     /// <summary>The provider values the app understands. Anything else is a configuration error.</summary>
     private static readonly HashSet<string> SupportedProviders =
         new(StringComparer.OrdinalIgnoreCase) { "Mock", "OpenAiCompatible", "Ollama", "LMStudio" };
+
+    /// <summary>
+    /// Shapes that only ever appear in her context packet, never in speech: a horizontal rule and a
+    /// markdown heading, each at the start of a line. Deliberately not bullets — she writes lists
+    /// legitimately — and deliberately not the section labels themselves, because the observed leak
+    /// invented a heading no prompt contains. It is the *form* she copies, not the words.
+    /// </summary>
+    private static readonly string[] ConversationStopSequences = { "\n---", "\n## " };
 
     private static void ValidateModelOptions(ModelOptions options)
     {

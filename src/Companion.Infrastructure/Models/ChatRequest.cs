@@ -16,6 +16,10 @@ internal static class ChatRequest
             body["temperature"] = temperature;
         if (options.MaxTokens is { } maxTokens)
             body["max_tokens"] = maxTokens;
+        // Stops her continuing the context packet's structure instead of answering. Never sent for
+        // JSON roles, whose configuration leaves this empty.
+        if (options.Stop is { Length: > 0 } stop)
+            body["stop"] = stop;
         // Anti-repetition levers — the fix for small local models that loop / repeat themselves.
         if (options.FrequencyPenalty is { } frequencyPenalty)
             body["frequency_penalty"] = frequencyPenalty;
