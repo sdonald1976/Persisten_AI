@@ -104,7 +104,7 @@ public sealed class ReplyGenerator : IReplyGenerator
 
             full.Append(roundText);
 
-            if (!await ShouldContinueAsync(finishReason, full.ToString(), userMessage, round, ct))
+            if (!await ShouldContinueAsync(finishReason, full.ToString(), userMessage, round, systemPrompt, ct))
                 break;
         }
 
@@ -133,8 +133,24 @@ public sealed class ReplyGenerator : IReplyGenerator
         };
     }
 
+    /// <summary>
+    /// Whether another round could be asked for without the request outgrowing the model's context
+    /// window. Estimated the same crude way as every other budget here (~4 chars/token) — the point
+    /// is to stop well before the cliff, not to measure it precisely.
+    /// </summary>
+    private bool FitsInWindow(string systemPrompt, string replySoFar)
+    {
+        if (_options.ContextTokens <= 0)
+            return true; // no window declared — nothing to check against
+
+        var used = (systemPrompt.Length + replySoFar.Length) / 4;
+        var room = Math.Max(0, _options.ReplyReserveTokens);
+        return used + room <= _options.ContextTokens;
+    }
+
     private async Task<bool> ShouldContinueAsync(
-        string? finishReason, string replySoFar, string userMessage, int round, CancellationToken ct)
+        string? finishReason, string replySoFar, string userMessage, int round, string systemPrompt,
+        CancellationToken ct)
     {
         if (!_options.AutoContinue)
             return false;
@@ -144,6 +160,24 @@ public sealed class ReplyGenerator : IReplyGenerator
             _logger.LogWarning(
                 "Reply from {Model} still not finished after {Rounds} continuation(s); stopping (raise MaxTokens or MaxContinuations).",
                 _options.Model, round + 1);
+            return false;
+        }
+
+        // A continuation re-sends the prompt AND everything written so far, so each round costs
+        // more window than the last. Left unchecked the request eventually exceeds the model's
+        // context, and the server does not refuse it — it discards from the top of the prompt and
+        // keeps generating, so the identity and standing rules vanish partway through a reply that
+        // is still being written. That is the same silent truncation the prompt budget exists to
+        // prevent, arriving from the other end.
+        //
+        // Stopping with a slightly short answer is a far better failure than continuing into one
+        // that quietly stops being hers.
+        if (!FitsInWindow(systemPrompt, replySoFar))
+        {
+            _logger.LogWarning(
+                "Reply from {Model} cannot be continued without exceeding the {Context}-token context " +
+                "window; stopping at round {Round}. A larger window is the fix if this is common.",
+                _options.Model, _options.ContextTokens, round + 1);
             return false;
         }
 

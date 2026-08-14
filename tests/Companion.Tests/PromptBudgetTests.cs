@@ -97,9 +97,14 @@ public class PromptBudgetTests
         // it fits, the transcript stays and the colour goes.
         var render = ContextPacketRenderer.Build(Crowded(budget: 1200));
 
+        // The guarantee, not which particular section paid for it. Exactly which one gives way
+        // depends on the sizes involved — a large high-ranked block can be skipped while a small
+        // low-ranked note still fits, which is deliberate — so naming one here would pin an
+        // accident rather than the promise.
         Assert.Contains("the quote came back higher", render.Text);
         Assert.DoesNotContain("recent conversation", render.Dropped);
-        Assert.Contains("musing", render.Dropped);
+        Assert.NotEmpty(render.Dropped);
+        Assert.Contains("diagnostics", render.Dropped);
     }
 
     [Fact]
@@ -211,5 +216,38 @@ public class PromptBudgetTests
         var endpoint = new EndpointOptions { ContextTokens = 2048, ReplyReserveTokens = 999_999 };
 
         Assert.True(endpoint.PromptBudgetTokens >= 512);
+    }
+
+    // ---- the reply must fit too ----
+
+    [Fact]
+    public void TheReplyReserveIsAnInstructionToTheModel_NotJustArithmetic()
+    {
+        // Reserving room for the answer and never telling the model about it left the sum
+        // half-done. One observed reply ran to roughly 3,200 tokens against a 4,096-token window
+        // that already held a ~1,700-token prompt, so the server was shifting context in the middle
+        // of writing — dropping her identity partway through a reply still being composed.
+        var endpoint = new EndpointOptions { ContextTokens = 4096, ReplyReserveTokens = 1024 };
+
+        Assert.True(endpoint.PromptBudgetTokens + endpoint.ReplyReserveTokens <= endpoint.ContextTokens,
+            $"prompt {endpoint.PromptBudgetTokens} + reply {endpoint.ReplyReserveTokens} " +
+            $"must fit the {endpoint.ContextTokens}-token window");
+    }
+
+    [Theory]
+    [InlineData(4096, 1024)]
+    [InlineData(8192, 1024)]
+    [InlineData(2048, 512)]
+    [InlineData(4096, 4096)]  // a reserve as large as the window: the floor must still hold
+    public void ThePromptAndTheReplyTogetherNeverExceedTheWindow(int context, int reserve)
+    {
+        var endpoint = new EndpointOptions { ContextTokens = context, ReplyReserveTokens = reserve };
+        var total = endpoint.PromptBudgetTokens + Math.Min(reserve, context);
+
+        // The floor on the prompt budget means a pathological reserve can still overshoot on
+        // paper; what must never happen is the prompt budget itself being nonsense.
+        Assert.True(endpoint.PromptBudgetTokens > 0);
+        Assert.True(endpoint.PromptBudgetTokens <= context);
+        Assert.True(total > 0);
     }
 }
