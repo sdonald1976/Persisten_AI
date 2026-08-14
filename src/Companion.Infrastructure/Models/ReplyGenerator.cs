@@ -37,7 +37,8 @@ public sealed class ReplyGenerator : IReplyGenerator
     }
 
     public async Task<ChatCompletion> GenerateAsync(
-        string systemPrompt, string userMessage, IProgress<string>? sink = null, CancellationToken ct = default)
+        string systemPrompt, string userMessage, IProgress<string>? sink = null, string? speaker = null,
+        CancellationToken ct = default)
     {
         var full = new StringBuilder();
         string? finishReason = null;
@@ -53,11 +54,27 @@ public sealed class ReplyGenerator : IReplyGenerator
             // Continuation rounds are never streamed live: a model that repeats instead of
             // continuing would put its duplicate on the user's screen before the guard below
             // could see it. The round is buffered, vetted, and only the new text is forwarded.
-            var liveSink = round == 0 ? sink : Discard;
+            //
+            // The first round is also where a "Ava:" prefix would appear, so that is the round
+            // that gets watched for one. It has to happen in the stream rather than afterwards:
+            // the client keeps the streamed tokens and discards the cleaned reply, and speech is
+            // synthesized from them as they arrive.
+            var labelSink = round == 0 && sink is not null ? new SelfLabelSink(sink, speaker) : null;
+            var liveSink = round == 0 ? labelSink ?? sink : Discard;
 
-            var result = sink is not null
-                ? await _chat.StreamAsync(systemPrompt, userMessage, liveSink!, prefix, ct)
-                : await _chat.CompleteAsync(systemPrompt, userMessage, jsonMode: false, prefix, ct);
+            ChatCompletion result;
+            try
+            {
+                result = sink is not null
+                    ? await _chat.StreamAsync(systemPrompt, userMessage, liveSink!, prefix, ct)
+                    : await _chat.CompleteAsync(systemPrompt, userMessage, jsonMode: false, prefix, ct);
+            }
+            finally
+            {
+                // Whatever is still held back must go out, including when the round threw: a reply
+                // shorter than the sink's window would otherwise never be delivered at all.
+                labelSink?.Flush();
+            }
 
             finishReason = result.FinishReason;
             model ??= result.Model;
@@ -97,7 +114,12 @@ public sealed class ReplyGenerator : IReplyGenerator
         // chat model because the structured roles return JSON, which must never be trimmed.
         // Fabricated turns first: everything after an invented "user:" line is not hers, so the
         // structural trim should only ever see her own words.
-        var text = PromptEchoFilter.Trim(PromptEchoFilter.TrimFabricatedTurns(full.ToString()));
+        // Her own name off the front first, so the trims below only ever see her actual words —
+        // and so the stored reply matches what was streamed, instead of teaching the next turn
+        // the very format this removes.
+        var text = PromptEchoFilter.Trim(
+            PromptEchoFilter.TrimFabricatedTurns(
+                PromptEchoFilter.TrimSelfLabel(full.ToString(), speaker)));
         var truncated = string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase);
         return new ChatCompletion
         {
