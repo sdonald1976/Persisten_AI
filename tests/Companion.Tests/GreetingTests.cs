@@ -352,6 +352,8 @@ public class GreetingTests
         public Task SetPersonaAsync(string userId, string? persona, CancellationToken ct = default) { _profile.Persona = persona; return Task.CompletedTask; }
         public Task SetPersonalityPresetAsync(string userId, string? presetName, CancellationToken ct = default) { _profile.PersonalityPreset = presetName; return Task.CompletedTask; }
         public Task SetIdentityAsync(string userId, string? name, string? gender, string? pronouns, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SetDisplayNameAsync(string userId, string? displayName, CancellationToken ct = default)
+        { _profile.DisplayName = displayName; return Task.CompletedTask; }
         public Task SetCompanionSpiritsAsync(string userId, double spirits, DateTimeOffset nudgedAt, CancellationToken ct = default)
         { _profile.CompanionSpirits = spirits; _profile.CompanionSpiritsNudgedAt = nudgedAt; return Task.CompletedTask; }
     }

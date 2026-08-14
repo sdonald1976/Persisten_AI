@@ -390,6 +390,22 @@ app.MapPut("/personality", async (PersonalityRequest req, IUserContext user, IPr
     return Results.Ok(new { active = new { preset.Name, preset.Label, preset.Description } });
 });
 
+// What the user is called. Separate from the companion's own identity below, and worth an endpoint
+// of its own: the field existed and was read when building every prompt, but nothing anywhere could
+// write it, so it stayed null and she addressed the person she has known longest as "the user".
+app.MapGet("/user", async (IUserContext user, IProfileStore store, CancellationToken ct) =>
+{
+    var profile = await store.GetOrCreateAsync(user.UserId, ct);
+    return Results.Ok(new { name = profile.DisplayName });
+});
+
+app.MapPut("/user", async (UserRequest req, IUserContext user, IProfileStore store, CancellationToken ct) =>
+{
+    await store.SetDisplayNameAsync(user.UserId, req.Name, ct);
+    var profile = await store.GetOrCreateAsync(user.UserId, ct);
+    return Results.Ok(new { name = profile.DisplayName });
+});
+
 // The companion's identity (name / gender / pronouns), separate from its personality.
 app.MapGet("/identity", async (IUserContext user, IProfileStore store, IPersonalityService personality, CancellationToken ct) =>
 {

@@ -20,6 +20,9 @@ public sealed record PersonalityRequest(string? Preset);
 
 public sealed record IdentityRequest(string? Name, string? Gender, string? Pronouns);
 
+/// <summary>What the user is called. Null or blank clears it.</summary>
+public sealed record UserRequest(string? Name);
+
 public sealed record FeedbackRequest(string ConversationId, string Rating, string? Note);
 
 /// <summary>Text-to-speech request: the text to speak and an optional voice override.</summary>
