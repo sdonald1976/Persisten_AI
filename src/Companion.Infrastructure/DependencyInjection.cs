@@ -92,6 +92,20 @@ public static class DependencyInjection
         // into the reply — looks like the model being broken rather than a missing option.
         modelOptions.Chat.Stop ??= ConversationStopSequences;
 
+        // Size the prompt to the window the chat model is actually served with, unless the config
+        // states a budget itself. Derived rather than configured by default because the two
+        // numbers must agree and only one of them is observable: an operator who changes the chat
+        // model, or restarts Ollama with a different OLLAMA_CONTEXT_LENGTH, would otherwise have
+        // to remember to change a second setting in a different section — and the symptom of
+        // forgetting is not an error but a companion who quietly stops remembering things.
+        var configuredBudget = configuration.GetSection(CompanionOptions.SectionName)
+            .GetValue<int?>("PromptTokenBudget");
+        services.PostConfigure<CompanionOptions>(options =>
+        {
+            if (configuredBudget is null)
+                options.PromptTokenBudget = modelOptions.Chat.PromptBudgetTokens;
+        });
+
         services.AddSingleton(modelOptions); // so the CLI can see which optional models are configured
 
         // Model HTTP access goes through Microsoft's IHttpClientFactory: one named client per role,

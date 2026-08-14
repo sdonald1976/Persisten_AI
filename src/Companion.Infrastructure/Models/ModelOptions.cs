@@ -121,6 +121,37 @@ public sealed class EndpointOptions
     public int? MaxTokens { get; set; }
 
     /// <summary>
+    /// The context window the server will actually give this model, in tokens. Used to size the
+    /// prompt so it cannot overflow.
+    ///
+    /// It has to be stated rather than discovered, because nothing in the OpenAI-compatible
+    /// protocol reports it and the obvious guesses are wrong. A model's advertised training
+    /// length is not what it is served with: Stheno is an 8192-token model, and Ollama loads it
+    /// at 4096 unless told otherwise. Nor can the client ask for more — <c>num_ctx</c> sent to
+    /// Ollama's OpenAI-compatible endpoint is accepted and ignored, both nested under
+    /// <c>options</c> and at the top level (verified against Ollama directly; the loaded context
+    /// stayed at 4096 either way). Raising it means restarting the server with
+    /// <c>OLLAMA_CONTEXT_LENGTH</c>, or a Modelfile.
+    ///
+    /// So the honest default is the small one. Overflow is not a soft failure: the server drops
+    /// the excess from the top of the prompt and answers from what remains, which is how a
+    /// companion comes to deny, fluently, that she was ever told anything.
+    /// </summary>
+    public int ContextTokens { get; set; } = 4096;
+
+    /// <summary>
+    /// Tokens held back from <see cref="ContextTokens"/> for the reply and for the gap between a
+    /// 4-chars-per-token estimate and the model's real tokenizer. The estimate is fine on prose
+    /// and optimistic on code, punctuation, and names, so the reserve absorbs being wrong in the
+    /// direction that matters — running out of window mid-prompt rather than mid-sentence.
+    /// </summary>
+    public int ReplyReserveTokens { get; set; } = 1024;
+
+    /// <summary>What is left for the prompt once the reply has its room. Never negative.</summary>
+    public int PromptBudgetTokens =>
+        ContextTokens <= 0 ? 0 : Math.Max(512, ContextTokens - Math.Max(0, ReplyReserveTokens));
+
+    /// <summary>
     /// Sequences that end generation (OpenAI-compatible <c>stop</c>; honored by Ollama and LM Studio).
     ///
     /// The conversational endpoint gets defaults it would not otherwise need. Her context arrives as

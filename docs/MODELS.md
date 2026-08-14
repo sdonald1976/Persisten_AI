@@ -4,6 +4,53 @@ Persistent_AI runs **eight** model roles. They have genuinely different jobs, an
 for "be Ava" is close to the worst model for "return strict JSON". This is the reasoning behind the
 recommended roster, plus what to change if your hardware is tighter or roomier.
 
+## Before any of that: the context window is not what you think it is
+
+The chat model's context window is the setting most likely to break her, and the only one whose
+failure is completely silent.
+
+**A model's advertised length is not what it is served with.** Stheno is an 8192-token model.
+Ollama loads it at **4096** unless told otherwise:
+
+```bash
+ollama ps
+```
+
+Read the `CONTEXT` column. That, not the model card, is the number that matters.
+
+**You cannot ask for more from the client.** `num_ctx` sent to Ollama's OpenAI-compatible
+`/v1/chat/completions` is accepted and ignored — verified both nested under `options` and at the top
+level; the loaded context stayed at 4096 either way. Raising it means restarting the server:
+
+```bash
+OLLAMA_CONTEXT_LENGTH=8192 ollama serve
+```
+
+**Overflow is not a soft failure.** A prompt larger than the window is not rejected and does not
+error. The server discards the excess *from the top* — where identity, the standing rules, and the
+oldest turns live — and answers from what is left. Measured against this project's own config: a
+~7,800-token prompt came back reporting `prompt_tokens: 2050`, with the entire system prompt gone,
+and the model then denied fluently that it had ever been told the thing that was cut.
+
+From the outside that is indistinguishable from the companion losing her memory and starting a new
+conversation, because functionally that is what happened.
+
+So tell the config the truth:
+
+```jsonc
+"Chat": {
+  "ContextTokens": 4096,      // what `ollama ps` actually reports
+  "ReplyReserveTokens": 1024  // room for her answer + tokenizer-estimate slack
+}
+```
+
+The prompt budget is derived from these (`ContextTokens - ReplyReserveTokens`), and
+`ContextPacketRenderer` drops sections lowest-value first to stay inside it — naming what it
+dropped in the log. Identity, the standing rules, and the newest exchange are never among them.
+Override the derived value with `Companion:PromptTokenBudget` only if you have a reason to.
+
+If those warnings are routine, the answer is a bigger window, not a smaller companion.
+
 ## The one constraint that beats all others: VRAM and swap cost
 
 On a single GPU, Ollama keeps recently-used models resident and evicts the rest. Every *distinct*

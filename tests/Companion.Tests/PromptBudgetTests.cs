@@ -1,174 +1,215 @@
 using Companion.Core.Domain;
 using Companion.Core.Services;
+using Companion.Infrastructure.Models;
 using Xunit;
 
 namespace Companion.Tests;
 
 /// <summary>
-/// Backlog #7: a regression guard on prompt size. A small local model degrades quietly as its
-/// context fills — replies get vaguer, instructions get ignored — long before anything errors.
-/// This builds a deliberately maximal packet (every section populated at realistic worst case)
-/// and asserts the rendered prompt stays inside a budget a 8B model can actually use well.
-/// If a new section or a fatter default pushes it over, this fails at the moment it's introduced.
+/// The prompt must fit the model's context window, and what gets left out when it doesn't must be
+/// our decision rather than the server's.
+///
+/// The failure these exist to prevent was measured against this project's own configuration, not
+/// imagined: a ~7,800-token prompt sent to the configured chat model came back reporting 2,050
+/// prompt tokens, the entire system prompt discarded, and the model then denying — fluently, and
+/// with no error anywhere — that it had ever been told the thing that was cut. From the outside
+/// that is indistinguishable from the companion losing her memory and starting a new conversation,
+/// which is exactly how it was reported.
+///
+/// So these tests pin guarantees, not mechanics. The ranks may be retuned; identity surviving and
+/// the conversation outranking the decoration may not.
 /// </summary>
 public class PromptBudgetTests
 {
-    /// <summary>
-    /// Ceiling for the pathological case — EVERY optional section present at once, at its cap,
-    /// including a pasted wall of text. Measured at ~5.6k when this guard was written (down from
-    /// ~7.2k before tool results, pasted turns, and the recent-conversation section were bounded).
-    /// The headroom is deliberate: this catches REGRESSIONS, it is not a target to optimize
-    /// toward — a real turn costs ~1k (see the typical test), and trimming genuine context to
-    /// chase a smaller number would trade correctness for tokens.
-    /// </summary>
-    private const int MaxWorstCaseTokens = 6000;
+    private static readonly DateTimeOffset Now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-    /// <summary>Ceiling for a NORMAL turn — the shape almost every real turn takes.</summary>
-    private const int MaxTypicalTokens = 1500;
-
-    private static readonly DateTimeOffset Now = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
-
-    private static string Sentence(int words, string word) => string.Join(' ', Enumerable.Repeat(word, words));
-
-    /// <summary>Every section filled at or above its realistic cap.</summary>
-    private static ContextPacket MaximalPacket() => new()
+    private static Message Turn(MessageRole role, string text, int minute) => new()
     {
-        UserMessage = Sentence(60, "question"),
-        Persona = Sentence(150, "persona"),
-        Identities = new PromptIdentityContext
-        {
-            CompanionName = "Ava", CompanionGender = "female", CompanionPronouns = "she/her",
-            UserName = "Scott",
-            RelationshipLines = Enumerable.Range(0, 4).Select(i => Sentence(15, $"relationship{i}")).ToList(),
-        },
-        RecentMessages = Enumerable.Range(0, 10).Select(i => new Message
-        {
-            Id = Guid.NewGuid(), UserId = "u", ConversationId = Guid.NewGuid(),
-            Role = i % 2 == 0 ? MessageRole.User : MessageRole.Assistant,
-            // One of them is a pasted wall of text — the realistic worst case for anyone who
-            // drops a spec or a log into the chat.
-            Content = i == 3 ? Sentence(1200, "pasted") : Sentence(60, $"recent{i}"),
-            Timestamp = Now.AddMinutes(i),
-        }).ToList(),
-        Memories = Enumerable.Range(0, 10).Select(i => new ContextItem
-        {
-            Text = Sentence(30, $"memory{i}"),
-            Provenance = i % 3 == 0 ? ContextProvenance.Outdated : ContextProvenance.DirectStatement,
-            Owner = i % 4 == 0 ? MemoryOwner.Shared : MemoryOwner.User,
-        }).ToList(),
-        OpenLoops = Enumerable.Range(0, 5).Select(i => new RetrievedOpenLoop
-        {
-            OpenLoop = new OpenLoop
-            {
-                Id = Guid.NewGuid(), UserId = "u", Description = Sentence(25, $"loop{i}"),
-                Owner = "user", Status = OpenLoopStatus.Open, CreatedAt = Now,
-            },
-            Score = 1, Reason = "test",
-        }).ToList(),
-        RelationshipNote = Sentence(40, "relationship"),
-        Musing = Sentence(50, "musing"),
-        CuriosityQuestion = Sentence(30, "curiosity"),
-        MoodNote = Sentence(25, "mood"),
-        RegisterNote = Sentence(20, "register"),
-        FamiliarityNote = Sentence(25, "familiarity"),
-        TemporalNote = Sentence(25, "temporal"),
-        PreferenceNotes = Enumerable.Range(0, 5).Select(i => Sentence(20, $"preference{i}")).ToList(),
-        AttentionNotes = Enumerable.Range(0, 5).Select(i => Sentence(20, $"attention{i}")).ToList(),
-        ProcedureNotes = Enumerable.Range(0, 3).Select(i => Sentence(30, $"procedure{i}")).ToList(),
-        CapabilityNote = Sentence(60, "capability"),
-        SharedPerspectiveNotes = Enumerable.Range(0, 3).Select(i => Sentence(25, $"perspective{i}")).ToList(),
-        // Tool results are clipped by the loop (MaxSectionChars) — use that worst case.
-        ToolResults = new string('t', 2500),
-        UncertaintyNotes = Enumerable.Range(0, 3).Select(i => Sentence(20, $"uncertainty{i}")).ToList(),
+        Id = Guid.NewGuid(),
+        ConversationId = Guid.Empty,
+        UserId = "u",
+        Role = role,
+        Content = text,
+        Timestamp = Now.AddMinutes(minute),
     };
 
-    [Fact]
-    public void AMaximalPacket_StaysWithinTheWorstCaseBudget()
-    {
-        var rendered = MaximalPacket().Render();
-        var tokens = ContextAssembler.EstimateTokens(rendered);
+    private static ContextItem Memory(string text) =>
+        new() { Text = text, Provenance = ContextProvenance.DirectStatement };
 
-        Assert.True(tokens <= MaxWorstCaseTokens,
-            $"The worst-case context packet renders to ~{tokens} tokens, over the {MaxWorstCaseTokens} " +
-            "budget. Something new is in the prompt, or a section's cap grew — trim it, budget it, " +
-            "or raise the ceiling deliberately.");
-    }
-
-    [Fact]
-    public void ATypicalPacket_IsFarCheaperThanTheWorstCase()
+    /// <summary>A packet with something in every layer, big enough that not all of it can fit.</summary>
+    private static ContextPacket Crowded(int budget) => new()
     {
-        // What an ordinary turn actually looks like: some memories, a short recent exchange,
-        // companion state, no tools, no project, no procedures.
-        var typical = new ContextPacket
+        UserMessage = "so what do you think?",
+        Identities = new PromptIdentityContext
         {
-            UserMessage = Sentence(20, "question"),
-            Persona = Sentence(80, "persona"),
-            RecentMessages = Enumerable.Range(0, 6).Select(i => new Message
-            {
-                Id = Guid.NewGuid(), UserId = "u", ConversationId = Guid.NewGuid(),
-                Role = i % 2 == 0 ? MessageRole.User : MessageRole.Assistant,
-                Content = Sentence(30, $"recent{i}"), Timestamp = Now.AddMinutes(i),
-            }).ToList(),
-            Memories = Enumerable.Range(0, 4).Select(i => new ContextItem
-            {
-                Text = Sentence(20, $"memory{i}"), Provenance = ContextProvenance.DirectStatement,
-            }).ToList(),
-            MoodNote = Sentence(15, "mood"),
-            TemporalNote = Sentence(12, "temporal"),
-            FamiliarityNote = Sentence(12, "familiarity"),
-        };
-
-        var tokens = ContextAssembler.EstimateTokens(typical.Render());
-        Assert.True(tokens <= MaxTypicalTokens,
-            $"A typical turn costs ~{tokens} tokens, over the {MaxTypicalTokens} budget.");
-    }
-
-    [Fact]
-    public void OnePastedWallOfText_CannotOwnTheWholePrompt()
-    {
-        // Dropping a long document into the chat must not crowd out memory, persona and state
-        // for the rest of the conversation.
-        var huge = new string('x', 20_000);
-        var packet = new ContextPacket
+            CompanionName = "Ava",
+            CompanionPronouns = "she/her",
+            UserName = "Scott",
+        },
+        Persona = "Warm, direct, a bit dry.",
+        RecentMessages = new[]
         {
-            UserMessage = "what do you think?",
-            RecentMessages = new[]
-            {
-                new Message
-                {
-                    Id = Guid.NewGuid(), UserId = "u", ConversationId = Guid.NewGuid(),
-                    Role = MessageRole.User, Content = huge, Timestamp = Now,
-                },
-            },
-        };
+            Turn(MessageRole.User, "I've been turning over whether to rebuild the deck this summer.", 1),
+            Turn(MessageRole.Assistant, "The rot you found last autumn would decide it for me.", 2),
+            Turn(MessageRole.User, "Right — and the quote came back higher than I expected.", 3),
+        },
+        Memories = Enumerable.Range(0, 20)
+            .Select(i => Memory($"Scott mentioned something durable and specific, number {i}, worth recalling later."))
+            .ToList(),
+        MoodNote = "Settled, with a bit of energy to spare.",
+        Musing = "I keep coming back to what he said about the garden.",
+        CuriosityQuestion = "Does he actually like the deck, or just the idea of it?",
+        FamiliarityNote = "Long-standing; shorthand is fine.",
+        TemporalNote = "Thursday evening; you last spoke this morning.",
+        Diagnostics = Enumerable.Range(0, 30)
+            .Select(i => $"DEBUG selection trace entry {i} with padding to make it substantial")
+            .ToList(),
+        MaxPromptTokens = budget,
+    };
 
-        var rendered = packet.Render();
-        Assert.True(ContextAssembler.EstimateTokens(rendered) < 600);
-        Assert.Contains("[…]", rendered); // clipped, and visibly so
+    // ---- the guarantee ----
+
+    [Fact]
+    public void UnderAnImpossibleBudget_IdentityStillSurvives()
+    {
+        // The one thing that must never be dropped. A prompt without it isn't a smaller prompt,
+        // it's a different entity — and a persistent companion who stops being the same one has
+        // failed at the only thing she is for.
+        var render = ContextPacketRenderer.Build(Crowded(budget: 1));
+
+        Assert.Contains("Ava", render.Text);
+        Assert.Contains("Scott", render.Text);
+        Assert.Contains("AUTHORITATIVE IDENTITIES", render.Text);
     }
 
     [Fact]
-    public void AnEmptyPacket_CostsAlmostNothing()
+    public void UnderAnImpossibleBudget_ThePersonaAndStandingRulesSurvive()
     {
-        // Sections with no content must be omitted entirely, not rendered as empty headings —
-        // a fresh user should not pay for machinery they have no data for.
-        var minimal = new ContextPacket { UserMessage = "hi" };
-        var tokens = ContextAssembler.EstimateTokens(minimal.Render());
+        var render = ContextPacketRenderer.Build(Crowded(budget: 1));
 
-        Assert.True(tokens < 400, $"An empty packet costs ~{tokens} tokens; the framing has grown.");
+        Assert.Contains("Warm, direct, a bit dry.", render.Text);
     }
 
     [Fact]
-    public void TheEstimate_DescribesTheWholeRenderedPacket()
+    public void TheConversationOutranksTheDecoration()
     {
-        // Regression guard for the audit finding: the estimate used to count only memories,
-        // recent messages and the user message, under-reporting everything else in the prompt.
-        var packet = MaximalPacket();
-        var rendered = packet.Render();
+        // What a person notices is losing the thread, not losing her mood note. When only some of
+        // it fits, the transcript stays and the colour goes.
+        var render = ContextPacketRenderer.Build(Crowded(budget: 1200));
 
-        Assert.Contains("perspective0", rendered);
-        Assert.Contains("capability", rendered);
-        Assert.True(ContextAssembler.EstimateTokens(rendered)
-            > ContextAssembler.EstimateTokens(packet.UserMessage) * 5);
+        Assert.Contains("the quote came back higher", render.Text);
+        Assert.DoesNotContain("recent conversation", render.Dropped);
+        Assert.Contains("musing", render.Dropped);
+    }
+
+    [Fact]
+    public void SqueezedToNothing_TheNewestExchangeStillSurvives()
+    {
+        // The transcript is guaranteed, not merely ranked first. On a budget the standing rules
+        // alone would exhaust, a purely rank-ordered fit dropped the conversation while carefully
+        // preserving the instructions telling her to remember it — perfectly herself, with no idea
+        // what had just been said.
+        var render = ContextPacketRenderer.Build(Crowded(budget: 1));
+
+        Assert.Contains("the quote came back higher", render.Text);
+    }
+
+    [Fact]
+    public void DebugOutputIsTheFirstThingSacrificed()
+    {
+        var render = ContextPacketRenderer.Build(Crowded(budget: 700));
+
+        Assert.Contains("diagnostics", render.Dropped);
+        Assert.DoesNotContain("DEBUG selection trace entry 0", render.Text);
+    }
+
+    [Theory]
+    [InlineData(3072)]  // what a default 4096-token window leaves once the reply has its room
+    [InlineData(2000)]
+    [InlineData(1200)]
+    public void TheRenderedPromptActuallyFitsTheBudget(int budget)
+    {
+        // The point of the whole exercise. Measured the same way the budget is expressed, so the
+        // two cannot quietly drift apart. A little slack is allowed for the guaranteed core: it is
+        // better to exceed a self-imposed budget by a line than to ship a companion with no
+        // identity, and the reply reserve exists to absorb exactly that.
+        var render = ContextPacketRenderer.Build(Crowded(budget));
+        var actual = ContextAssembler.EstimateTokens(render.Text);
+
+        Assert.True(actual <= budget, $"rendered ~{actual} tokens against a {budget} budget");
+    }
+
+    [Fact]
+    public void WhatWasLeftOutIsNamed()
+    {
+        // A degraded prompt that says so can be diagnosed. One that doesn't looks like the model
+        // being unreliable, which is where weeks go.
+        var render = ContextPacketRenderer.Build(Crowded(budget: 500));
+
+        Assert.True(render.Trimmed);
+        Assert.NotEmpty(render.Dropped);
+        Assert.All(render.Dropped, name => Assert.False(string.IsNullOrWhiteSpace(name)));
+    }
+
+    // ---- not changing what already worked ----
+
+    [Fact]
+    public void WithNoBudget_NothingIsDropped()
+    {
+        var render = ContextPacketRenderer.Build(Crowded(budget: 0));
+
+        Assert.False(render.Trimmed);
+        Assert.Contains("DEBUG selection trace entry 0", render.Text);
+        Assert.Contains("rebuild the deck", render.Text);
+    }
+
+    [Fact]
+    public void WithAGenerousBudget_EverythingStillFits()
+    {
+        var render = ContextPacketRenderer.Build(Crowded(budget: 100_000));
+
+        Assert.Empty(render.Dropped);
+    }
+
+    [Fact]
+    public void TrimmingDoesNotReorderWhatSurvives()
+    {
+        // Sections are chosen by rank but emitted in their canonical order. If trimming shuffled
+        // the prompt, every surviving section would land somewhere the model has never seen it,
+        // which is a different prompt rather than a shorter one.
+        var render = ContextPacketRenderer.Build(Crowded(budget: 1500));
+
+        var identity = render.Text.IndexOf("AUTHORITATIVE IDENTITIES", StringComparison.Ordinal);
+        var conversation = render.Text.IndexOf("the quote came back higher", StringComparison.Ordinal);
+
+        Assert.True(identity >= 0 && conversation > identity,
+            "identity must still come before the transcript");
+    }
+
+    // ---- the arithmetic that sets the budget ----
+
+    [Fact]
+    public void TheReplyGetsRoomReservedFromTheWindow()
+    {
+        var endpoint = new EndpointOptions { ContextTokens = 4096, ReplyReserveTokens = 1024 };
+
+        Assert.Equal(3072, endpoint.PromptBudgetTokens);
+    }
+
+    [Fact]
+    public void ADefaultEndpointAssumesTheSmallCommonWindow()
+    {
+        // Ollama serves 4096 unless told otherwise, regardless of what the model was trained for
+        // — verified directly, and it silently ignores num_ctx sent over the OpenAI-compatible
+        // endpoint. Guessing high here costs identity; guessing low costs a little nuance.
+        Assert.Equal(4096, new EndpointOptions().ContextTokens);
+    }
+
+    [Fact]
+    public void AnAbsurdReserveCannotStarveThePrompt()
+    {
+        var endpoint = new EndpointOptions { ContextTokens = 2048, ReplyReserveTokens = 999_999 };
+
+        Assert.True(endpoint.PromptBudgetTokens >= 512);
     }
 }
