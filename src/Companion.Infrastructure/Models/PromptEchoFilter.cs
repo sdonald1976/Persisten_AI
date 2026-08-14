@@ -48,6 +48,106 @@ internal static partial class PromptEchoFilter
         RegexOptions.Multiline)]
     private static partial Regex RoleMarker();
 
+    /// <summary>A packet speaker label at the very start, e.g. "[COMPANION - Ava]".</summary>
+    [GeneratedRegex(@"^\[(USER|COMPANION|SYSTEM)[^\]\n]*\][ \t]*:?[ \t]*")]
+    private static partial Regex LeadingBracketLabel();
+
+    /// <summary>
+    /// Removes her own name from the front of her own reply.
+    ///
+    /// The packet labels the transcript by speaker — "[COMPANION - Ava]" — and a model shown that
+    /// shape adopts it, opening with "Ava: ". Left alone it compounds: the prefixed reply is stored,
+    /// fed back as the previous turn, and now demonstrates the format directly under the label, so
+    /// the next reply does it too. Observed on every turn of a fresh conversation.
+    ///
+    /// Only ever removes a label for the speaker herself, or the generic role words. A prefix that
+    /// is not her name is left alone — "Note:" and "Update:" are things she might legitimately
+    /// write, and trimming her actual words is worse than leaving an artefact visible.
+    /// </summary>
+    public static string TrimSelfLabel(string reply, string? speaker)
+    {
+        if (string.IsNullOrWhiteSpace(reply))
+            return reply;
+
+        // A model that opened with "[COMPANION - Ava] Ava:" needs more than one pass, but this is
+        // bounded: it is stripping a prefix, not searching.
+        var text = reply;
+        for (var pass = 0; pass < 3; pass++)
+        {
+            var stripped = StripOneLabel(text, speaker);
+            if (stripped.Length == text.Length)
+                break;
+            text = stripped;
+        }
+
+        return text;
+    }
+
+    private static string StripOneLabel(string text, string? speaker)
+    {
+        var start = text.TrimStart();
+
+        var bracket = LeadingBracketLabel().Match(start);
+        if (bracket.Success)
+        {
+            var withoutBracket = start[bracket.Length..].TrimStart();
+            return withoutBracket.Length > 0 ? withoutBracket : text;
+        }
+
+        // A speaker label is a short name followed by a colon. Anything longer is a sentence.
+        var colon = start.IndexOf(':');
+        if (colon > 0 && colon <= 40 && IsSelf(start[..colon].Trim(), speaker))
+        {
+            var afterColon = start[(colon + 1)..].TrimStart();
+            // Never return nothing: a reply that is only a label is strange, but it is hers.
+            return afterColon.Length > 0 ? afterColon : text;
+        }
+
+        return StripBareName(start, text, speaker);
+    }
+
+    /// <summary>
+    /// The same label with the punctuation missing — "Ava Hi again!", seen live after the colon
+    /// form was fixed. A roleplay fine-tune is trained on "Name:" dialogue and will reach for the
+    /// name whether or not it remembers the colon.
+    ///
+    /// Guarded by what comes next: her name followed by a capital letter is a label on a fresh
+    /// sentence, while her name followed by a lower-case word is a sentence that happens to start
+    /// with it ("Ava is what my mother chose"), and that is left alone. Only whitespace and dashes
+    /// count as the separator — a comma is far more likely to be someone being addressed.
+    /// </summary>
+    private static string StripBareName(string start, string original, string? speaker)
+    {
+        if (string.IsNullOrWhiteSpace(speaker))
+            return original;
+
+        var name = speaker.Trim();
+        if (start.Length <= name.Length || !start.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+            return original;
+
+        var after = start[name.Length..];
+        var gap = 0;
+        while (gap < after.Length && (char.IsWhiteSpace(after[gap]) || after[gap] is '-' or '–' or '—'))
+            gap++;
+
+        if (gap == 0)
+            return original; // "Avalanche" is not "Ava"
+
+        var rest = after[gap..];
+        return rest.Length > 0 && char.IsUpper(rest[0]) ? rest : original;
+    }
+
+    private static bool IsSelf(string candidate, string? speaker)
+    {
+        if (candidate.Length == 0)
+            return false;
+        if (!string.IsNullOrWhiteSpace(speaker)
+            && candidate.Equals(speaker.Trim(), StringComparison.OrdinalIgnoreCase))
+            return true;
+        return candidate.Equals("assistant", StringComparison.OrdinalIgnoreCase)
+            || candidate.Equals("companion", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Cuts a reply at the point the model started writing somebody else's turn.
     ///

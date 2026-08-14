@@ -15,6 +15,12 @@ public interface IReplyGenerator
     /// produced (across continuation rounds); either way the full text and generation metadata are
     /// returned once the reply is complete.
     /// </summary>
+    /// <param name="speaker">
+    /// Who is talking — her configured name. Used to recognise, and remove, a label she puts on
+    /// the front of her own reply: shown a transcript labelled by speaker, a model adopts the
+    /// format and opens with "Ava: ". Null simply means only the generic role words are removed.
+    /// </param>
     Task<ChatCompletion> GenerateAsync(
-        string systemPrompt, string userMessage, IProgress<string>? sink = null, CancellationToken ct = default);
+        string systemPrompt, string userMessage, IProgress<string>? sink = null, string? speaker = null,
+        CancellationToken ct = default);
 }

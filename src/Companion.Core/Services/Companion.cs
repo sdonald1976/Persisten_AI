@@ -361,7 +361,8 @@ public sealed class Companion : ICompanion
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
         // task), and streams to the sink across rounds when one is provided.
-        var generated = await _replyGenerator.GenerateAsync(packet.Render(), promptText, tokenSink, ct);
+        var generated = await _replyGenerator.GenerateAsync(
+            packet.Render(), promptText, tokenSink, identityProjection?.CompanionName, ct);
         var response = generated.Text;
 
         // 7. Store the response, with the generation metadata (why it stopped, rounds, tokens) so a
