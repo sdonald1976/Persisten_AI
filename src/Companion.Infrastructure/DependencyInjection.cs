@@ -92,6 +92,13 @@ public static class DependencyInjection
         // into the reply — looks like the model being broken rather than a missing option.
         modelOptions.Chat.Stop ??= ConversationStopSequences;
 
+        // Make the reply reserve real. Reserving room for the answer and then not telling the model
+        // about it left the arithmetic half-done: one observed reply ran to ~3,200 tokens against a
+        // 4,096-token window with a ~1,700-token prompt already in it, so the server was shifting
+        // context in the middle of writing — dropping her identity and standing rules partway
+        // through a reply, which reads as her wandering off mid-thought.
+        modelOptions.Chat.MaxTokens ??= modelOptions.Chat.ReplyReserveTokens;
+
         // Size the prompt to the window the chat model is actually served with, unless the config
         // states a budget itself. Derived rather than configured by default because the two
         // numbers must agree and only one of them is observable: an operator who changes the chat

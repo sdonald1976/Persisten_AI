@@ -325,6 +325,9 @@ public static class ContextPacketRenderer
         sb.AppendLine(Prompts.Get("renderer.memory-rules"));
         sb.AppendLine();
 
+        sb.AppendLine(Prompts.Get("renderer.conversation-rules"));
+        sb.AppendLine();
+
         sb.AppendLine(Prompts.Get("renderer.finish-task"));
         sb.AppendLine();
 
