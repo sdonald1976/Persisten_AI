@@ -101,6 +101,23 @@ public sealed record ContextPacket
     /// <summary>Approximate token count of the rendered packet (budget accounting).</summary>
     public int EstimatedTokens { get; init; }
 
+    /// <summary>
+    /// Hard ceiling for the rendered prompt, in tokens. Zero means unbounded.
+    ///
+    /// Derived from the chat model's actual context window, because the alternative is not "a
+    /// slightly long prompt" — a prompt that overflows the window is silently truncated by the
+    /// server, from the top, taking identity with it. Enforcing the limit here is what makes the
+    /// loss a deliberate, ordered, reported choice instead of an invisible one.
+    /// </summary>
+    public int MaxPromptTokens { get; init; }
+
+    /// <summary>
+    /// Sections that did not fit and were left out, lowest-value first. Empty is the normal case.
+    /// Recorded so a degraded prompt is visible in logs and diagnostics rather than only in the
+    /// shape of a reply that seems oddly forgetful.
+    /// </summary>
+    public IReadOnlyList<string> TrimmedSections { get; init; } = Array.Empty<string>();
+
     /// <summary>Renders the packet into the text the model actually sees.</summary>
     public string Render() => ContextPacketRenderer.Render(this);
 }

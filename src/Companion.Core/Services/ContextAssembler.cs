@@ -109,7 +109,17 @@ public sealed class ContextAssembler : IContextAssembler
         // prompt (persona, project state, companion state, procedures, capabilities, tool
         // results) — the very sections most likely to grow. An honest number is what makes
         // "is the prompt getting too big?" answerable instead of theoretical.
-        return packet with { EstimatedTokens = EstimateTokens(packet.Render()) };
+        //
+        // Rendering under the budget also decides it: whatever does not fit is dropped here, by
+        // rank, and named — so the count below describes the prompt that will actually be sent
+        // rather than one the server will quietly cut down on the way in.
+        packet = packet with { MaxPromptTokens = _options.PromptTokenBudget };
+        var rendered = ContextPacketRenderer.Build(packet);
+        return packet with
+        {
+            EstimatedTokens = EstimateTokens(rendered.Text),
+            TrimmedSections = rendered.Dropped,
+        };
     }
 
     private static ContextProvenance ClassifyProvenance(IMemory memory)

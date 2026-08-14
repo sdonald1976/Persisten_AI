@@ -22,6 +22,25 @@ public sealed class CompanionOptions
     /// </summary>
     public int PacketTokenWarningThreshold { get; set; } = 3000;
 
+    /// <summary>
+    /// Hard ceiling for the rendered prompt, in tokens. Sections are dropped lowest-value first
+    /// to stay under it; identity and the standing rules are never among them. Zero disables the
+    /// limit, which should only ever be a deliberate choice for a model with room to spare.
+    ///
+    /// This is not the same idea as <see cref="PacketTokenWarningThreshold"/>, and the difference
+    /// is the whole point. That one warns; this one acts. A warning is the right response to a
+    /// prompt that is merely getting fat, but a prompt that exceeds the model's context window is
+    /// not degraded, it is mutilated: the server discards the overflow from the top — identity,
+    /// standing rules, the oldest turns — and answers from the remainder without reporting
+    /// anything. The reply comes back fluent, confident, and severed from everything the
+    /// companion is supposed to be.
+    ///
+    /// Set from the chat endpoint's context window at startup, minus room for the reply. Left at
+    /// this default it fits the smallest window in common use, because being needlessly frugal
+    /// costs a little nuance and guessing high costs her identity.
+    /// </summary>
+    public int PromptTokenBudget { get; set; } = 3000;
+
     /// <summary>How many recent messages to include verbatim.</summary>
     public int RecentMessageCount { get; set; } = 6;
 

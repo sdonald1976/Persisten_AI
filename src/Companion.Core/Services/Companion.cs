@@ -341,6 +341,18 @@ public sealed class Companion : ICompanion
                 string.Join(", ", PresentSections(packet)));
         }
 
+        // Something had to be left out to stay inside the model's window. Said plainly, because
+        // the alternative to saying it is the failure this whole mechanism exists to prevent:
+        // context disappearing with nothing anywhere to show that it did.
+        if (packet.TrimmedSections.Count > 0)
+        {
+            _logger.LogWarning(
+                "Prompt for {UserId} exceeded its {Budget}-token budget; left out (lowest value " +
+                "first): {Dropped}. Identity and the standing rules are never among these — if " +
+                "this is routine, the chat model needs a larger context window.",
+                userId, _options.PromptTokenBudget, string.Join(", ", packet.TrimmedSections));
+        }
+
         var planningContext = BuildPlanningContext(recent, selectedMemories, projectContext.ResolvedProjectName);
         var toolOutcome = await _toolLoop.RunAsync(userId, planningContext, promptText, ct);
         if (toolOutcome.ResultsSection is not null)
