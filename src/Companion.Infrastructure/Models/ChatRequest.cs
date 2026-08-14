@@ -12,6 +12,13 @@ internal static class ChatRequest
             ["stream"] = stream,
             ["messages"] = messages,
         };
+        // Token usage has to be asked for when streaming; a streamed response omits it otherwise.
+        // Not asking left the WebSocket path — the one a person actually talks to her through —
+        // with no record of prompt size at all: every streamed reply stored a null PromptTokens,
+        // so the one number that would say whether the prompt overflowed the model's window was
+        // missing from exactly the path where it mattered.
+        if (stream)
+            body["stream_options"] = new { include_usage = true };
         if (options.Temperature is { } temperature)
             body["temperature"] = temperature;
         if (options.MaxTokens is { } maxTokens)

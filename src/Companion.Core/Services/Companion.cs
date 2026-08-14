@@ -363,7 +363,18 @@ public sealed class Companion : ICompanion
         // task), and streams to the sink across rounds when one is provided.
         var generated = await _replyGenerator.GenerateAsync(
             packet.Render(), promptText, tokenSink, identityProjection?.CompanionName, ct);
-        var response = generated.Text;
+
+        // Her own transcript is in the prompt, and she sometimes continues it instead of replying —
+        // reproducing an entire earlier turn before getting to the new one. This is the only place
+        // that can catch it, because it needs the conversation to compare against, which the
+        // generator does not have.
+        var response = EchoedTurnFilter.Strip(generated.Text, recent);
+        if (!ReferenceEquals(response, generated.Text) && response.Length != generated.Text.Length)
+        {
+            _logger.LogWarning(
+                "Reply for {UserId} began by repeating an earlier turn verbatim ({Removed} chars removed).",
+                userId, generated.Text.Length - response.Length);
+        }
 
         // 7. Store the response, with the generation metadata (why it stopped, rounds, tokens) so a
         // reply is answerable after the fact instead of a mystery.

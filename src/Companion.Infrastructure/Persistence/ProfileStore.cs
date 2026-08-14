@@ -57,6 +57,14 @@ public sealed class ProfileStore : IProfileStore
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task SetDisplayNameAsync(string userId, string? displayName, CancellationToken ct = default)
+    {
+        var profile = await GetOrCreateAsync(userId, ct);
+        profile.DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
+        _db.Users.Update(profile);
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task SetPersonalityPresetAsync(string userId, string? presetName, CancellationToken ct = default)
     {
         var profile = await GetOrCreateAsync(userId, ct);

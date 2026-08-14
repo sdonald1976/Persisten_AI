@@ -17,6 +17,15 @@ public interface IProfileStore
     /// </summary>
     Task SetIdentityAsync(string userId, string? name, string? gender, string? pronouns, CancellationToken ct = default);
 
+    /// <summary>
+    /// Set what the user is called. Null or blank clears it, and she falls back to "the user".
+    ///
+    /// This had no writer at all: the field was read when projecting prompt identity and set by
+    /// nothing — no endpoint, no configuration, no conversational path — so it was permanently
+    /// null and she addressed the person she has known longest as "dear user".
+    /// </summary>
+    Task SetDisplayNameAsync(string userId, string? displayName, CancellationToken ct = default);
+
     /// <summary>Persists the companion's spirits value and the moment it was nudged.</summary>
     Task SetCompanionSpiritsAsync(string userId, double spirits, DateTimeOffset nudgedAt, CancellationToken ct = default);
 }
