@@ -50,6 +50,24 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
             return Array.Empty<MemoryCandidate>();
         }
 
+        // An empty object is not an empty result, and the difference is the whole ballgame. Asked
+        // for an array and answering "{}", the model has not judged that there is nothing worth
+        // remembering — it has failed to engage with the task at all. That parses cleanly, produces
+        // no candidates, and until now said nothing, which is how a companion whose entire purpose
+        // is durable memory stored not one single fact across weeks of conversation while every log
+        // line looked ordinary. A model too small for this prompt does exactly this, every time.
+        //
+        // "[]" is the honest empty answer and stays silent; this is the dishonest one.
+        if (dtos.Count > 0 && dtos.All(d => string.IsNullOrWhiteSpace(d.Content)))
+        {
+            _logger.LogWarning(
+                "LLM extractor produced no usable candidates: it was asked for a list and returned " +
+                "{Raw}. NOTHING will be remembered from this turn. The usual cause is an extraction " +
+                "model too small for the task — check the Models:Extraction role.",
+                StripFence(raw).Trim());
+            return Array.Empty<MemoryCandidate>();
+        }
+
         var candidates = new List<MemoryCandidate>();
         foreach (var dto in dtos)
         {

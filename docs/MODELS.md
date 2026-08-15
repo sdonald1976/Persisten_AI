@@ -149,10 +149,34 @@ Set `Dimensions` to match.
 
 ## If you have 8 GB VRAM
 
-Drop to **two** resident models: keep Stheno for Chat, and use `qwen2.5:3b-instruct` for
-*everything else* (ToolPlanner, Extraction, Safety, Reranker, TaskAuditor, Summarizer). Extraction
-quality drops, but the system stays responsive and nothing swaps. Prefer that trade — a swapping
-config feels broken in a way a slightly-dumber extractor does not.
+Keep Stheno for Chat and use `qwen2.5:3b-instruct` for the light roles — ToolPlanner, Reranker,
+TaskAuditor, Summarizer. **Do not put Extraction on the 3B.** Leave Safety unset so it falls back to
+Extraction.
+
+That instruction used to read "use the 3B for *everything else*", on the reasoning that extraction
+quality would merely drop and a swapping config feels broken in a way a slightly-dumber extractor
+does not. That was wrong, and it cost this project every memory it should have formed over several
+weeks. Extraction does not degrade gracefully. Measured directly, given *"My dog is called Precious
+and she is a nine year old border collie"*:
+
+| model | JSON mode | returns |
+|---|---|---|
+| `qwen2.5:3b-instruct` | on | `{}` |
+| `qwen2.5:3b-instruct` | off | `[]` |
+| `qwen2.5:3b-instruct` | on, prompt rewritten to the object shape | `{}` |
+| `qwen2.5:7b-instruct` | either | the memory, correctly |
+
+The 3B does not produce a worse memory. It produces **no memory, ever**, and `{}` parses cleanly
+into zero candidates — so the turn completes, the reply is warm and apparently attentive, and
+nothing anywhere reports a problem. The companion appears to remember things inside a conversation
+because the transcript is in the prompt, and forgets everything the moment a new one starts.
+
+A companion that remembers nothing is not a slower companion, it is a different product. Extraction
+gets the VRAM even when that means swapping. If the swap is intolerable on your hardware, the honest
+options are a smaller chat model or a bigger card — not a smaller extractor.
+
+The extractor now logs a warning when it is asked for a list and answers `{}`, so this specific
+failure can never again be silent. `[]` is the honest "nothing here" and stays quiet.
 
 ## If you have 24 GB+
 
