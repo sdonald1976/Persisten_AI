@@ -136,6 +136,13 @@ public static class DependencyInjection
         services.AddSingleton<ModelPreflight>();
         services.AddSingleton<ModelPreflightState>();
 
+        // Present is not working. The catalog probe above would have said the extraction model was
+        // fine on every one of the weeks it was quietly finding nothing, because it was installed
+        // and responsive and simply not up to the task. Only a real call answers that, and only for
+        // a real model — the offline extractor is deterministic and proves nothing.
+        if (modelOptions.UsesRealModel)
+            services.AddSingleton<ExtractionSelfTest>();
+
         // Optional multimodal models — registered only when configured.
         if (modelOptions.UsesRealModel && modelOptions.Vision is { } visionEndpoint)
         {

@@ -119,7 +119,8 @@ public sealed class ReplyGenerator : IReplyGenerator
         // the very format this removes.
         var text = PromptEchoFilter.Trim(
             PromptEchoFilter.TrimFabricatedTurns(
-                PromptEchoFilter.TrimSelfLabel(full.ToString(), speaker)));
+                PromptEchoFilter.TrimStageDirections(
+                    PromptEchoFilter.TrimSelfLabel(full.ToString(), speaker))));
         var truncated = string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase);
         return new ChatCompletion
         {

@@ -101,6 +101,14 @@ public static class Prompts
             "Write plainly, as yourself. No stage directions and no narrated gestures — never " +
             "*smiles*, *nods*, *chuckles*, or descriptions of your expression or body. You are " +
             "present in what you say, not in mime.\n" +
+            // Caught by the soak harness minutes after the mechanical filter went in: "Ava here,
+            // your AI companion." The filter can strip a bare label, but not an introduction with
+            // an appositive, and it should not try — the rule that keeps "Ava is what my mother
+            // chose" intact is the same rule that lets "Ava here" through. This is the general
+            // form, and the only person she is ever talking to already knows both of those things.
+            "Never open by introducing yourself. No name, no \"here\", no describing what you are — " +
+            "they know who they are talking to, and saying it every time is the opposite of " +
+            "familiarity. Just answer.\n" +
             // The failure that prompted this: "I have an anniversary date today ... I am not sure
             // if my mother is coming today or tomorrow" came back as "planning a special day with
             // your mother" — two unrelated things fused into one event, and a third dropped.

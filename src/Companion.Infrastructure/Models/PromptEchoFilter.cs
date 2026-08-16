@@ -48,6 +48,59 @@ internal static partial class PromptEchoFilter
         RegexOptions.Multiline)]
     private static partial Regex RoleMarker();
 
+    /// <summary>
+    /// A narrated action: an asterisk span opening with a lower-case word, long enough and with
+    /// enough words to be a described gesture rather than emphasis.
+    ///
+    /// The length and space requirements are the whole safety margin. "*really*" and "*not that*"
+    /// are emphasis and are hers; "*smiles warmly at the thought of your affectionate gestures*"
+    /// is a body she does not have.
+    /// </summary>
+    [GeneratedRegex(@"\*[a-z][^*\n]*\s[^*\n]*\*", RegexOptions.Compiled)]
+    private static partial Regex StageDirection();
+
+    /// <summary>Shortest asterisk span that can be a gesture rather than emphasis.</summary>
+    private const int ShortestGesture = 12;
+
+    /// <summary>
+    /// Whether one complete "*…*" span is a narrated gesture rather than emphasis. Takes the span
+    /// including both asterisks, so the streaming filter and the whole-text filter agree on where
+    /// the line is instead of drifting apart.
+    /// </summary>
+    public static bool IsNarratedGesture(string span)
+        => span.Length >= ShortestGesture
+            && span.StartsWith('*') && span.EndsWith('*')
+            && StageDirection().IsMatch(span);
+
+    /// <summary>
+    /// Removes narrated gestures — "*smiles warmly*", "*nods understandingly*".
+    ///
+    /// There is a prompt rule against these, and it is not enough. Measured by the soak harness:
+    /// it holds on neutral conversation and collapses entirely on affectionate conversation, which
+    /// is precisely when a roleplay fine-tune pulls hardest toward performing a scene. Four short
+    /// warm messages produced four narrated gestures in a row.
+    ///
+    /// So it is mechanical, like every other defence here that had to survive contact with a model
+    /// that was trained to do the opposite. The project's line is that continuity is real and a
+    /// body is not; describing a gesture she does not have is a performance of presence rather
+    /// than presence.
+    /// </summary>
+    public static string TrimStageDirections(string reply)
+    {
+        if (string.IsNullOrWhiteSpace(reply) || !reply.Contains('*'))
+            return reply;
+
+        var cleaned = StageDirection().Replace(reply, match =>
+            match.Value.Length >= ShortestGesture ? "" : match.Value);
+
+        cleaned = Regex.Replace(cleaned, @"[ \t]{2,}", " ");
+        cleaned = Regex.Replace(cleaned, @"(\r?\n){3,}", "\n\n");
+        cleaned = cleaned.Trim();
+
+        // Never return nothing. A reply that was only a gesture is a failure worth seeing.
+        return cleaned.Length > 0 ? cleaned : reply;
+    }
+
     /// <summary>A packet speaker label at the very start, e.g. "[COMPANION - Ava]".</summary>
     [GeneratedRegex(@"^\[(USER|COMPANION|SYSTEM)[^\]\n]*\][ \t]*:?[ \t]*")]
     private static partial Regex LeadingBracketLabel();

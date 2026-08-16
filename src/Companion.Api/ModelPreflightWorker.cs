@@ -50,6 +50,10 @@ public sealed class ModelPreflightWorker : BackgroundService
             using var scope = _scopes.CreateScope();
             var registry = scope.ServiceProvider.GetRequiredService<ICapabilityRegistry>();
             await registry.ApplyModelProbeAsync(presence, _clock.GetUtcNow(), stoppingToken);
+
+            // Present is not the same as working, and the difference is the worst bug this project
+            // has had: an extraction model that exists, answers instantly, and finds nothing.
+            await VerifyExtractionAsync(scope.ServiceProvider, stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -60,5 +64,20 @@ public sealed class ModelPreflightWorker : BackgroundService
             // Preflight is diagnostics: it must never be the reason the companion doesn't start.
             _logger.LogWarning(ex, "Model preflight did not complete; capability availability is unverified.");
         }
+    }
+
+    /// <summary>
+    /// Runs the extraction self-test, if one is registered. Skipped entirely for the offline mocks,
+    /// whose deterministic extractor proves nothing about a real model.
+    /// </summary>
+    private static async Task VerifyExtractionAsync(IServiceProvider services, CancellationToken ct)
+    {
+        var selfTest = services.GetService<ExtractionSelfTest>();
+        var extractor = services.GetService<IMemoryExtractor>();
+        var user = services.GetService<IUserContext>();
+        if (selfTest is null || extractor is null || user is null)
+            return;
+
+        await selfTest.RunAsync(extractor, user.UserId, ct);
     }
 }

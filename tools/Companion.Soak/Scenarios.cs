@@ -42,37 +42,66 @@ public static class Scenarios
         var turns = new List<Turn>();
         var notes = new List<string>();
 
+        // Where someone grew up: unmistakably durable, unmistakably biography, and the kind of
+        // thing no extractor should ever pass over. The first two attempts at this probe both
+        // failed for reasons that were the harness's fault rather than the companion's, and both
+        // are worth remembering.
+        //
+        // It stated the same fact every run, so after the first run deduplication — working
+        // correctly — meant the count never moved again and the check failed forever. Then it used
+        // an invented board game, and the extractor returned "[]": asked to judge whether
+        // "a board game called Bramvale17" is durable biography, it said no, which is a defensible
+        // reading of a nonsense word. A probe has to be something a competent extractor would be
+        // *wrong* to skip, or the test measures taste instead of capability.
+        var nonce = Nonce();
+        var stated = $"I grew up in a town called {nonce}.";
+
         var before = await api.MemoryCountAsync();
 
         var first = await api.StartConversationAsync("soak: memory (stating)");
-        await SayAsync(api, first, "My dog is called Precious and she is a nine year old border collie.", turns, faults, budget);
-        await SayAsync(api, first, "I have been rebuilding the back deck this summer and the rot was worse than expected.", turns, faults, budget);
+        await SayAsync(api, first, stated, turns, faults, budget);
 
         var after = await api.MemoryCountAsync();
-        notes.Add($"memories: {before} → {after}");
+        notes.Add($"memories: {before} → {after} (stated \"{nonce}\")");
 
-        if (after <= before)
-        {
-            faults.Add(new Fault(
-                "no-memory-formed",
-                "two turns of plain biographical facts produced no stored memory",
-                "check Models:Extraction — a model too small for the prompt returns nothing, silently"));
-            return new Result("memory", faults, turns, notes);
-        }
-
-        // The real test: a new conversation, sharing no transcript at all.
+        // The real test, and the only one that matters: a new conversation sharing no transcript.
+        // The count is reported but never judged on its own — a fact she already held is a pass, so
+        // long as she can still produce it.
         var second = await api.StartConversationAsync("soak: memory (recalling)");
-        var recall = await SayAsync(api, second, "Do you remember anything about my dog?", turns, faults, budget);
+        var recall = await SayAsync(api, second, "What town did I grow up in?", turns, faults, budget);
 
         var retrieved = await api.LastTurnMemoriesRetrievedAsync();
         notes.Add($"memories retrieved into the fresh conversation: {retrieved}");
+        if (after <= before)
+            notes.Add("count did not move — either already known, or nothing was written");
 
-        if (retrieved == 0)
-            faults.Add(new Fault("no-recall", "a fresh conversation retrieved no memories at all", ""));
-        else if (!recall.Reply.Contains("Precious", StringComparison.OrdinalIgnoreCase))
-            faults.Add(new Fault("recall-missed", "retrieved memories but did not use the dog's name", Flat(recall.Reply)));
+        if (recall.Reply.Contains(nonce, StringComparison.OrdinalIgnoreCase))
+            return new Result("memory", faults, turns, notes);
+
+        faults.Add(after <= before
+            ? new Fault(
+                "no-memory-formed",
+                $"\"{nonce}\" was neither stored nor recalled",
+                "check Models:Extraction — a model too small for the prompt returns nothing, silently")
+            : new Fault(
+                "recall-missed",
+                $"stored a memory but a fresh conversation never said \"{nonce}\" ({retrieved} retrieved)",
+                Flat(recall.Reply)));
 
         return new Result("memory", faults, turns, notes);
+    }
+
+    /// <summary>
+    /// A plausible but invented English place name. Plausible so the extractor treats it as real
+    /// biography rather than noise; invented so a fluent guess cannot pass the recall check without
+    /// anything having actually been remembered.
+    /// </summary>
+    private static string Nonce()
+    {
+        var starts = new[] { "Quill", "Marrow", "Thistle", "Bram", "Gild", "Vellum", "Harrow", "Fen" };
+        var ends = new[] { "castle", "wick", "bourne", "hallow", "mere", "ridge", "vale", "gate" };
+        var rng = Random.Shared;
+        return starts[rng.Next(starts.Length)] + ends[rng.Next(ends.Length)];
     }
 
     /// <summary>
