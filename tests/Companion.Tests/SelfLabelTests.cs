@@ -152,4 +152,66 @@ public class SelfLabelTests
         public Collector(List<string> seen) => _seen = seen;
         public void Report(string value) => _seen.Add(value);
     }
+
+    // ---- narrated gestures ----
+
+    [Theory]
+    [InlineData("*smiles warmly* That's lovely to hear.", "That's lovely to hear.")]
+    [InlineData("*giggles softly at your playful response* Oh, we're evenly matched!", "Oh, we're evenly matched!")]
+    [InlineData("That's kind. *nods understandingly* Thank you.", "That's kind.  Thank you.")]
+    public void NarratedGesturesAreRemoved(string reply, string expected)
+    {
+        // The prompt forbids these and it is not enough: measured by the soak harness, the rule
+        // holds on neutral conversation and collapses on affectionate conversation, which is
+        // exactly when a roleplay fine-tune pulls hardest toward performing a scene.
+        var cleaned = PromptEchoFilter.TrimStageDirections(reply);
+        Assert.Equal(expected.Replace("  ", " ").Trim(), cleaned.Replace("  ", " ").Trim());
+    }
+
+    [Theory]
+    [InlineData("I *really* think you should.")]
+    [InlineData("That's *not* what I meant.")]
+    [InlineData("It was *that* obvious?")]
+    public void EmphasisIsHersAndSurvives(string reply)
+    {
+        // The whole safety margin is length and word count. Short emphasis is punctuation; a long
+        // lower-case phrase is a body she does not have.
+        Assert.Equal(reply, PromptEchoFilter.TrimStageDirections(reply));
+    }
+
+    [Fact]
+    public void AReplyThatIsOnlyAGestureIsKept()
+        => Assert.Equal("*smiles warmly at you*", PromptEchoFilter.TrimStageDirections("*smiles warmly at you*"));
+
+    [Fact]
+    public void GesturesNeverReachTheStream()
+    {
+        // Same reason as the label: the client keeps the streamed tokens and speech is synthesized
+        // from them, so a gesture removed afterwards is still read and still spoken.
+        var seen = new List<string>();
+        var sink = new SelfLabelSink(new Collector(seen), "Ava");
+
+        foreach (var chunk in new[] { "Ava: That sound", "s lovely. *smiles", " warmly* Tell me mo", "re about it." })
+            sink.Report(chunk);
+        sink.Flush();
+
+        var text = string.Concat(seen).Replace("  ", " ");
+        Assert.Contains("That sounds lovely.", text);
+        Assert.Contains("Tell me more about it.", text);
+        Assert.DoesNotContain("smiles", text);
+    }
+
+    [Fact]
+    public void AnUnclosedAsteriskIsNotSwallowed()
+    {
+        // A reply ending mid-span must still arrive. Holding it back forever would lose her words
+        // to a filter meant to protect them.
+        var seen = new List<string>();
+        var sink = new SelfLabelSink(new Collector(seen), "Ava");
+
+        sink.Report("Five stars out of *five for that curry, honestly one of the best");
+        sink.Flush();
+
+        Assert.Contains("five for that curry", string.Concat(seen));
+    }
 }
