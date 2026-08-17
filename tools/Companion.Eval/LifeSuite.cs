@@ -11,7 +11,7 @@ public static class LifeSuite
 {
     public static async Task<int> RunAsync(int count, int seed, string model, string url, bool verbose)
     {
-        var lives = LifeGenerator.Build(count, seed);
+        var lives = LifeGenerator.BuildCurriculum(count, seed);
         var messages = lives.Sum(l => l.Messages.Count);
 
         Console.WriteLine($"lives: {count} (seed {seed}), {messages} messages, extraction on {model}");
@@ -44,7 +44,7 @@ public static class LifeSuite
         }
 
         watch.Stop();
-        Report(lives.Count, messages, mismatches, failures, watch.Elapsed, verbose);
+        Report(lives, messages, mismatches, failures, watch.Elapsed, verbose);
 
         // Never non-zero on findings: this harness exists to measure a system known to be imperfect,
         // and a red build on every run is a red build nobody reads. The regression floors in
@@ -60,11 +60,12 @@ public static class LifeSuite
         => text.Length <= max ? text : text[..(max - 1)] + "…";
 
     private static void Report(
-        int lives, int messages, List<Mismatch> mismatches, List<string> failures,
+        IReadOnlyList<Life> lives, int messages, List<Mismatch> mismatches, List<string> failures,
         TimeSpan elapsed, bool verbose)
     {
+        var byName = lives.ToDictionary(l => l.Name, l => l.Provenance);
         Console.WriteLine();
-        Console.WriteLine($"── {lives} lives, {messages} messages, {elapsed.TotalMinutes:F1} min");
+        Console.WriteLine($"── {lives.Count} lives, {messages} messages, {elapsed.TotalMinutes:F1} min");
         Console.WriteLine();
 
         if (failures.Count > 0)
@@ -86,14 +87,14 @@ public static class LifeSuite
             return;
         }
 
-        Console.WriteLine($"{"rule",-56} failed   of    rate");
+        Console.WriteLine($"{"rule",-56} failed");
         foreach (var rule in byRule)
         {
             // Every life asserts every rule exactly once, so the denominator is the batch size.
             // Stated rather than derived from the mismatches, because a rule that failed in all of
             // them and a rule that was only checked once must not read the same.
             Console.WriteLine(
-                $"{Clip(rule.Key, 56),-56} {rule.Count(),6}  {lives,4}   {100.0 * rule.Count() / lives,4:F0}%");
+                $"{Clip(rule.Key, 56),-56} {rule.Count(),6}");
 
             if (!verbose)
                 continue;
@@ -115,6 +116,30 @@ public static class LifeSuite
             Console.WriteLine("held in every life:");
             foreach (var rule in held)
                 Console.WriteLine($"     {rule}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"{"difficulty",-16} {"lives",5} {"clean",5} {"rate",6}");
+        foreach (var level in lives.GroupBy(l => l.Provenance.Difficulty).OrderBy(g => g.Key))
+        {
+            var names = level.Select(l => l.Name).ToHashSet();
+            var dirty = mismatches.Select(m => m.Life).Where(names.Contains).Distinct().Count();
+            var clean = level.Count() - dirty;
+            Console.WriteLine(
+                $"L{(int)level.Key} {level.Key,-13} {level.Count(),5} {clean,5} {100.0 * clean / level.Count(),5:F0}%");
+        }
+
+        var families = mismatches
+            .Select(m => byName.TryGetValue(m.Life, out var pv) ? pv.Family : "unknown")
+            .GroupBy(f => f)
+            .OrderByDescending(g => g.Count())
+            .ToList();
+        if (families.Count > 1)
+        {
+            Console.WriteLine();
+            Console.WriteLine("failures by family:");
+            foreach (var f in families)
+                Console.WriteLine($"     {f.Key,-28} {f.Count()}");
         }
 
         Console.WriteLine();
