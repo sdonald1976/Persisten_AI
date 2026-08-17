@@ -285,7 +285,7 @@ public class GreetingTests
         public ThrowingChatModel(Func<Exception> make) => _make = make;
 
         public Task<ChatCompletion> CompleteAsync(
-            string systemPrompt, string userMessage, bool jsonMode = false,
+            string systemPrompt, string userMessage, ResponseFormat? format = null,
             string? assistantPrefix = null, CancellationToken ct = default)
             => Task.FromException<ChatCompletion>(_make());
 
@@ -327,7 +327,7 @@ public class GreetingTests
         public CapturingChatModel(string reply) => _reply = reply;
 
         public Task<ChatCompletion> CompleteAsync(
-            string systemPrompt, string userMessage, bool jsonMode = false,
+            string systemPrompt, string userMessage, ResponseFormat? format = null,
             string? assistantPrefix = null, CancellationToken ct = default)
         {
             LastSystem = systemPrompt;

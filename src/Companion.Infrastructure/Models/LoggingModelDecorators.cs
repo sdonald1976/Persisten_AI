@@ -28,10 +28,10 @@ public sealed class LoggingChatModel : IChatModel
     public IChatModel Inner { get; }
 
     public Task<ChatCompletion> CompleteAsync(
-        string systemPrompt, string userMessage, bool jsonMode = false,
+        string systemPrompt, string userMessage, ResponseFormat? format = null,
         string? assistantPrefix = null, CancellationToken ct = default)
         => MeasureAsync("complete", systemPrompt, userMessage,
-            () => Inner.CompleteAsync(systemPrompt, userMessage, jsonMode, assistantPrefix, ct), ct);
+            () => Inner.CompleteAsync(systemPrompt, userMessage, format, assistantPrefix, ct), ct);
 
     public Task<ChatCompletion> StreamAsync(
         string systemPrompt, string userMessage, IProgress<string> sink,

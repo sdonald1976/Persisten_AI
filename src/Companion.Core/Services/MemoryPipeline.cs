@@ -165,9 +165,22 @@ public sealed class MemoryPipeline : IMemoryPipeline
         var (slotBest, slotSim) = BestMatch(slotMatches, embedding);
 
         // A single-valued predicate — a name, a birthday, where they live — holds one value by
-        // definition, so a new one displaces the old whether or not they flagged the change.
+        // definition, so a new one displaces the old whether or not they flagged the change. It
+        // has to, because the extractor only sees this exchange: someone saying "I live in
+        // Cambridge" has no way of signalling that Norwich was ever stored.
+        //
+        // The bar is the higher of the two thresholds, and that is a direct consequence of closing
+        // the predicate vocabulary. A model that misreads a fact can no longer invent a slot for
+        // it; it picks the nearest allowed one, and if that lands on a single-valued slot the
+        // mistake now costs an existing memory instead of sitting harmlessly beside it. Asked to
+        // classify "a second allotment plot at Marsh Lane", qwen2.5:7b answered `lives_in`. So
+        // "these really are the same fact" is held to the replacement bar, not the looser
+        // same-topic one. Supersession is still non-destructive — the old value is kept as
+        // history, linked, with a revision — but a wrong one is a lie the user has to notice.
+        var singleValuedBar = Math.Max(
+            _options.ContradictionSimilarityThreshold, _options.ReplacementSimilarityThreshold);
         if (slotBest is not null
-            && slotSim >= _options.ContradictionSimilarityThreshold
+            && slotSim >= singleValuedBar
             && FactSupersession.IsSingleValued(candidate.Predicate))
         {
             return fromUser
@@ -175,10 +188,12 @@ public sealed class MemoryPipeline : IMemoryPipeline
                 : await NeedsReviewSemanticAsync(userId, candidate, embedding, evidence, slotBest, fromUser, ct);
         }
 
-        // Anything else replaces only when the user's own words say it does. The old value is
-        // then found by topic, not by slot, because the extraction model picks the predicate and
-        // a changed fact rarely lands back in the same one ("drinks_coffee_black" → "prefers").
-        if (FactSupersession.SignalsReplacement(candidate.Evidence.Select(e => e.Excerpt), userSaid))
+        // Anything else replaces only when this turn actually says so — either the extractor read
+        // it as a change, or the user's own wording marks one. Two independent readings of the same
+        // question, and either is enough to look, because the guards below (a plausible target, a
+        // similarity floor, and evidence from the user) are what decide whether anything happens.
+        if (candidate.ProposedReplacement
+            || FactSupersession.SignalsReplacement(candidate.Evidence.Select(e => e.Excerpt), userSaid))
         {
             var (replaced, replacedSim) = slotBest is not null && slotSim >= _options.ReplacementSimilarityThreshold
                 ? (slotBest, slotSim)

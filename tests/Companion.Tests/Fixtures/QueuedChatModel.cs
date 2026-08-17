@@ -28,7 +28,7 @@ public sealed class QueuedChatModel : IChatModel
     public void Enqueue(string response) => _responses.Enqueue(response);
 
     public Task<ChatCompletion> CompleteAsync(
-        string systemPrompt, string userMessage, bool jsonMode = false,
+        string systemPrompt, string userMessage, ResponseFormat? format = null,
         string? assistantPrefix = null, CancellationToken ct = default)
     {
         Calls++;
@@ -42,7 +42,7 @@ public sealed class QueuedChatModel : IChatModel
         string systemPrompt, string userMessage, IProgress<string> sink,
         string? assistantPrefix = null, CancellationToken ct = default)
     {
-        var full = await CompleteAsync(systemPrompt, userMessage, jsonMode: false, assistantPrefix, ct);
+        var full = await CompleteAsync(systemPrompt, userMessage, null, assistantPrefix, ct);
         sink.Report(full.Text);
         return full;
     }

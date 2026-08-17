@@ -24,7 +24,7 @@ public sealed class LlmSummarizer : ISummarizer
             return "No supporting statements.";
 
         var joined = string.Join("\n- ", statements);
-        var result = await _chat.CompleteAsync(SystemPrompt, $"Observations:\n- {joined}", jsonMode: false, ct: ct);
+        var result = await _chat.CompleteAsync(SystemPrompt, $"Observations:\n- {joined}", ct: ct);
         return result.Text;
     }
 }

@@ -56,7 +56,7 @@ public sealed class LlmMemoryReranker : IMemoryReranker
 
         try
         {
-            var raw = (await _chat.CompleteAsync(SystemPrompt, prompt.ToString(), jsonMode: true, ct: ct)).Text;
+            var raw = (await _chat.CompleteAsync(SystemPrompt, prompt.ToString(), format: ResponseFormat.Json, ct: ct)).Text;
             var ids = TryParseIds(raw);
             if (ids.Count == 0)
                 return await _fallback.RerankAsync(query, candidates, maxResults, ct);

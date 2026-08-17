@@ -1,10 +1,12 @@
+using Companion.Core.Abstractions;
+
 namespace Companion.Infrastructure.Models;
 
 /// <summary>Builds an OpenAI-compatible chat request body, adding sampling params only when configured.</summary>
 internal static class ChatRequest
 {
     public static Dictionary<string, object?> Build(
-        EndpointOptions options, object messages, bool stream, bool jsonMode = false)
+        EndpointOptions options, object messages, bool stream, ResponseFormat? format = null)
     {
         var body = new Dictionary<string, object?>
         {
@@ -32,9 +34,24 @@ internal static class ChatRequest
             body["frequency_penalty"] = frequencyPenalty;
         if (options.PresencePenalty is { } presencePenalty)
             body["presence_penalty"] = presencePenalty;
-        // OpenAI-compatible structured-output hint; Ollama and LM Studio both honor json_object.
-        if (jsonMode)
+        // Structured output. `json_object` is only a hint that the reply should be JSON — every
+        // field's vocabulary is still the model's to invent, which is how one fact arrived under
+        // two different predicates and the store kept both. `json_schema` is enforced by the
+        // provider during decoding (Ollama ≥ 0.5, LM Studio, OpenAI), so an off-enum value is not
+        // rejected after the fact — it cannot be generated. Providers that don't recognize it fall
+        // back to their own JSON handling, which is no worse than where we were.
+        if (format is { Schema: not null })
+        {
+            body["response_format"] = new
+            {
+                type = "json_schema",
+                json_schema = new { name = format.SchemaName ?? "response", schema = format.Schema, strict = true },
+            };
+        }
+        else if (format is not null)
+        {
             body["response_format"] = new { type = "json_object" };
+        }
         return body;
     }
 }

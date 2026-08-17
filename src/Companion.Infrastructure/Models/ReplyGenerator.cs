@@ -67,7 +67,7 @@ public sealed class ReplyGenerator : IReplyGenerator
             {
                 result = sink is not null
                     ? await _chat.StreamAsync(systemPrompt, userMessage, liveSink!, prefix, ct)
-                    : await _chat.CompleteAsync(systemPrompt, userMessage, jsonMode: false, prefix, ct);
+                    : await _chat.CompleteAsync(systemPrompt, userMessage, null, prefix, ct);
             }
             finally
             {

@@ -44,14 +44,14 @@ public sealed class OpenAiCompatibleChatModel : IChatModel
     public string ModelName => _options.Model;
 
     public async Task<ChatCompletion> CompleteAsync(
-        string systemPrompt, string userMessage, bool jsonMode = false,
+        string systemPrompt, string userMessage, ResponseFormat? format = null,
         string? assistantPrefix = null, CancellationToken ct = default)
     {
         var http = _client();
         LogRequest(systemPrompt, userMessage, assistantPrefix, streaming: false);
 
         var request = ChatRequest.Build(
-            _options, BuildMessages(systemPrompt, userMessage, assistantPrefix), stream: false, jsonMode: jsonMode);
+            _options, BuildMessages(systemPrompt, userMessage, assistantPrefix), stream: false, format: format);
 
         using var response = await ProviderHttp.SendAsync(
             c => http.PostAsJsonAsync("chat/completions", request, c), _options, "chat", _logger, ct);

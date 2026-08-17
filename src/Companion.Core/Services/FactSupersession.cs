@@ -37,25 +37,19 @@ namespace Companion.Core.Services;
 public static partial class FactSupersession
 {
     /// <summary>
-    /// Predicates that hold exactly one value at a time, so a new value necessarily displaces the
-    /// old one. Everything absent from this list is treated as multi-valued, because that is the
-    /// safe default: wrongly keeping two facts is a tidiness problem, wrongly dropping one destroys
-    /// something the user told us and cannot be noticed from inside the system.
+    /// Predicates from before <see cref="PredicateVocabulary"/> closed the set, which the model can
+    /// no longer emit but which are still sitting in databases written when it could. Cardinality
+    /// has to keep being right about them, or upgrading would quietly change what an existing
+    /// memory means.
     /// </summary>
-    private static readonly HashSet<string> SingleValued = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> LegacySingleValued = new(StringComparer.Ordinal)
     {
-        "name", "full_name", "first_name", "last_name", "nickname", "goes_by",
-        "age", "birthday", "date_of_birth", "born", "born_in", "born_on",
-        "lives_in", "lives_at", "location", "home", "hometown", "city", "country", "address",
-        "timezone", "nationality",
-        "job", "occupation", "profession", "works_as", "employer", "job_title",
-        "gender", "pronouns",
+        "full_name", "first_name", "last_name", "nickname", "goes_by",
+        "date_of_birth", "born", "born_in", "born_on",
+        "lives_at", "location", "home", "city", "country", "address",
+        "job", "profession", "works_as", "job_title",
         "email", "email_address", "phone", "phone_number",
-        "marital_status", "relationship_status",
-        "height", "weight",
-        // A current diet is one state at a time in the way a job is, not a collection like
-        // "dislikes": someone who takes up keto has stopped being low-carb.
-        "diet",
+        "marital_status", "height", "weight",
     };
 
     /// <summary>
@@ -80,18 +74,17 @@ public static partial class FactSupersession
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ReplacementPhrase();
 
-    [GeneratedRegex(@"[^a-z0-9]+")]
-    private static partial Regex NonWord();
-
     /// <summary>
     /// True when this predicate can only hold one value, so a new value replaces the old without
-    /// the user having to say so.
+    /// the user having to say so. The vocabulary is the authority; the legacy list only covers
+    /// predicates written before there was one.
     /// </summary>
     public static bool IsSingleValued(string? predicate)
     {
         if (string.IsNullOrWhiteSpace(predicate))
             return false;
-        return SingleValued.Contains(Canonical(predicate));
+        return PredicateVocabulary.IsSingleValued(predicate)
+            || LegacySingleValued.Contains(PredicateVocabulary.Canonical(predicate));
     }
 
     /// <summary>
@@ -104,7 +97,4 @@ public static partial class FactSupersession
         => sources.Any(source => source?.Any(
             text => !string.IsNullOrWhiteSpace(text) && ReplacementPhrase().IsMatch(text)) == true);
 
-    /// <summary>Lowercased, punctuation-and-spacing-insensitive form: "Lives In" and "lives_in" agree.</summary>
-    private static string Canonical(string predicate)
-        => NonWord().Replace(predicate.Trim().ToLowerInvariant(), "_").Trim('_');
 }

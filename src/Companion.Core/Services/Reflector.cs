@@ -144,7 +144,7 @@ public sealed class Reflector : IReflector
         var now = _clock.GetUtcNow();
         var material = ComposeMaterial(messages, experiences, priorMusings, held, openLoops, signals, now);
 
-        var raw = (await _chat.CompleteAsync(SystemPrompt, material, jsonMode: true, ct: ct)).Text;
+        var raw = (await _chat.CompleteAsync(SystemPrompt, material, format: ResponseFormat.Json, ct: ct)).Text;
         if (raw.Length > MaxRawChars)
             raw = raw[..MaxRawChars];
 

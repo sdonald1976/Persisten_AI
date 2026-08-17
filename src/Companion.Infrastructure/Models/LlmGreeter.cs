@@ -58,7 +58,7 @@ public sealed class LlmGreeter : IGreeter, IGreetingRephraser
         try
         {
             var system = await SystemPromptForAsync(userId, ct);
-            var reply = await _chat.CompleteAsync(system, BuildPrompt(grounded.Openers, grounded.TimeContext), jsonMode: false, ct: ct);
+            var reply = await _chat.CompleteAsync(system, BuildPrompt(grounded.Openers, grounded.TimeContext), ct: ct);
             // Small local models sometimes leak chat-template markers (e.g. a literal <|im_end|>)
             // into their text; they are never legitimate greeting content.
             var message = SpecialTokens.Replace(reply.Text ?? string.Empty, string.Empty).Trim();

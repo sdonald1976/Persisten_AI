@@ -110,7 +110,7 @@ public sealed class ToolLoop
                 rounds++;
                 raw = (await _chat.CompleteAsync(
                     PlannerPrompt(planningContext, available, nudge, resultBlocks),
-                    userMessage, jsonMode: true, ct: ct)).Text;
+                    userMessage, format: ResponseFormat.Json, ct: ct)).Text;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

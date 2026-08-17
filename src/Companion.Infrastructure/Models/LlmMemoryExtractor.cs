@@ -36,8 +36,11 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
         foreach (var m in exchange)
             transcript.AppendLine($"{m.Role}: {m.Content}");
 
-        // Ask for JSON explicitly (structured-output mode where the server supports it).
-        var raw = (await _chat.CompleteAsync(SystemPrompt, transcript.ToString(), jsonMode: true, ct: ct)).Text;
+        // Decoded against a schema, not merely asked for JSON: the fields the pipeline makes
+        // decisions on are enums, so the model cannot invent a fresh predicate per phrasing. See
+        // ExtractionSchema.
+        var raw = (await _chat.CompleteAsync(
+            SystemPrompt, transcript.ToString(), ExtractionSchema.Format, ct: ct)).Text;
 
         // Bound the untrusted body before parsing so a runaway response can't be a problem here.
         if (raw.Length > MaxRawChars)
@@ -105,6 +108,7 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
                 RelatedProject = Cap(dto.RelatedProject),
                 Importance = Clamp(dto.Importance, 0.5),
                 ProposedConfidence = Clamp(dto.Confidence, 0.5),
+                ProposedReplacement = dto.Replaces ?? false,
                 Evidence = evidence,
             });
         }
@@ -274,5 +278,5 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
     private sealed record CandidateDto(
         string? Kind, string? Subject, string? Predicate, string? Value, string Content,
         string? Validity, string? EpisodeStatus, string? RelatedProject,
-        double? Importance, double? Confidence, string? Excerpt);
+        double? Importance, double? Confidence, string? Excerpt, bool? Replaces);
 }

@@ -261,7 +261,7 @@ public class ReplyGeneratorTests
         public QueuedChatModel(params ChatCompletion[] results) => _results = new Queue<ChatCompletion>(results);
 
         public Task<ChatCompletion> CompleteAsync(
-            string systemPrompt, string userMessage, bool jsonMode = false,
+            string systemPrompt, string userMessage, ResponseFormat? format = null,
             string? assistantPrefix = null, CancellationToken ct = default)
         {
             Calls++;

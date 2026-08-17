@@ -149,7 +149,7 @@ public class ProviderHardeningTests
         using var cts = new CancellationTokenSource();
         cts.CancelAfter(TimeSpan.FromMilliseconds(100));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => Chat(handler, Options(retries: 2, timeoutSeconds: 30)).CompleteAsync("sys", "hi", jsonMode: false, ct: cts.Token));
+            () => Chat(handler, Options(retries: 2, timeoutSeconds: 30)).CompleteAsync("sys", "hi", ct: cts.Token));
     }
 
     [Fact]

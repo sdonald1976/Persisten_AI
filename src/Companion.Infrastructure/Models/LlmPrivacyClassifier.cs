@@ -33,7 +33,6 @@ public sealed class LlmPrivacyClassifier : IPrivacyClassifier
             var verdict = await _chat.CompleteAsync(
                 SystemPrompt,
                 $"User message:\n{message}\n\nShould durable derived memory be SKIPPED or REMEMBERED?",
-                jsonMode: false,
                 ct: ct);
 
             var answer = verdict.Text.Trim();
