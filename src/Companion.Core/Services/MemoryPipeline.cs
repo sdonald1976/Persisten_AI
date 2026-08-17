@@ -113,6 +113,24 @@ public sealed class MemoryPipeline : IMemoryPipeline
                 continue;
             }
 
+            // Somebody else's fact is not the user's, whatever the extractor labelled it. Sits with
+            // the other vetoes rather than inside the semantic path because it is the same kind of
+            // rule: a thing the store is not allowed to learn about this person.
+            //
+            // Refused rather than re-attributed. Knowing "Immy likes rockpooling" would be worth
+            // having, but deriving whose it is from the sentence is guesswork, and the choice here
+            // is between losing a fact about a daughter and inventing one about her father. Only
+            // one of those is a lie.
+            if (candidate.Kind == MemoryKind.Semantic
+                && SubjectGuard.IsAboutSomeoneElse(candidate.Subject, candidate.Content))
+            {
+                _logger.LogInformation(
+                    "Rejected a candidate memory for {UserId}: {Reason}.",
+                    userId, SubjectGuard.Explain(candidate.Subject, candidate.Content));
+                decisions.Add(Reject(candidate, SubjectGuard.Explain(candidate.Subject, candidate.Content)));
+                continue;
+            }
+
             var decision = candidate.Kind == MemoryKind.Semantic
                 ? await ProcessSemanticAsync(
                     userId, candidate, existingSemantic, userMessageIds, validMessageIds, messageText, userSaid, ct)
@@ -222,7 +240,29 @@ public sealed class MemoryPipeline : IMemoryPipeline
         // wrote down is not a conversation.
         await RecordSupersessionShadowAsync(candidate, nearest, wordingSaysReplace, ct);
 
-        if (wordingSaysReplace)
+        // A multi-valued slot holds several true things at once, so replacing one of them needs to
+        // say WHICH — and the wording signal is read from the whole turn, so on its own it never
+        // can. In the `health` slot "I don't run any more, my knee's gone" is a real replacement,
+        // and it retired a penicillin allergy standing next to it.
+        //
+        // What separates the two is not how similar they are — measured, that conflates "both
+        // medical" with "the same fact" — but whether the new fact MENTIONS the old one. Someone
+        // changing something names what they are changing:
+        //
+        //   "prefers oat milk lattes over BLACK COFFEE"   replacing  "black coffee without sugar"
+        //   "no longer runs due to a knee issue"          replacing  "allergic to penicillin"   ✗
+        //
+        // The user's own words count too, because the naming is often there rather than in the
+        // extracted sentence: "actually I've gone off TEA, coffee now" yields a fact about coffee
+        // that would otherwise overlap nothing.
+        //
+        // Single-valued slots skip this: there is only ever one value they could mean.
+        var namesWhatItReplaces =
+            slotBest is null
+            || FactSupersession.IsSingleValued(candidate.Predicate)
+            || Mentions(candidate, slotBest);
+
+        if (wordingSaysReplace && namesWhatItReplaces)
         {
             // Same slot only. The replacement signal is read from the whole turn, so it says
             // "something here is being changed" and NOT which thing — and letting it fall back to
@@ -261,6 +301,22 @@ public sealed class MemoryPipeline : IMemoryPipeline
     /// Costs nothing when shadow mode is off: the recorder reports it is not recording and the
     /// model is never run, because an inference whose answer nobody reads is pure latency.
     /// </summary>
+    /// <summary>
+    /// Whether the incoming fact, or the words the user used for it, actually refer to the memory
+    /// it would replace. Token overlap rather than embedding similarity on purpose: the question is
+    /// "are these about the same thing", and two unrelated medical facts are very similar while
+    /// sharing no subject matter at all.
+    /// </summary>
+    private static bool Mentions(MemoryCandidate candidate, SemanticMemory old)
+    {
+        // Values and the user's own words, never the normalized fact. Every normalized fact starts
+        // "The user…", so comparing those guarantees a shared token and an overlap that is never
+        // zero — which is exactly how this guard silently did nothing on its first attempt.
+        var said = string.Join(
+            " ", new[] { candidate.Value }.Concat(candidate.Evidence.Select(e => e.Excerpt)));
+        return ScoreMath.KeywordOverlap(said, old.Value) > 0;
+    }
+
     private async Task RecordSupersessionShadowAsync(
         MemoryCandidate candidate, SemanticMemory? nearest, bool wordingSaysReplace, CancellationToken ct)
     {
