@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.Configure<IdentityOptions>(configuration.GetSection(IdentityOptions.SectionName));
         services.Configure<OutreachOptions>(configuration.GetSection(OutreachOptions.SectionName));
         services.Configure<CognitiveModelOptions>(configuration.GetSection(CognitiveModelOptions.Section));
+        services.Configure<SafetyOptions>(configuration.GetSection(SafetyOptions.Section));
         AddCognitiveModels(services, configuration);
         services.AddSingleton<IPersonalityService, PersonalityService>();
 
@@ -273,6 +274,21 @@ public static class DependencyInjection
                 sp.GetRequiredService<ITextPairScorer>(),
                 new RuleBasedMemoryReranker(),
                 sp.GetRequiredService<ILogger<CrossEncoderMemoryReranker>>()));
+        }
+
+        // The reply gate. Off unless asked for, and watching rather than acting even then — see
+        // SafetyOptions. Uses the Safety chat role, which falls back to Extraction, so enabling it
+        // does not require another model on the roster.
+        var safety = configuration.GetSection(SafetyOptions.Section).Get<SafetyOptions>() ?? new SafetyOptions();
+        if (safety.Enabled && modelOptions.UsesRealModel)
+        {
+            services.AddSingleton<IReplyGate>(sp => new LlmReplyGate(
+                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Safety),
+                safety, sp.GetRequiredService<ILogger<LlmReplyGate>>()));
+        }
+        else
+        {
+            services.AddSingleton<IReplyGate, OpenReplyGate>();
         }
 
         services.AddScoped<IMemoryPipeline, MemoryPipeline>();

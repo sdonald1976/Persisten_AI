@@ -25,6 +25,12 @@ public sealed class Companion : ICompanion
     private readonly IRetriever _retriever;
     private readonly IContextAssembler _assembler;
     private readonly IReplyGenerator _replyGenerator;
+
+    // All three optional and defaulted, so every existing construction site — and every test —
+    // keeps working with a gate that is simply not there.
+    private readonly IReplyGate _gate;
+    private readonly SafetyOptions _safety;
+    private readonly IShadowRecorder _shadow;
     private readonly IPersonalityService _personality;
     private readonly IMemoryPipeline _pipeline;
     private readonly IProjectUpdater _projectUpdater;
@@ -77,8 +83,14 @@ public sealed class Companion : ICompanion
         ITurnTraceLog turnLog,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
-        ILogger<Companion> logger)
+        ILogger<Companion> logger,
+        IReplyGate? gate = null,
+        IOptions<SafetyOptions>? safety = null,
+        IShadowRecorder? shadow = null)
     {
+        _gate = gate ?? new AlwaysOpenGate();
+        _safety = safety?.Value ?? new SafetyOptions();
+        _shadow = shadow ?? new NoShadowRecorder();
         _conversations = conversations;
         _projectContext = projectContext;
         _pending = pending;
@@ -374,6 +386,41 @@ public sealed class Companion : ICompanion
             _logger.LogWarning(
                 "Reply for {UserId} began by repeating an earlier turn verbatim ({Removed} chars removed).",
                 userId, generated.Text.Length - response.Length);
+        }
+
+        // 6b. The reply gate. Runs on what she is actually about to say, after the shape filters,
+        // because it judges meaning rather than form — and before storage, so a refused reply is
+        // never the thing the next turn reads back as context.
+        //
+        // In shadow mode the verdict is recorded and the reply goes out unchanged. That is the
+        // default even when the gate is switched on: a gate whose false-positive rate has never
+        // been measured should not be deciding what she may say, and the only way to measure it is
+        // to watch it be wrong without cost.
+        if (_gate.IsEnabled)
+        {
+            var verdict = await _gate.ReviewAsync(response, promptText, ct);
+            if (!verdict.Allow)
+            {
+                var enforcing = _safety.Mode == GateMode.Enforce;
+                _logger.LogWarning(
+                    "Reply gate refused a reply for {UserId} ({Mode}): {Reason}",
+                    userId, enforcing ? "enforced" : "shadow only", verdict.Reason);
+
+                await _shadow.RecordAsync(new ShadowComparison
+                {
+                    Id = Guid.NewGuid(),
+                    Subject = "safety.gate",
+                    Legacy = "allow",
+                    Model = "block",
+                    Confidence = 1.0,
+                    Agreed = false,
+                    Applied = enforcing ? "model" : "legacy",
+                    Input = verdict.Reason,
+                }, ct);
+
+                if (enforcing)
+                    response = _safety.Replacement;
+            }
         }
 
         // 7. Store the response, with the generation metadata (why it stopped, rounds, tokens) so a
@@ -807,4 +854,30 @@ public sealed class Companion : ICompanion
             ProjectContext = projectContext ?? ProjectContext.Empty,
             ProjectUpdates = ProjectUpdateResult.Empty,
         };
+
+    /// <summary>The gate when none is injected: on for nobody, and honest about it.</summary>
+    private sealed class AlwaysOpenGate : IReplyGate
+    {
+        public bool IsEnabled => false;
+
+        public Task<GateVerdict> ReviewAsync(string reply, string userMessage, CancellationToken ct = default)
+            => Task.FromResult(GateVerdict.Allowed);
+    }
+
+    /// <summary>Recording is optional here for the same reason the gate is: neither may be required.</summary>
+    private sealed class NoShadowRecorder : IShadowRecorder
+    {
+        public bool IsRecording => false;
+
+        public Task RecordAsync(ShadowComparison comparison, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task<IReadOnlyList<ShadowAgreement>> GetAgreementAsync(
+            DateTimeOffset since, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ShadowAgreement>>(Array.Empty<ShadowAgreement>());
+
+        public Task<IReadOnlyList<ShadowComparison>> GetDisagreementsAsync(
+            string? subject, int count, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ShadowComparison>>(Array.Empty<ShadowComparison>());
+    }
 }
