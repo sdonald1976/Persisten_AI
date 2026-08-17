@@ -22,7 +22,8 @@ public sealed class TestHost : IAsyncDisposable
         DateTimeOffset now,
         Action<CompanionOptions>? configureOptions = null,
         Action<IServiceCollection>? configureServices = null,
-        string? connectionString = null)
+        string? connectionString = null,
+        IEnumerable<KeyValuePair<string, string?>>? settings = null)
     {
         Clock = new FixedTimeProvider(now);
 
@@ -32,8 +33,11 @@ public sealed class TestHost : IAsyncDisposable
         _keepAlive = new SqliteConnection(connectionString);
         _keepAlive.Open();
 
+        // Raw configuration keys, for the parts of composition that read IConfiguration directly
+        // rather than a bound options class — the model roster and the cognitive-model registry
+        // both decide what to construct before options binding has happened.
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>())
+            .AddInMemoryCollection(settings ?? new Dictionary<string, string?>())
             .Build();
 
         var services = new ServiceCollection();

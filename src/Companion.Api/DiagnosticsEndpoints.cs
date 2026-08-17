@@ -28,5 +28,12 @@ internal static class DiagnosticsEndpoints
             return Results.Ok(await diagnostics.GetModelStatsAsync(clock.GetUtcNow() - window, ct));
         });
 
+        // The specialist (ONNX) models, which are a different question from the generative roster
+        // above: not "how is it performing" but "is it even here". Every one is optional and every
+        // one falls back silently by design, so without somewhere to look, a model that quietly
+        // failed to load is indistinguishable from one that is working.
+        app.MapGet("/diagnostics/cognitive", (
+            ITextPairScorer reranker, INliModel nli, ITextClassifier classifier) =>
+            Results.Ok(new[] { reranker.Status, nli.Status, classifier.Status }));
     }
 }

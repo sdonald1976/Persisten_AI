@@ -1,6 +1,7 @@
 using Companion.Core;
 using Companion.Core.Abstractions;
 using Companion.Core.Services;
+using Companion.Infrastructure.Cognition;
 using Companion.Infrastructure.Models;
 using Companion.Infrastructure.World;
 using Companion.Infrastructure.Persistence;
@@ -22,6 +23,8 @@ public static class DependencyInjection
         services.Configure<PersonalityOptions>(configuration.GetSection(PersonalityOptions.SectionName));
         services.Configure<IdentityOptions>(configuration.GetSection(IdentityOptions.SectionName));
         services.Configure<OutreachOptions>(configuration.GetSection(OutreachOptions.SectionName));
+        services.Configure<CognitiveModelOptions>(configuration.GetSection(CognitiveModelOptions.Section));
+        AddCognitiveModels(services, configuration);
         services.AddSingleton<IPersonalityService, PersonalityService>();
 
         services.AddSingleton(TimeProvider.System);
@@ -382,6 +385,62 @@ public static class DependencyInjection
     /// that will actually be called needs a non-empty model name. Prevents opaque 400/404s at the
     /// first turn and a silent "works on mock, breaks on real" gap.
     /// </summary>
+    /// <summary>
+    /// Registers the specialist-model runtime. Every model is a singleton — loading an ONNX graph
+    /// costs tens to hundreds of milliseconds and as much memory again, and a per-request copy
+    /// would pay both on every turn — and every one is optional.
+    ///
+    /// Nothing here fails when a model is absent. That is the whole contract: a specialist model
+    /// improves on a heuristic that still exists, so "not configured" is the default state and
+    /// "configured but missing" is a warning and a fallback, never a dead companion. The exception
+    /// is an entry marked Required, which is how an operator asks to be told immediately.
+    ///
+    /// Models live beside the database rather than the binaries: that is the directory a person
+    /// backs up and carries between machines, and the roster differs per machine for the same
+    /// reason the Ollama one does.
+    /// </summary>
+    private static void AddCognitiveModels(IServiceCollection services, IConfiguration configuration)
+    {
+        var options = configuration.GetSection(CognitiveModelOptions.Section).Get<CognitiveModelOptions>()
+            ?? new CognitiveModelOptions();
+        var directory = ResolveModelDirectory(options.Directory, configuration["Database:Path"]);
+        var timeout = TimeSpan.FromMilliseconds(Math.Max(50, options.TimeoutMilliseconds));
+
+        services.AddSingleton<ITextPairScorer>(sp => options.Reranker.Enabled
+            ? new OnnxTextPairScorer(
+                "reranker", options.Reranker, directory, timeout,
+                sp.GetRequiredService<ILogger<OnnxTextPairScorer>>())
+            : new UnavailableTextPairScorer("reranker", "disabled"));
+
+        // Phases 4 and 5 supply the implementations; the seam and the honest "not here" exist now
+        // so the callers can be written against the interface rather than around its absence.
+        services.AddSingleton<INliModel>(_ => new UnavailableNliModel(
+            "nli", options.Nli.Enabled ? "not implemented yet — see docs/SPECIALIST_MODELS.md" : "disabled"));
+        services.AddSingleton<ITextClassifier>(_ => new UnavailableTextClassifier(
+            "classifier",
+            options.Classifier.Enabled ? "not implemented yet — see docs/SPECIALIST_MODELS.md" : "disabled"));
+    }
+
+    /// <summary>
+    /// Model files sit next to the database unless an absolute path says otherwise, so a relative
+    /// directory follows the data rather than the working directory of whoever launched the process.
+    /// </summary>
+    private static string ResolveModelDirectory(string directory, string? databasePath)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+            directory = "models";
+        if (Path.IsPathRooted(directory))
+            return directory;
+
+        var databaseDirectory = string.IsNullOrWhiteSpace(databasePath)
+            ? null
+            : Path.GetDirectoryName(Path.GetFullPath(databasePath));
+
+        return Path.Combine(
+            string.IsNullOrWhiteSpace(databaseDirectory) ? Directory.GetCurrentDirectory() : databaseDirectory,
+            directory);
+    }
+
     /// <summary>The provider values the app understands. Anything else is a configuration error.</summary>
     private static readonly HashSet<string> SupportedProviders =
         new(StringComparer.OrdinalIgnoreCase) { "Mock", "OpenAiCompatible", "Ollama", "LMStudio" };
