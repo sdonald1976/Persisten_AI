@@ -33,6 +33,10 @@ var chosen = only is null
     ? suites
     : suites.Where(s => s.Name.Equals(only, StringComparison.OrdinalIgnoreCase)).ToArray();
 
+// Truth tables for the single-message decisions: pure functions, no store, no models.
+if (only is not null && only.Equals("text", StringComparison.OrdinalIgnoreCase))
+    return TextTruthTables.Run(verbose);
+
 // Tier 0: the pipeline with no model in the loop. Milliseconds per scenario, so the decision
 // space can be covered combinatorially rather than sampled.
 if (only is not null && only.Equals("tier0", StringComparison.OrdinalIgnoreCase))
@@ -56,7 +60,7 @@ var rankingOnly = only is not null && only.Equals("resolution", StringComparison
 if (chosen.Length == 0 && !rankingOnly)
 {
     Console.Error.WriteLine(
-        $"Unknown suite '{only}'. Known: {string.Join(", ", suites.Select(s => s.Name))}, resolution, lives, tier0");
+        $"Unknown suite '{only}'. Known: {string.Join(", ", suites.Select(s => s.Name))}, resolution, lives, tier0, text");
     return 2;
 }
 

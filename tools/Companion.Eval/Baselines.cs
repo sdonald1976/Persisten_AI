@@ -32,5 +32,25 @@ public static class Baselines
         // model would replace, not the pipeline's true recall — which is the honest thing to
         // benchmark, because it is the half that would change.
         ["supersession"] = 0.66,
+
+        // The single-message decisions, measured for the first time. Before this they had no
+        // evidence at all, which is a worse position than a bad score: nothing could regress
+        // because nothing was watching.
+        //
+        // deliverable-request rose from 0.875 to 0.981 the moment it was measured — fifteen false
+        // negatives, all of them plain requests ("give me a summary", "make me a story") that the
+        // verb list missed because the verb doing the work was "give". Three false positives
+        // remain, all self-reports containing a deliverable noun.
+        ["deliverable-request"] = 0.98,
+
+        // Clean, and the cheapest thing in the suite to keep clean.
+        ["looks-unfinished"] = 1.00,
+
+        // Two false positives, both defensible readings of an ambiguous sentence: "what can you see
+        // from your window" and "are you able to come tomorrow" both parse as questions about her
+        // capabilities. Left as the baseline rather than tuned away, because the fix is a judgement
+        // about intent and that is exactly the kind of thing a classifier should eventually do
+        // better than a regex.
+        ["capability-nudge"] = 0.83,
     };
 }
