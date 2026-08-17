@@ -93,6 +93,15 @@ internal static partial class CompletionSignals
         if (SelfReportedWork().IsMatch(message) && !RequestCue().IsMatch(message))
             return false;
 
+        // Asking for a thing is asking for a thing, whatever noun follows. "Give me a summary of
+        // the meeting" and "make me a story about a lighthouse" are unmistakable requests that the
+        // verb list misses entirely, because the verb doing the work is "give" and the artifact is
+        // named rather than described. RequestCue already recognised all of these and was only ever
+        // consulted to overrule a self-report — measured, that cost fifteen false negatives out of
+        // a hundred and thirty-three.
+        if (RequestCue().IsMatch(message))
+            return true;
+
         if (DeliverableVerbs().IsMatch(message))
             return true;
 
