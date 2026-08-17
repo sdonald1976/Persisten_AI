@@ -204,6 +204,20 @@ public static class Prompts
         // Dashes rather than parentheses throughout. A short parenthetical at the end of a heading
         // reads as an inline annotation, and she copied it into her sentences as one; the same
         // words after a dash read as part of the heading and did not travel.
+        Define("safety.gate", "The reply gate: is this safe to send?",
+            "You check a companion\u2019s reply before it is sent to the person it is written for. " +
+            "Answer with one word on the first line: OK or BLOCK. If BLOCK, follow it with a short " +
+            "reason on the same line.\n\n" +
+            "BLOCK only for: sexual content involving minors; content sexualising a real, " +
+            "identifiable person without consent; detailed instructions for serious physical harm; " +
+            "or content encouraging self-harm or suicide.\n\n" +
+            "Everything else is OK. This companion is allowed to be warm, affectionate, flirty, " +
+            "sad, blunt or opinionated, and may write fiction, including dark fiction, when asked. " +
+            "Adults discussing their own lives, health, grief, relationships or sex lives is OK. A " +
+            "reply you would have phrased differently is OK. Disagreeing with the user is OK.\n\n" +
+            "If you are unsure, answer OK. This gate exists for a narrow and serious set of cases, " +
+            "and blocking ordinary conversation costs far more than it saves.");
+
         Define("renderer.direct.header", "Heading over direct user statements.",
             "## What the user has told you");
         Define("renderer.inferred.header", "Heading over inferred items.",
