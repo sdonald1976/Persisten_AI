@@ -42,6 +42,14 @@ public static partial class DecisionDetector
             if (Filler.Any(f => lead == f || lead.StartsWith(f + " ", StringComparison.Ordinal)))
                 continue;
 
+            // A decision the user only asked about, or supposed, is not a decision. The phrasing
+            // is identical — "we decided on Postgres" and "have we decided on Postgres yet?" share
+            // every word the pattern looks for — and the difference is the mood of the sentence,
+            // which is the same distinction that stops a question becoming a stored fact.
+            // Both of these were live false positives, found by tools/Companion.Eval.
+            if (!AssertionGuard.IsAsserted(m.Value, text))
+                continue;
+
             return what;
         }
 

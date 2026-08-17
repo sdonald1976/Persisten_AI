@@ -45,6 +45,7 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<CapabilityDescriptor> Capabilities => Set<CapabilityDescriptor>();
     public DbSet<ModelCallRecord> ModelCalls => Set<ModelCallRecord>();
     public DbSet<ToolCallRecord> ToolCalls => Set<ToolCallRecord>();
+    public DbSet<ShadowComparison> ShadowComparisons => Set<ShadowComparison>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -76,6 +77,20 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Code).HasMaxLength(40);
             // Read newest-first per user.
             e.HasIndex(x => new { x.UserId, x.Timestamp });
+        });
+
+        b.Entity<ShadowComparison>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Subject).HasMaxLength(80);
+            e.Property(x => x.Legacy).HasMaxLength(200);
+            e.Property(x => x.Model).HasMaxLength(200);
+            e.Property(x => x.Applied).HasMaxLength(20);
+            // Bounded like ToolCallRecord.Arguments: this column only ever holds text when capture
+            // is explicitly switched on, and a cap keeps an accident cheap.
+            e.Property(x => x.Input).HasMaxLength(2000);
+            // Agreement is read per subject over a window; disagreements newest-first.
+            e.HasIndex(x => new { x.Subject, x.Timestamp });
         });
 
         b.Entity<UserProfile>(e =>

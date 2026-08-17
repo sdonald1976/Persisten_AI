@@ -1,0 +1,16 @@
+{"text": "We decided to use SQLite for the store.", "label": true, "source": "human_reviewed"}
+{"text": "I've settled on the Jetson.", "label": true, "source": "human_reviewed"}
+{"text": "Let's go with PostgreSQL.", "label": true, "source": "human_reviewed"}
+{"text": "I'm going with the smaller board after all.", "label": true, "source": "human_reviewed"}
+{"text": "I picked the Kokoro voice in the end.", "label": true, "source": "human_reviewed"}
+{"text": "We went with ntfy for the notifications.", "label": true, "source": "human_reviewed"}
+{"text": "I think SQLite might work.", "label": false, "source": "human_reviewed"}
+{"text": "Could we use PostgreSQL?", "label": false, "source": "human_reviewed"}
+{"text": "The Jetson looks interesting.", "label": false, "source": "human_reviewed"}
+{"text": "Have we decided on the database yet?", "label": false, "source": "human_reviewed"}
+{"text": "I keep going back and forth between SQLite and Postgres.", "label": false, "source": "human_reviewed"}
+{"text": "We decided nothing, which is the problem.", "label": false, "source": "human_reviewed"}
+{"text": "If we went with PostgreSQL, would that be simpler?", "label": false, "source": "human_reviewed"}
+{"text": "I'm going with the flow on this one.", "label": false, "source": "human_reviewed"}
+{"text": "Did we settle on ntfy or was that just talk?", "label": false, "source": "human_reviewed"}
+{"text": "Last year we decided to use SQLite, and I've regretted it since.", "label": true, "source": "human_reviewed"}

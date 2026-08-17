@@ -1,0 +1,12 @@
+{"existing": "The user drinks their coffee black without any sugar.", "incoming": "The user prefers oat milk lattes over black coffee.", "said": "Actually I've gone off black coffee. I take oat milk lattes now.", "label": true, "source": "real_conversation"}
+{"existing": "The user is rebuilding the greenhouse irrigation system at their allotment.", "incoming": "The user is working on a raised-bed build at the Marsh Lane plot.", "said": "I've started a second thing too - a raised-bed build over at the Marsh Lane plot.", "label": false, "source": "real_conversation"}
+{"existing": "The user dislikes coriander.", "incoming": "The user dislikes olives.", "said": "I don't like olives either.", "label": false, "source": "real_conversation"}
+{"existing": "The user lives in Norwich.", "incoming": "The user lives in Cambridge.", "said": "I live in Cambridge now.", "label": true, "source": "human_reviewed"}
+{"existing": "The user has a corgi called Kanga.", "incoming": "The user has a cat called Mim.", "said": "We got a cat as well, she's called Mim.", "label": false, "source": "human_reviewed"}
+{"existing": "The user follows a low-carb diet.", "incoming": "The user follows a keto diet.", "said": "Actually I do keto now.", "label": true, "source": "human_reviewed"}
+{"existing": "The user works at the university.", "incoming": "The user works at a startup.", "said": "I left the university, I'm at a startup now.", "label": true, "source": "human_reviewed"}
+{"existing": "The user is writing a talk on soil chemistry.", "incoming": "The user is rebuilding the greenhouse irrigation.", "said": "Separate thing entirely: I'm rebuilding the greenhouse irrigation.", "label": false, "source": "real_conversation"}
+{"existing": "The user lives in Norwich.", "incoming": "The user has an allotment plot at Marsh Lane.", "said": "I've started a second allotment plot at Marsh Lane.", "label": false, "source": "hard_negative"}
+{"existing": "The user drinks their coffee black.", "incoming": "The user drinks decaf.", "said": "I'm on decaf.", "label": true, "source": "hard_negative"}
+{"existing": "The user plays the cello.", "incoming": "The user plays the piano.", "said": "I've taken up piano too.", "label": false, "source": "hard_negative"}
+{"existing": "The user's name is Scott.", "incoming": "The user's name is Scott Donald.", "said": "It's Scott Donald, formally.", "label": true, "source": "hard_negative"}

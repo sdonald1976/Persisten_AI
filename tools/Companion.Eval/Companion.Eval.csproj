@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Companion.Eval</RootNamespace>
+    <AssemblyName>companion-eval</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Deliberate: the harness scores the REAL heuristics, so a change to them is a change to the
+         baseline. A reimplementation here would drift and quietly flatter whatever replaced it. -->
+    <ProjectReference Include="..\..\src\Companion.Core\Companion.Core.csproj" />
+    <ProjectReference Include="..\..\src\Companion.Infrastructure\Companion.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="datasets\**\*.jsonl" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -412,6 +412,13 @@ public static class DependencyInjection
                 sp.GetRequiredService<ILogger<OnnxTextPairScorer>>())
             : new UnavailableTextPairScorer("reranker", "disabled"));
 
+        // Shadow mode costs a real inference per turn whose answer is then discarded, so when it is
+        // off the recorder says so and callers skip the work entirely rather than paying for it.
+        if (options.ShadowMode)
+            services.AddSingleton<IShadowRecorder, ShadowRecorder>();
+        else
+            services.AddSingleton<IShadowRecorder, NullShadowRecorder>();
+
         // Phases 4 and 5 supply the implementations; the seam and the honest "not here" exist now
         // so the callers can be written against the interface rather than around its absence.
         services.AddSingleton<INliModel>(_ => new UnavailableNliModel(
