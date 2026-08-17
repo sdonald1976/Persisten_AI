@@ -54,6 +54,16 @@ foreach (var (name, run) in chosen)
     }
 }
 
+// NLI head-to-head on supersession: the judgment the wording signal only half makes.
+{
+    var models = ArgValue("--models") ?? DefaultModelDirectory();
+    var nli = Evaluate.SupersessionNli(
+        Path.Combine(datasets, "supersession.jsonl"),
+        Directory.Exists(models) ? models : null, verbose, out var nliMs);
+    if (nli is not null)
+        Console.WriteLine($"{nli.ToLine()}   {nliMs:F0} ms/call");
+}
+
 // The head-to-head. Runs only when a model directory is supplied, so the harness is still useful
 // with no weights anywhere — the heuristic baselines above are the point of it either way.
 if (only is null || only.Equals("resolution", StringComparison.OrdinalIgnoreCase))

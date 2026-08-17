@@ -1,6 +1,10 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Companion.Core;
+using Companion.Core.Abstractions;
 using Companion.Core.Services;
+using Companion.Infrastructure.Cognition;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Companion.Eval;
 
@@ -39,6 +43,57 @@ public static class Evaluate
             row => FactSupersession.SignalsReplacement(new[] { row.Said }),
             row => row.Label,
             row => $"{row.Existing} ← {row.Said}");
+
+    /// <summary>
+    /// The same judgment, asked of an NLI model instead: does the existing memory <em>contradict</em>
+    /// the incoming one? This is the head-to-head that decides whether entailment is worth its
+    /// inference cost on the supersession path, and it is the case embedding similarity is
+    /// structurally unable to make — 0.763 for the pair that must replace, 0.753 for the pair that
+    /// must coexist.
+    /// </summary>
+    public static Metrics? SupersessionNli(string path, string? modelDirectory, bool verbose, out double msPerCall)
+    {
+        msPerCall = 0;
+        if (modelDirectory is null)
+            return null;
+
+        var nli = new OnnxNliModel(
+            "nli",
+            new CognitiveModelEntry { Enabled = true, Path = "nli.onnx", MaxTokens = 128 },
+            modelDirectory,
+            TimeSpan.FromSeconds(30),
+            NullLogger.Instance);
+
+        if (!nli.IsAvailable)
+        {
+            Console.WriteLine($"     (no nli model: {nli.Status.Reason})");
+            return null;
+        }
+
+        var rows = Load<LabelledPair>(path);
+        var results = new List<(bool, bool)>(rows.Count);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        foreach (var row in rows)
+        {
+            // Premise: what we already hold. Hypothesis: what has just arrived. A contradiction
+            // between them is what "this replaces that" actually means.
+            var verdict = nli.ClassifyAsync(row.Existing, row.Incoming).GetAwaiter().GetResult();
+            var predicted = verdict.Label == Entailment.Contradiction;
+            results.Add((row.Label, predicted));
+
+            if (verbose && row.Label != predicted)
+            {
+                Console.WriteLine(
+                    $"     {(row.Label ? "missed" : "false +")}: \"{row.Existing}\" vs \"{row.Incoming}\" " +
+                    $"→ {verdict.Label} {verdict.Confidence:P0}");
+            }
+        }
+
+        watch.Stop();
+        msPerCall = rows.Count == 0 ? 0 : watch.Elapsed.TotalMilliseconds / rows.Count;
+        return Metrics.From("supersession-nli", results);
+    }
 
     private static Metrics Score<T>(
         string name,
