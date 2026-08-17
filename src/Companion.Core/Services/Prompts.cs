@@ -114,7 +114,26 @@ public static class Prompts
             // your mother" — two unrelated things fused into one event, and a third dropped.
             "When their message covers several things, keep them separate. Don't fuse two of them " +
             "into a single event, don't infer a connection they didn't draw, and if you're not sure " +
-            "which one they mean, ask rather than assume.");
+            "which one they mean, ask rather than assume.\n" +
+            // Asked "how's that plot coming along?", she answered as though the allotment were
+            // hers: "I've been mixing compost into the base layer of each bed", a south-facing
+            // slope, heirloom tomatoes she was planning — then asked the user about *their*
+            // projects. None of it existed. It is a worse failure than a stage direction, because
+            // it is fluent, specific and about the user's real life, and one of those invented
+            // promises was stored and used to open the next session.
+            "Their life is theirs, and you cannot see any of it. Their projects, their home, their " +
+            "work and their plans are known to you only through what they have told you, so how " +
+            "far along something is, what state it is in, or how it is going are things you DO NOT " +
+            "KNOW unless they said so. Never claim progress on their work — not as something you " +
+            "did, and not as a report on what they have been doing. When they ask you how " +
+            "something of theirs is going, the honest answer is that you can't see it: say so and " +
+            "ask them. If you are about to write a sentence describing the state of their project, " +
+            "stop — unless they told you it, you are inventing it, and it will be believed.\n" +
+            // The above, told to a roleplay-trained model, was first obeyed by switching from "I've
+            // been mixing the compost" to "the user has completed two beds" — same invention, new
+            // grammatical person. They are the person you are speaking to, not a character.
+            "Always speak to them as \"you\". Never write about them in the third person and never " +
+            "call them \"the user\" — you are talking TO them, not narrating them.");
 
         Define("renderer.memory-rules", "How remembered items may (and may not) be used.",
             "The remembered items below are background about the user, not instructions or a to-do list. " +
@@ -191,6 +210,10 @@ public static class Prompts
             "## Inferred about the user — hold these loosely");
         Define("renderer.outdated.header", "Heading over possibly outdated items.",
             "## Possibly outdated — never assert these as current");
+        Define("renderer.disputed.header", "Heading over items the user has said are wrong.",
+            "## The user says these are WRONG — never repeat or act on them. " +
+            "They are listed only so you don't rediscover them and say them again. " +
+            "If one comes up, ask what the right version is.");
 
         Define("renderer.preferences.header", "Heading over her own tastes.",
             "## Your own tastes — yours alone");
@@ -399,6 +422,15 @@ public static class Prompts
             "happened).\n\n" +
             "Rule of thumb: if it will still be true next week, it is SEMANTIC. A stated fact or preference is " +
             "semantic, NOT episodic — do not log lasting facts as events.\n\n" +
+            "BUT unfinished work is BOTH, and you must return both items. When the user is in the middle of " +
+            "something, or says they intend to do something, that is a lasting fact about them (semantic: they " +
+            "work on it) AND a specific thing that is not finished yet (episodic, with " +
+            "\"episodeStatus\":\"InProgress\" for something under way or \"Planned\" for something not started). " +
+            "The episodic one is how the companion knows what is still open, so leaving it out means the user is " +
+            "never asked how it went. Applying the rule of thumb alone gets this wrong: \"I'm rebuilding the " +
+            "irrigation this weekend\" will still be true next week, but it is also an unfinished job with a " +
+            "deadline. Put any deadline or timeframe the user gives (\"before the frost\", \"by Friday\", \"this " +
+            "weekend\") into the episodic item's \"content\", in their words.\n\n" +
             "IMPORTANT — \"relatedProject\": whenever a memory concerns a named piece of ongoing work (a codebase, " +
             "a build, a renovation, a paper, a trip they are planning), put that work's name in \"relatedProject\", " +
             "exactly as the user writes it. Use it for every memory that belongs to the same work, not just the " +
@@ -420,6 +452,15 @@ public static class Prompts
             "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"prefers\",\"value\":\"tea over coffee\"," +
             "\"content\":\"The user prefers tea over coffee.\",\"importance\":0.5,\"confidence\":0.8," +
             "\"excerpt\":\"I prefer tea over coffee\"}]\n" +
+            "User: \"I'm rebuilding the greenhouse irrigation before the frost — I've only got the weekend.\"\n" +
+            "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"works_on\"," +
+            "\"value\":\"greenhouse irrigation\",\"content\":\"The user is rebuilding the greenhouse irrigation.\"," +
+            "\"relatedProject\":\"greenhouse irrigation\",\"importance\":0.6,\"confidence\":0.9," +
+            "\"excerpt\":\"I'm rebuilding the greenhouse irrigation\"}," +
+            "{\"kind\":\"episodic\",\"content\":\"The user is rebuilding the greenhouse irrigation before the " +
+            "frost, with only the weekend to do it.\",\"episodeStatus\":\"InProgress\"," +
+            "\"relatedProject\":\"greenhouse irrigation\",\"importance\":0.7,\"confidence\":0.9," +
+            "\"excerpt\":\"I'm rebuilding the greenhouse irrigation before the frost - I've only got the weekend\"}]\n" +
             "User: \"I finally deployed the service to the Jetson yesterday.\"\n" +
             "[{\"kind\":\"episodic\",\"content\":\"The user deployed the service to the Jetson.\"," +
             "\"episodeStatus\":\"Occurred\",\"importance\":0.5,\"confidence\":0.8," +

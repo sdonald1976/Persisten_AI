@@ -131,11 +131,27 @@ public class ProjectBirthTests
         Assert.Equal("Birdhouse camera", project.Name);
     }
 
+    /// <summary>
+    /// A turn that resolved one project can still start another.
+    ///
+    /// This test asserted the opposite, on the reasoning that a differently-named memory must not
+    /// spawn a project behind the user's back. Driving a real conversation showed what that costs:
+    /// resolution can only ever match projects that already exist, so the turn where someone starts
+    /// their second project either resolves to an older one or to nothing — and in the first case
+    /// the birth path was skipped and the new project vanished. Across one conversation three
+    /// distinct projects (an irrigation rebuild, a raised-bed build, a soil-chemistry talk) produced
+    /// a single row, every later memory was filed under the wrong name, and because there was only
+    /// ever one project there was also never anything for the clarifying-question path to be
+    /// ambiguous between.
+    ///
+    /// The original worry is met by the limits that remain rather than by refusing outright: one
+    /// project per turn, from the most-mentioned name, never from a passing mention, and always
+    /// reported in the turn's actions. The turn's own work still stays with the project it
+    /// resolved — see <see cref="ResolvedTurn_KeepsItsOwnProject_ForLoopsAndDecisions"/>.
+    /// </summary>
     [Fact]
-    public async Task ResolvedTurn_DoesNotBirthASecondProject()
+    public async Task ResolvedTurn_CanStillBirthANewlyNamedProject()
     {
-        // When the turn already resolved a project, a differently-named memory must not spawn
-        // another one behind the user's back.
         await using var host = new TestHost(Now);
         using var scope = host.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IProjectStore>();
@@ -164,11 +180,58 @@ public class ProjectBirthTests
             },
         };
 
+        var result = await scope.ServiceProvider.GetRequiredService<IProjectUpdater>().ApplyAsync(
+            User, Array.Empty<Message>(),
+            Extraction(Decision(Episode("Set up the aquarium lights", "Aquarium controller"))),
+            context);
+
+        var projects = await store.GetProjectsAsync(User);
+        Assert.Equal(2, projects.Count);
+        Assert.Contains(projects, p => p.Name == "Aquarium controller");
+        // Never silently: the birth is in the turn's actions, and evidenced with a Created event.
+        Assert.Contains(result.Actions, a => a.Contains("created project: Aquarium controller"));
+        var born = projects.Single(p => p.Name == "Aquarium controller");
+        Assert.Contains(
+            await store.GetRecentEventsAsync(User, born.Id, 10),
+            e => e.Kind == ProjectEventKind.Created);
+    }
+
+    /// <summary>
+    /// Birthing a project the turn merely mentioned must not move the turn onto it: the loop opened
+    /// this turn belongs to the project the turn's own reference resolved to.
+    /// </summary>
+    [Fact]
+    public async Task ResolvedTurn_KeepsItsOwnProject_ForLoopsAndDecisions()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IProjectStore>();
+        var existing = new Project
+        {
+            Id = Guid.NewGuid(), UserId = User, Name = "Jetson deployment",
+            CreatedAt = Now.AddDays(-10), LastActivityAt = Now.AddDays(-1),
+        };
+        await store.AddProjectAsync(existing);
+
+        var match = new ProjectMatch
+        {
+            Project = existing, Score = 1, Confidence = 1, Reason = "test",
+            Signals = new Dictionary<string, double>(),
+        };
+        var context = new ProjectContext
+        {
+            Resolution = new EntityResolution
+            {
+                Candidates = new[] { match }, Best = match, RequiresClarification = false,
+            },
+        };
+
         await scope.ServiceProvider.GetRequiredService<IProjectUpdater>().ApplyAsync(
             User, Array.Empty<Message>(),
             Extraction(Decision(Episode("Set up the aquarium lights", "Aquarium controller"))),
             context);
 
-        Assert.Single(await store.GetProjectsAsync(User));
+        var loop = Assert.Single(await store.GetOpenLoopsByProjectAsync(User, existing.Id, onlyOpen: true));
+        Assert.Contains("aquarium lights", loop.Description);
     }
 }

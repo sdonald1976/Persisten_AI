@@ -56,14 +56,19 @@ public sealed class ProjectUpdater : IProjectUpdater
             .Where(d => d.Outcome is MemoryDecisionKind.Accepted or MemoryDecisionKind.Merged)
             .ToList();
 
-        // 0. The birth path. When the turn resolved no project but an accepted memory names one,
-        // that name is either an existing project the resolver can now match (link it) or a
-        // genuinely new one (create it). Without this, nothing in the live pipeline ever creates
-        // a project row — resolution can only find what already exists.
-        if (project is null)
-        {
-            project = await ResolveOrCreateProjectAsync(userId, accepted, now, actions, ct);
-        }
+        // 0. The birth path. Each project named by an accepted memory is either an existing
+        // project the resolver can match (link it) or a genuinely new one (create it). Without
+        // this, nothing in the live pipeline ever creates a project row — resolution can only find
+        // what already exists.
+        //
+        // It runs for EVERY name in the turn, and whether or not a project already resolved. It
+        // used to run only when nothing resolved, which meant that once a user had one project,
+        // their next one could not be born: resolution kept matching the old project (loosely
+        // enough that a soil-chemistry talk resolved to "the allotment"), so the birth path was
+        // skipped every time. Three distinct projects mentioned across one conversation produced
+        // one row, and with only ever one project there is also never anything to be ambiguous
+        // between, so the clarifying-question path could not fire either.
+        project = await EnsureProjectsAsync(userId, accepted, project, now, actions, ct);
 
         var episodic = accepted
             .Where(d => d.Candidate.Kind == MemoryKind.Episodic)
@@ -77,7 +82,7 @@ public sealed class ProjectUpdater : IProjectUpdater
             if (decision.Outcome == MemoryDecisionKind.Accepted &&
                 candidate.EpisodeStatus is EpisodeStatus.Planned or EpisodeStatus.InProgress)
             {
-                await OpenLoopAsync(userId, project, candidate, sourceMessageId, now, ct);
+                await OpenLoopAsync(userId, project, candidate.Content, sourceMessageId, now, ct);
                 actions.Add($"opened loop: {candidate.Content}");
             }
             else if (candidate.EpisodeStatus == EpisodeStatus.Resolved)
@@ -85,6 +90,27 @@ public sealed class ProjectUpdater : IProjectUpdater
                 var closed = await TryCloseLoopAsync(userId, project, candidate, now, ct);
                 if (closed is not null)
                     actions.Add($"closed loop: {closed}");
+            }
+        }
+
+        // Backstop: the extraction model routinely returns no episodic candidates at all, and when
+        // it doesn't, nothing above runs and the user's unfinished work is silently dropped. Read
+        // the obligation out of their own words instead.
+        if (!episodic.Any(d => d.Candidate.EpisodeStatus is EpisodeStatus.Planned or EpisodeStatus.InProgress))
+        {
+            foreach (var message in exchange.Where(m => m.Role == MessageRole.User))
+            {
+                var outstanding = UnfinishedWorkDetector.Detect(message.Content);
+                if (outstanding is null)
+                    continue;
+
+                var description = $"The user needs to {outstanding}.";
+                if (await AlreadyOpenAsync(userId, description, ct))
+                    continue;
+
+                await OpenLoopAsync(userId, project, description, message.Id, now, ct);
+                actions.Add($"opened loop: {description}");
+                break;
             }
         }
 
@@ -111,27 +137,54 @@ public sealed class ProjectUpdater : IProjectUpdater
     }
 
     /// <summary>
-    /// Finds the project an accepted memory names, creating it when it's genuinely new.
-    /// Conservative on purpose: one project per turn (the most-mentioned name), never on an
-    /// ambiguous resolution (two close existing candidates means ask, not multiply), and never
-    /// from names too short to be an identity.
+    /// Makes sure the project this turn is <em>about</em> exists, and returns the one the rest of
+    /// the turn should hang its work on. Conservative on purpose: never on an ambiguous resolution
+    /// (two close existing candidates means ask, not multiply), and never from a name too short to
+    /// be an identity.
+    ///
+    /// Still at most one project per turn, from the most-mentioned name: a passing "also thought
+    /// about the koi pond" is not someone starting a koi pond project, and creating one from it
+    /// would be exactly the "behind the user's back" birth this path has always refused.
+    ///
+    /// What has changed is that it no longer requires the turn to have resolved nothing. That
+    /// condition made a second project impossible to start: resolution only ever matches projects
+    /// that already exist, so a turn introducing a new one either resolves to an older project
+    /// (loosely — a soil-chemistry talk resolved to "the allotment") or to nothing, and in the
+    /// first case the birth path was skipped and the new project was simply lost. Three projects
+    /// mentioned across one real conversation produced one row. The turn still hangs its loops and
+    /// decisions on whatever it resolved; the newcomer is created, evidenced with a Created event,
+    /// reported in <paramref name="actions"/>, and can be resolved to from the next turn onwards.
     /// </summary>
-    private async Task<Project?> ResolveOrCreateProjectAsync(
-        string userId, IReadOnlyList<MemoryDecision> accepted, DateTimeOffset now,
-        List<string> actions, CancellationToken ct)
+    private async Task<Project?> EnsureProjectsAsync(
+        string userId, IReadOnlyList<MemoryDecision> accepted, Project? resolved,
+        DateTimeOffset now, List<string> actions, CancellationToken ct)
     {
-        var named = accepted
+        var group = accepted
             .Where(d => !string.IsNullOrWhiteSpace(d.Candidate.RelatedProject)
                 && d.Candidate.RelatedProject!.Trim().Length >= MinProjectNameLength)
-            .ToList();
-        if (named.Count == 0)
-            return null;
-
-        // The most-mentioned name wins the turn; its first evidence anchors the created event.
-        var group = named
             .GroupBy(d => d.Candidate.RelatedProject!.Trim(), StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(g => g.Count())
-            .First();
+            .FirstOrDefault();
+
+        if (group is null)
+            return resolved;
+
+        // Already the turn's project under a name the resolver would match — nothing to do.
+        if (resolved is not null && group.Key.Equals(resolved.Name, StringComparison.OrdinalIgnoreCase))
+            return resolved;
+
+        var project = await ResolveOrCreateProjectAsync(userId, group, resolved, now, actions, ct);
+
+        // What the turn's own reference resolved to stays the turn's project: resolution is the
+        // authority on "which thing are we talking about", and a memory naming another one is not
+        // a reason to move this turn's work over to it.
+        return resolved ?? project;
+    }
+
+    private async Task<Project?> ResolveOrCreateProjectAsync(
+        string userId, IGrouping<string, MemoryDecision> group, Project? resolved,
+        DateTimeOffset now, List<string> actions, CancellationToken ct)
+    {
         var name = group.Key;
         var evidence = group.First().Candidate.Evidence;
         var sourceMessageId = evidence.Count > 0 ? evidence[0].MessageId : (Guid?)null;
@@ -141,8 +194,10 @@ public sealed class ProjectUpdater : IProjectUpdater
         var resolution = await _resolver.ResolveProjectAsync(userId, name, ct);
         if (resolution.Best is not null)
         {
-            actions.Add($"linked to existing project: {resolution.Best.Project.Name}");
-            return resolution.Best.Project;
+            var match = resolution.Best.Project;
+            if (resolved is null || match.Id != resolved.Id)
+                actions.Add($"linked to existing project: {match.Name}");
+            return match;
         }
         if (resolution.RequiresClarification)
             return null; // two plausible existing projects — creating a third helps nobody
@@ -203,7 +258,7 @@ public sealed class ProjectUpdater : IProjectUpdater
     }
 
     private async Task OpenLoopAsync(
-        string userId, Project? project, MemoryCandidate candidate, Guid? sourceMessageId,
+        string userId, Project? project, string description, Guid? sourceMessageId,
         DateTimeOffset now, CancellationToken ct)
     {
         var loop = new OpenLoop
@@ -211,18 +266,32 @@ public sealed class ProjectUpdater : IProjectUpdater
             Id = Guid.NewGuid(),
             UserId = userId,
             ProjectId = project?.Id,
-            Description = candidate.Content,
+            Description = description,
             Owner = "user",
             Status = OpenLoopStatus.Open,
             CreatedAt = now,
             SourceMessageId = sourceMessageId,
-            Embedding = await _embeddings.EmbedAsync(candidate.Content, ct),
+            Embedding = await _embeddings.EmbedAsync(description, ct),
         };
         await _projects.AddOpenLoopAsync(loop, ct);
 
         if (project is not null)
             await LogEventAsync(userId, project.Id, ProjectEventKind.OpenLoopOpened,
-                $"Opened: {candidate.Content}", sourceMessageId, now, ct);
+                $"Opened: {description}", sourceMessageId, now, ct);
+    }
+
+    /// <summary>
+    /// Whether the user already has an open loop about this. Someone mentioning the same
+    /// outstanding job across several turns should not accumulate a loop per mention.
+    /// </summary>
+    private async Task<bool> AlreadyOpenAsync(string userId, string description, CancellationToken ct)
+    {
+        var loops = await _projects.GetOpenLoopsAsync(userId, onlyOpen: true, ct);
+        if (loops.Count == 0)
+            return false;
+
+        var embedding = await _embeddings.EmbedAsync(description, ct);
+        return loops.Any(l => ScoreMath.Cosine(embedding, l.Embedding) >= ClosureSimilarityThreshold);
     }
 
     private async Task<string?> TryCloseLoopAsync(

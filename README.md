@@ -27,6 +27,36 @@ The companion logic is a **headless brain** (`IAgent`) that every face drives id
 small reference web client built in, so a web page, desktop app, or future voice + 3D avatar can
 plug in without embedding .NET. See [`docs/API.md`](docs/API.md).
 
+### The soak harness (what unit tests can't reach)
+
+```bash
+dotnet run --project tools/Companion.Soak                    # every scenario
+dotnet run --project tools/Companion.Soak -- --only fidelity # just one
+```
+
+`dotnet test` runs against mocks and in-process fakes. It has never once caught the failures that
+actually reached a conversation, because those live in the seams — a role pointed at a model too
+small to do its job, a prompt that overflowed a window nothing knew the size of, a filter that ran
+everywhere except the path a person talks through. Each of those seams has correct, tested
+components on both sides of it.
+
+So the harness talks to a **running companion over HTTP**, with no reference to `Companion.Core`,
+and asserts properties rather than wording (the model is stochastic; an exact-output assertion gets
+weakened until it passes). It exits non-zero, so it can gate a change.
+
+| Scenario | What it drives out |
+|----------|--------------------|
+| `memory` | A fact stated in one conversation is there in the next one. |
+| `fidelity` | What the **store** holds afterwards: no facts invented from questions, a second project doesn't delete the first, an announced change actually replaces, unfinished work opens a loop. |
+| `register` | A short message gets a short reply, not an interview. |
+| `compound` | Several things in one message stay several things. |
+| `restart` | An ordinary remark isn't mistaken for a commission and answered four times over. |
+| `long` | A conversation long enough to put the prompt under pressure — and she's still herself after it. |
+
+`fidelity` reads `/memories` and `/loops` rather than judging prose, because the reply is generated
+from a transcript that is still in the prompt: she sounds coherent for the whole session in which
+the damage is done, and only the *next* session shows it.
+
 ### Reference scenarios (the acceptance benchmark)
 
 | Scenario | Behavior verified |
@@ -274,8 +304,18 @@ The companion is built to be safe for real local use, not just a demo:
   a trusted `IUserContext`, never from an API request. A message can only belong to an existing,
   owned conversation (enforced by a foreign key and the store); an unknown/foreign conversation is
   a 404, never a silent orphan.
-- **No fabricated provenance.** An extracted memory is stored only when its cited excerpt is
-  actually found in a real user message; unverifiable candidates are rejected, never back-filled.
+- **No fabricated provenance, and no misread provenance.** An extracted memory is stored only when
+  its cited excerpt is actually found in a real user message; unverifiable candidates are rejected,
+  never back-filled. That check proves the words are real, not that they were *claimed* — so a
+  second guard requires the excerpt to sit in a sentence the user was asserting. "Did I ever tell
+  you what timber I bought?" contains its own presupposition, and used to become "the user bought
+  timber" on an honestly-cited excerpt; questions, hypotheticals and suppositions are now rejected.
+- **A new fact replaces an old one only when it actually replaces it.** Whether a fact supersedes
+  or joins is decided by whether the predicate can hold one value or many (you have one birthday
+  and any number of projects) and by whether the user's own words mark a change ("actually, I've
+  gone off…"). It is deliberately *not* decided by embedding similarity, which cannot separate the
+  cases: measured on this project's own model, the coffee preference that must be replaced scores
+  0.763 while two dislikes that must both survive score 0.753.
 - **Ambiguity is a control-flow state.** When a reference like "that board" matches two projects,
   the turn asks a deterministic clarifying question and stores a **pending clarification** — it
   does not retrieve-to-answer, call the model, extract memories, or touch project state. The next

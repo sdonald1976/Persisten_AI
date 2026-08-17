@@ -124,6 +124,13 @@ public sealed class ContextAssembler : IContextAssembler
 
     private static ContextProvenance ClassifyProvenance(IMemory memory)
     {
+        // Checked before everything else: the user has told us this one is wrong, which outranks
+        // how confidently it was extracted or how directly it was said. Without this branch a
+        // disputed memory fell through to DirectStatement and was handed to the model as fact —
+        // she flagged one as disputed and then asserted it two turns later.
+        if (memory.Status == MemoryStatus.Disputed)
+            return ContextProvenance.Disputed;
+
         if (memory.Status == MemoryStatus.Superseded)
             return ContextProvenance.Outdated;
 

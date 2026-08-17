@@ -210,6 +210,19 @@ public sealed class ReplyGenerator : IReplyGenerator
         if (!_options.CompletionCheck || replySoFar.Length < _options.CompletionCheckMinChars)
             return false;
 
+        // ...but never against a reply that has already said goodbye. The judge is a small model
+        // and it is wrong in one direction in particular: told to decide whether a complete answer
+        // is complete, it says no, and each extra round writes a fresh answer with a fresh sign-off
+        // rather than continuing the old one. One conversational turn ran five rounds and 277
+        // seconds this way. A deterministic reading of the reply's own ending outranks it.
+        if (CompletionSignals.LooksFinished(replySoFar))
+        {
+            _logger.LogDebug(
+                "Reply from {Model} has already signed off; not asking the completion judge (round {Round}).",
+                _options.Model, round + 1);
+            return false;
+        }
+
         var complete = await _judge.IsCompleteAsync(userMessage, replySoFar, ct);
         if (!complete)
             _logger.LogDebug("Completion judge says the deliverable reply to {Model} is unfinished; continuing (round {Round}).",

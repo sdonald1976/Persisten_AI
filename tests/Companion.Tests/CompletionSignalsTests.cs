@@ -21,6 +21,50 @@ public class CompletionSignalsTests
     public void DeliverableRequests_AreRecognized(string message)
         => Assert.True(CompletionSignals.IsDeliverableRequest(message));
 
+    /// <summary>
+    /// Someone telling you what they are working on has not asked you to do it. The verb list saw
+    /// "writing" and put an ordinary conversational turn on the deliverable path, where the
+    /// completion judge then chased it through five generation rounds and 277 seconds, returning
+    /// four complete answers with four sign-offs concatenated into one reply.
+    /// </summary>
+    [Theory]
+    [InlineData("Separate thing entirely: I'm writing a talk on soil chemistry for the county show in October.")]
+    [InlineData("I built the raised beds myself last spring.")]
+    [InlineData("We're planning a trip to Skye.")]
+    [InlineData("I've been drafting the eulogy all week.")]
+    [InlineData("I'm working on the irrigation this weekend.")]
+    public void DescribingYourOwnWork_IsNotARequestForIt(string message)
+        => Assert.False(CompletionSignals.IsDeliverableRequest(message));
+
+    /// <summary>But asking for help with your own work still is.</summary>
+    [Theory]
+    [InlineData("I'm writing a talk on soil chemistry — can you draft an outline?")]
+    [InlineData("I'm planning a trip to Skye, please write me an itinerary.")]
+    [InlineData("I've been drafting the eulogy — help me finish it.")]
+    public void AskingForHelpWithIt_StillIs(string message)
+        => Assert.True(CompletionSignals.IsDeliverableRequest(message));
+
+    /// <summary>
+    /// A reply that has already said goodbye is finished, whatever a small judge model says. This
+    /// overrules the judge, which is wrong in exactly one direction: shown a complete answer and
+    /// asked whether it is complete, it says no, and the next round writes a whole new answer.
+    /// </summary>
+    [Theory]
+    [InlineData("…so start with a hook. Let me know if you'd like more input on any of it.")]
+    [InlineData("Hope this helps!")]
+    [InlineData("Best of luck with the talk — you've got this.")]
+    [InlineData("I hope these additional ideas are helpful as you refine your presentation. Happy planning!")]
+    [InlineData("Feel free to ask if you have any other questions.")]
+    public void ARepliesOwnSignOff_MarksItFinished(string reply)
+        => Assert.True(CompletionSignals.LooksFinished(reply));
+
+    [Theory]
+    [InlineData("Start with a hook, then move through the basics of soil composition and")]
+    [InlineData("The three things to cover are:")]
+    [InlineData("")]
+    public void AReplyStillInFlight_IsNotFinished(string reply)
+        => Assert.False(CompletionSignals.LooksFinished(reply));
+
     [Theory]
     [InlineData("how are things treating you lately?")]
     [InlineData("hi")]

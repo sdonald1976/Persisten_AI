@@ -66,6 +66,42 @@ public class ContextPacketTests
         Assert.Equal(ContextProvenance.Outdated, packet.Memories.Single().Provenance);
     }
 
+    /// <summary>
+    /// A memory the user has said is wrong must never be handed to the model as something they
+    /// told you. There was no branch for it, so it fell through to the confidence test and came out
+    /// DirectStatement: she said "I've flagged that as disputed and won't rely on it" and then
+    /// asserted it two turns later, off the back of its own packet entry.
+    /// </summary>
+    [Fact]
+    public void DisputedMemory_IsLabeledDisputed_NotDirect()
+    {
+        var packet = Assembler().Assemble(
+            "hi", Array.Empty<Message>(),
+            new[] { Result(Fact("Wrong thing", confidence: 0.9, status: MemoryStatus.Disputed)) },
+            ProjectContext.Empty);
+
+        Assert.Equal(ContextProvenance.Disputed, packet.Memories.Single().Provenance);
+    }
+
+    /// <summary>
+    /// And it must be rendered under a heading that says so — the label is only worth having if it
+    /// reaches the prompt.
+    /// </summary>
+    [Fact]
+    public void DisputedMemory_IsRenderedUnderItsOwnWarning()
+    {
+        var packet = Assembler().Assemble(
+            "hi", Array.Empty<Message>(),
+            new[] { Result(Fact("The irrigation is at the allotment", status: MemoryStatus.Disputed)) },
+            ProjectContext.Empty);
+
+        var rendered = ContextPacketRenderer.Build(packet).Text;
+
+        Assert.Contains("WRONG", rendered);
+        Assert.Contains("The irrigation is at the allotment", rendered);
+        Assert.DoesNotContain("## What the user has told you", rendered);
+    }
+
     [Fact]
     public void TokenBudget_IsRespected()
     {

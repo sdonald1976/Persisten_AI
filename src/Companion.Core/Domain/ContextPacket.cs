@@ -163,4 +163,11 @@ public enum ContextProvenance
 
     /// <summary>Was true before but may not be current.</summary>
     Outdated,
+
+    /// <summary>
+    /// The user said this is wrong. Distinct from <see cref="Outdated"/>, which was true once: this
+    /// may never have been true. Kept in the packet rather than dropped so she doesn't re-derive it
+    /// from the transcript and repeat it, but never as something to rely on.
+    /// </summary>
+    Disputed,
 }

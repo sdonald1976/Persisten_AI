@@ -37,6 +37,16 @@ public static class Checks
         new(@"(^|\n)\s*(##\s|\[USER\]|\[COMPANION)", RegexOptions.Compiled);
 
     /// <summary>
+    /// Talking about the person she is talking to, in the third person. It arrived as a side effect
+    /// of forbidding her to describe their projects in the first person: told not to say "I've been
+    /// mixing the compost", the model kept the invention and changed the grammar, producing "the
+    /// user has completed two beds and begun filling them". Whatever else is true of a reply, the
+    /// listener is "you".
+    /// </summary>
+    private static readonly Regex ThirdPersonUser =
+        new(@"\bthe user\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
     /// Everything that must hold for a single reply, given what came before it in the conversation.
     /// </summary>
     public static IEnumerable<Fault> ForTurn(Turn turn, IReadOnlyList<Turn> earlier, int promptBudget)
@@ -60,6 +70,9 @@ public static class Checks
 
         if (PacketStructure.IsMatch(reply))
             yield return new Fault("packet-echo", "reproduced the shape of her own context packet", Head(reply));
+
+        if (ThirdPersonUser.IsMatch(reply))
+            yield return new Fault("third-person-user", "referred to the person she's talking to as \"the user\"", Head(reply));
 
         // She reproduced an earlier turn rather than answering this one.
         foreach (var prior in earlier)

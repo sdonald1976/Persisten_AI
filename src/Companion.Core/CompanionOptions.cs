@@ -80,6 +80,19 @@ public sealed class CompanionOptions
     /// </summary>
     public double ContradictionSimilarityThreshold { get; set; } = 0.5;
 
+    /// <summary>
+    /// Similarity floor for replacing a fact the user has said they are changing ("actually, I've
+    /// gone off black coffee"). This is a floor, not a test: the user's wording decides that a
+    /// replacement is happening, and this only keeps it from landing on an unrelated memory.
+    ///
+    /// Measured on nomic-embed-text, which is why it sits at 0.6 — the true replacement is barely
+    /// above facts that must NOT be touched, so nothing higher is safe and nothing lower is:
+    ///   0.763 coffee black → oat milk lattes (must replace)   0.567 coffee vs coriander (must not)
+    ///   0.753 coriander vs olives (must not)                  0.493 coffee vs irrigation (must not)
+    /// See <see cref="Services.FactSupersession"/>.
+    /// </summary>
+    public double ReplacementSimilarityThreshold { get; set; } = 0.6;
+
     /// <summary>Minimum resolution score for a project to be considered a candidate at all.</summary>
     public double ResolutionMinScore { get; set; } = 0.15;
 

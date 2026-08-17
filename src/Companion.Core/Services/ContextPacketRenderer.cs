@@ -85,6 +85,9 @@ public static class ContextPacketRenderer
         public const int InferredMemories = 300;
         public const int Uncertainty = 250;
         public const int OutdatedMemories = 200;
+        // Below outdated: if the packet has to lose something, a fact the user has already told us
+        // is wrong is the first thing that should go.
+        public const int DisputedMemories = 190;
         public const int Diagnostics = 100;
     }
 
@@ -193,6 +196,7 @@ public static class ContextPacketRenderer
         var direct = rest.Where(i => i.Provenance == ContextProvenance.DirectStatement).ToList();
         var inferred = rest.Where(i => i.Provenance == ContextProvenance.Inferred).ToList();
         var outdated = rest.Where(i => i.Provenance == ContextProvenance.Outdated).ToList();
+        var disputed = rest.Where(i => i.Provenance == ContextProvenance.Disputed).ToList();
 
         Bullets("shared memories", Rank.SharedMemories, "renderer.shared.header",
             shared.Select(i => FormatMemory(i, packet.Identities)), "renderer.shared.rules");
@@ -204,6 +208,8 @@ public static class ContextPacketRenderer
             inferred.Select(i => FormatMemory(i, packet.Identities)));
         Bullets("outdated memories", Rank.OutdatedMemories, "renderer.outdated.header",
             outdated.Select(i => FormatMemory(i, packet.Identities)));
+        Bullets("disputed memories", Rank.DisputedMemories, "renderer.disputed.header",
+            disputed.Select(i => FormatMemory(i, packet.Identities)));
         Bullets("procedures", Rank.Procedures, "USER-TAUGHT PROCEDURES", packet.ProcedureNotes);
         Bullets("preferences", Rank.Preferences, "renderer.preferences.header",
             packet.PreferenceNotes, "renderer.preferences.rules");
@@ -279,7 +285,8 @@ public static class ContextPacketRenderer
         var recent = new Section("recent conversation", Rank.Recent, recentText);
         var at = result.FindIndex(s => s.Rank is Rank.Project or Rank.OpenLoops or Rank.Clarification
             or Rank.SharedMemories or Rank.DirectMemories or Rank.InferredMemories
-            or Rank.OutdatedMemories or Rank.Perspectives or Rank.Procedures or Rank.Preferences
+            or Rank.OutdatedMemories or Rank.DisputedMemories
+            or Rank.Perspectives or Rank.Procedures or Rank.Preferences
             or Rank.Tools or Rank.Uncertainty or Rank.Diagnostics);
 
         result.Insert(at < 0 ? result.Count : at, recent);
