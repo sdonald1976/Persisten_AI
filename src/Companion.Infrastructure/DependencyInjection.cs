@@ -259,6 +259,22 @@ public static class DependencyInjection
             modelOptions.Chat,
             sp.GetRequiredService<ILogger<ReplyGenerator>>()));
 
+        // The cross-encoder reranker goes on last, after the provider block has chosen a reranker,
+        // so it decorates that choice and falls back to it whenever the model has no opinion.
+        //
+        // Two flags, not one: loading a model so it can be measured in shadow is a different
+        // decision from putting it in the path of every turn, and collapsing them is how a model
+        // gets promoted for the crime of being present.
+        var cognitive = configuration.GetSection(CognitiveModelOptions.Section).Get<CognitiveModelOptions>()
+            ?? new CognitiveModelOptions();
+        if (cognitive.Reranker.Enabled && cognitive.RerankMemories)
+        {
+            services.AddSingleton<IMemoryReranker>(sp => new CrossEncoderMemoryReranker(
+                sp.GetRequiredService<ITextPairScorer>(),
+                new RuleBasedMemoryReranker(),
+                sp.GetRequiredService<ILogger<CrossEncoderMemoryReranker>>()));
+        }
+
         services.AddScoped<IMemoryPipeline, MemoryPipeline>();
 
         // Project awareness: resolution, summary/open-loop context, and post-turn updates.

@@ -21,6 +21,17 @@ public sealed class CognitiveModelOptions
     /// <summary>Cross-encoder for relatedness: reranking, entity resolution, reference targeting.</summary>
     public CognitiveModelEntry Reranker { get; set; } = new();
 
+    /// <summary>
+    /// Let the cross-encoder actually reorder retrieved memories, rather than only being loaded and
+    /// measured. Separate from <c>Reranker.Enabled</c> on purpose: loading a model so it can be
+    /// judged in shadow is a different decision from putting it in the path of every turn, and
+    /// conflating them is how a model gets promoted for being present.
+    ///
+    /// Off, because it has not earned it. On this project's resolution set the cross-encoder and
+    /// the keyword score are level (11/12 each), so there is no measured reason to prefer it yet.
+    /// </summary>
+    public bool RerankMemories { get; set; }
+
     /// <summary>Entailment/contradiction, for supersession and the assertion veto.</summary>
     public CognitiveModelEntry Nli { get; set; } = new() { Threshold = 0.6 };
 
