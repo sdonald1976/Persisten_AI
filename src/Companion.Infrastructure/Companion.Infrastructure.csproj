@@ -22,5 +22,8 @@
   <ItemGroup>
     <!-- Test seam: lets the test project construct providers over a mocked HttpMessageHandler. -->
     <InternalsVisibleTo Include="Companion.Tests" />
+    <!-- The evaluation harness scores the real implementations head-to-head against the heuristics
+         they might replace, which means constructing them directly rather than through DI. -->
+    <InternalsVisibleTo Include="companion-eval" />
   </ItemGroup>
 </Project>

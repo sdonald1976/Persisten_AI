@@ -210,7 +210,7 @@ and evaluation at §16, after several models are in. Building the measurement fi
 |---|---|
 | 1 — runtime seam | **built** — see `src/Companion.Core/Abstractions/ICognitiveModel.cs`, `Companion.Infrastructure/Cognition/` |
 | 2 — shadow + evaluation | **built** — `IShadowRecorder`, `/diagnostics/shadow`, `tools/Companion.Eval` |
-| 3 — cross-encoder | not started |
+| 3 — cross-encoder | **built, measured, NOT adopted** — see below |
 | 4 — NLI | not started |
 | 5 — cognitive classifier | not started |
 | 6 — emotion | not started |
@@ -260,6 +260,50 @@ Datasets are JSONL under `tools/Companion.Eval/datasets/`, each row tagged with 
 from: `real_conversation`, `human_reviewed`, `hard_negative`, `weakly_labelled`, `synthetic`. The
 hard negatives are the ones that matter — rows sharing vocabulary with the opposite label, which is
 what separates a model from a keyword list.
+
+### Phase 3: the cross-encoder, measured and not adopted
+
+`cross-encoder/ms-marco-MiniLM-L6-v2` (22M, **apache-2.0**, ONNX from the canonical repo — no
+third-party mirror needed, so the licence is unambiguous). Fetch with `tools/get-models.ps1`;
+weights are gitignored.
+
+It works. It loads in the real app, is called on real turns, and costs **~25 ms per query** on the
+CPU with no VRAM contention. Verified end-to-end: `/diagnostics/cognitive` shows
+`available=true, calls=2, failures=0, avg 24.7ms` after a live conversation.
+
+And on the resolution set it does not beat the thing it would replace:
+
+```
+keyword-overlap   n=12  P@1=0.917  R@3=1.000  MRR=0.958
+cross-encoder     n=12  P@1=0.917  R@3=1.000  MRR=0.944
+hybrid            n=12  P@1=0.917  R@3=1.000  MRR=0.944
+```
+
+The interesting part is *which* one each got wrong. Keyword missed **"the buoy one"** → picked
+"Halyard, a C# service" over "the Marsh Lane marine sensor project" — the case it structurally
+cannot do, since the two share no token, Jaccard scores zero, and the tie falls to whatever was
+first. The cross-encoder got that right and missed a different one, **"the thing with the little
+board"** → "the soil chemistry talk" over "the Jetson Nano build". The hybrid fixes keyword's miss
+and inherits the model's, landing in the same place.
+
+**So it stays off.** The rule is that a model replaces a heuristic on evidence, and "level on twelve
+rows" is not that evidence — twelve rows is far too few for one case to mean anything, and the set
+was written by hand, which biases it toward candidates that share vocabulary and therefore toward
+Jaccard. That is the honest reading, and shipping it anyway because it is newer would be exactly the
+failure this document exists to prevent.
+
+What it is good for now is **shadow mode on real conversations**, which is a far better dataset than
+twelve rows somebody wrote down. Two flags, deliberately separate:
+
+- `Reranker:Enabled` — load the model, so it can be measured.
+- `RerankMemories` — let it actually reorder retrieval.
+
+Collapsing those into one is how a model gets promoted for the crime of being present.
+
+**What would change the verdict:** a resolution set an order of magnitude larger, harvested from
+`/diagnostics/shadow/disagreements` rather than invented; and a retrieval test at scale, which needs
+a few hundred memories in the store, since today the retriever returns everything and there is
+nothing to rerank.
 
 ### Shadow mode
 

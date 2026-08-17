@@ -35,3 +35,8 @@ Thumbs.db
 
 # Runtime prompt overrides (user's local wording, editable via /prompts.html)
 prompts/
+
+# Specialist model weights. Fetched by tools/get-models.ps1, never committed: tens to hundreds of
+# megabytes, versioned independently of this code, and awkward to remove from history later.
+models/
+*.onnx
