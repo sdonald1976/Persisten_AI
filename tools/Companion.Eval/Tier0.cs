@@ -97,7 +97,7 @@ public sealed class Tier0Runner : IAsyncDisposable
                 embeddings,
                 sp.GetRequiredService<IProfileStore>(),
                 sp.GetRequiredService<IPersonalityService>(),
-                Options.Create(sp.GetRequiredService<IOptions<CompanionOptions>>().Value),
+                Options.Create(RuleOnly()),
                 clock, NullLogger<MemoryPipeline>.Instance);
 
             await pipeline.ProcessAsync(userId, new[] { message }, ct);
@@ -106,6 +106,25 @@ public sealed class Tier0Runner : IAsyncDisposable
         var stored = (await store.GetRetrievableMemoriesAsync(userId, ct)).OfType<SemanticMemory>().ToList();
         return new Tier0Result(scenario, stored);
     }
+
+
+    /// <summary>
+    /// Similarity taken out of the way, so this tier measures the RULES and nothing else.
+    ///
+    /// The mock embedding's geometry is not nomic's, and leaving the production thresholds in place
+    /// made fourteen correct behaviours look like failures: "dislikes coriander" against "dislikes
+    /// olives" scores 0.5 on the mock and 0.753 on the real model, so the replacement bar of 0.6
+    /// fell on opposite sides of the same case. Asserting an outcome that depends on which embedder
+    /// is loaded would make this suite a measure of the mock.
+    ///
+    /// Threshold calibration belongs to Tier 1, against the model that actually runs.
+    /// </summary>
+    private static CompanionOptions RuleOnly() => new()
+    {
+        DuplicateSimilarityThreshold = 0.99,
+        ContradictionSimilarityThreshold = 0.0,
+        ReplacementSimilarityThreshold = 0.0,
+    };
 
     public ValueTask DisposeAsync() => _services.DisposeAsync();
 
@@ -137,9 +156,15 @@ public sealed record Tier0Result(PipelineScenario Scenario, IReadOnlyList<Semant
     {
         foreach (var want in Scenario.Expected)
         {
+            // Whole-value equality, not substring. Tier 0 supplies the values itself, so they are
+            // known exactly — and substring matching reported a correct result as a failure
+            // twenty-six times: asked whether "Scott" was still current, it found "Scott Donald"
+            // and said yes. Tier 1 keeps substring matching, because there the extractor
+            // paraphrases and the exact wording is not ours to predict.
             var active = Stored
                 .Where(m => string.Equals(m.Predicate, want.Predicate, StringComparison.OrdinalIgnoreCase))
-                .Where(m => (m.Value ?? "").Contains(want.Keyword, StringComparison.OrdinalIgnoreCase))
+                .Where(m => string.Equals(
+                    (m.Value ?? "").Trim(), want.Keyword.Trim(), StringComparison.OrdinalIgnoreCase))
                 .Where(m => m.Status == MemoryStatus.Active)
                 .ToList();
 

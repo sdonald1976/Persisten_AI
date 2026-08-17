@@ -117,9 +117,9 @@ public static class PipelineScenarios
             },
             new[]
             {
-                new Expectation(predicate, Key(newValue), true,
+                new Expectation(predicate, newValue, true,
                     "a newly stated value is current"),
-                new Expectation(predicate, Key(oldValue), !replaces,
+                new Expectation(predicate, oldValue, !replaces,
                     replaces
                         ? "a replacement retires the value it names"
                         : "without a named target, both values stay"),
@@ -160,9 +160,6 @@ public static class PipelineScenarios
             .Replace("{old}", namesOld ? oldValue : "that")
             .Replace("{New}", Upper(newValue))
             .Replace("{new}", newValue);
-
-    /// <summary>The word a stored value is matched on — the last one, which carries the meaning.</summary>
-    private static string Key(string value) => value.Split(' ').Last();
 
     private static string Upper(string s) => char.ToUpperInvariant(s[0]) + s[1..];
 }

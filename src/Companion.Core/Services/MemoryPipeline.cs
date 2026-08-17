@@ -176,11 +176,9 @@ public sealed class MemoryPipeline : IMemoryPipeline
 
         var (nearest, similarity) = BestMatch(existing, embedding);
 
-        // Same fact restated → confirmation (merge, don't duplicate).
+        // The same fact restated, word for word in the slot's own terms → confirmation.
         if (exact is not null)
             return await ConfirmSemanticAsync(exact, candidate, evidence, fromUser, ct);
-        if (nearest is not null && similarity >= _options.DuplicateSimilarityThreshold)
-            return await ConfirmSemanticAsync(nearest, candidate, evidence, fromUser, ct);
 
         // Does this new value REPLACE an existing one, or join it? See FactSupersession — the short
         // version is that a slot match plus similarity cannot tell those apart, so the question is
@@ -287,6 +285,19 @@ public sealed class MemoryPipeline : IMemoryPipeline
                     : await NeedsReviewSemanticAsync(userId, candidate, embedding, evidence, replaced, fromUser, ct);
             }
         }
+
+        // Only now: a paraphrase of something already held. This used to run BEFORE the slot rules
+        // and swallowed corrections whole. "Scott" → "Scott Donald" and "allergic to penicillin" →
+        // "allergic to amoxicillin" are textually near-identical to what they correct, so they
+        // cleared the duplicate threshold and were recorded as CONFIRMATIONS of the very facts they
+        // were fixing — saying "I was wrong" raised her confidence in the wrong answer.
+        //
+        // Nothing is lost by the move. A genuine restatement has the same value and is caught by
+        // the exact key above; what reaches here always differs in value, and a different value is
+        // not a restatement however similar the sentence reads. Cardinality and the replacement
+        // rules get first refusal, and this catches what they decline.
+        if (nearest is not null && similarity >= _options.DuplicateSimilarityThreshold)
+            return await ConfirmSemanticAsync(nearest, candidate, evidence, fromUser, ct);
 
         // 5. Otherwise a new fact — score confidence and accept if it clears the bar.
         var confidence = ConfidenceCalculator.Compute(candidate.ProposedConfidence, fromUser, corroborations: 0);
