@@ -33,11 +33,22 @@ var chosen = only is null
     ? suites
     : suites.Where(s => s.Name.Equals(only, StringComparison.OrdinalIgnoreCase)).ToArray();
 
+// The synthetic-lives harness: generate a life whose correct final store is known, run it through
+// the real extractor and pipeline, and diff. Opt-in because it costs real inference time.
+if (only is not null && only.Equals("lives", StringComparison.OrdinalIgnoreCase))
+{
+    var count = int.TryParse(ArgValue("--lives"), out var n) ? n : 10;
+    var seed = int.TryParse(ArgValue("--seed"), out var sd) ? sd : 1;
+    var model = ArgValue("--extraction") ?? "qwen2.5:7b-instruct";
+    var url = ArgValue("--ollama") ?? "http://localhost:11434/v1";
+    return await LifeSuite.RunAsync(count, seed, model, url, verbose);
+}
+
 var rankingOnly = only is not null && only.Equals("resolution", StringComparison.OrdinalIgnoreCase);
 if (chosen.Length == 0 && !rankingOnly)
 {
     Console.Error.WriteLine(
-        $"Unknown suite '{only}'. Known: {string.Join(", ", suites.Select(s => s.Name))}, resolution");
+        $"Unknown suite '{only}'. Known: {string.Join(", ", suites.Select(s => s.Name))}, resolution, lives");
     return 2;
 }
 
