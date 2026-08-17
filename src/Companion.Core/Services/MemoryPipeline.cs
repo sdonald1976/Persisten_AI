@@ -189,6 +189,16 @@ public sealed class MemoryPipeline : IMemoryPipeline
         // history, linked, with a revision — but a wrong one is a lie the user has to notice.
         var singleValuedBar = Math.Max(
             _options.ContradictionSimilarityThreshold, _options.ReplacementSimilarityThreshold);
+
+        // Why supersession did or didn't happen, at the moment it was decided. Worth keeping: every
+        // supersession bug so far has been invisible from the outside, because the store simply
+        // holds two facts and neither of them looks wrong on its own.
+        _logger.LogDebug(
+            "Supersession check for {Subject}/{Predicate}: slotMatches={Slots} slotSim={SlotSim:F3} " +
+            "bar={Bar:F3} singleValued={Single} fromUser={FromUser} nearestSim={NearestSim:F3}",
+            candidate.Subject, candidate.Predicate, slotMatches.Count, slotSim, singleValuedBar,
+            FactSupersession.IsSingleValued(candidate.Predicate), fromUser, similarity);
+
         if (slotBest is not null
             && slotSim >= singleValuedBar
             && FactSupersession.IsSingleValued(candidate.Predicate))

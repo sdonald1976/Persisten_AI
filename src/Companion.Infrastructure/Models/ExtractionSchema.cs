@@ -56,7 +56,7 @@ internal static class ExtractionSchema
         // it, the fallback is "Occurred", and an unfinished job recorded as already having happened
         // opens no loop and is never asked about again. "I'm rebuilding the irrigation this
         // weekend" came back as Occurred on a real run.
-        ["required"] = new[] { "kind", "content", "excerpt", "predicate", "value", "episodeStatus" },
+        ["required"] = new[] { "kind", "content", "excerpt", "predicate", "value", "episodeStatus", "subject" },
         ["properties"] = new Dictionary<string, object?>
         {
             ["kind"] = Enum(
@@ -84,7 +84,11 @@ internal static class ExtractionSchema
             {
                 ["type"] = "string",
                 ["maxLength"] = 60,
-                ["description"] = "Almost always \"user\". Semantic memories only.",
+                ["description"] =
+                    "WHOSE fact this is. \"user\" when it is about the person speaking. When they "
+                    + "are telling you about somebody else — their daughter, their partner, a "
+                    + "colleague — put that person here instead, because their hobbies and habits "
+                    + "are not the user's.",
             },
 
             // The field the whole exercise is about.

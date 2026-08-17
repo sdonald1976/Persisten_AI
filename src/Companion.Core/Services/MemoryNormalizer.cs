@@ -12,7 +12,12 @@ public static partial class MemoryNormalizer
 {
     public static MemoryCandidate Normalize(MemoryCandidate candidate)
     {
-        var subject = Collapse(candidate.Subject)?.ToLowerInvariant();
+        // Defaulted HERE and nowhere else. It used to be defaulted at the point of storage
+        // (Subject ?? "user") and left null at the point of comparison, so the slot key of an
+        // incoming fact was "|lives_in" while every stored fact's was "user|lives_in". They never
+        // matched, cardinality was never consulted, and a house move left both towns current in
+        // 40 lives out of 40. A default applied on one side of a comparison is not a default.
+        var subject = Collapse(candidate.Subject)?.ToLowerInvariant() ?? "user";
         var predicate = Collapse(candidate.Predicate)?.ToLowerInvariant();
         var value = Collapse(candidate.Value);
         var project = Collapse(candidate.RelatedProject);
