@@ -1,0 +1,16 @@
+{"text": "Did I ever tell you what timber I bought for the beds?", "excerpt": "what timber I bought for the beds", "label": false, "source": "real_conversation"}
+{"text": "What am I building at the allotment again?", "excerpt": "building at the allotment", "label": false, "source": "real_conversation"}
+{"text": "Have I mentioned that I play the cello?", "excerpt": "I play the cello", "label": false, "source": "human_reviewed"}
+{"text": "If I bought cedar for the beds, would it last longer?", "excerpt": "I bought cedar for the beds", "label": false, "source": "human_reviewed"}
+{"text": "Wondering if I ever paid that invoice.", "excerpt": "I ever paid that invoice", "label": false, "source": "human_reviewed"}
+{"text": "do you remember where I said I grew up", "excerpt": "where I said I grew up", "label": false, "source": "human_reviewed"}
+{"text": "I wouldn't say I've bought the timber yet.", "excerpt": "I've bought the timber", "label": false, "source": "hard_negative"}
+{"text": "My wife thinks I bought too much cedar.", "excerpt": "I bought too much cedar", "label": true, "source": "hard_negative"}
+{"text": "I bought cedar for the beds last weekend.", "excerpt": "bought cedar for the beds", "label": true, "source": "human_reviewed"}
+{"text": "My name is Scott.", "excerpt": "My name is Scott", "label": true, "source": "human_reviewed"}
+{"text": "I grew up in a town called Thistlemere.", "excerpt": "I grew up in a town called Thistlemere", "label": true, "source": "human_reviewed"}
+{"text": "Also I don't like coriander. Never have.", "excerpt": "I don't like coriander", "label": true, "source": "real_conversation"}
+{"text": "I bought cedar for the beds. Did I tell you I hired a mitre saw too?", "excerpt": "I bought cedar for the beds", "label": true, "source": "human_reviewed"}
+{"text": "I bought cedar for the beds. Did I tell you I hired a mitre saw too?", "excerpt": "I hired a mitre saw", "label": false, "source": "human_reviewed"}
+{"text": "Since I've moved to Cambridge, do you know any good cafes?", "excerpt": "I've moved to Cambridge", "label": true, "source": "human_reviewed"}
+{"text": "Since I've moved to Cambridge, did I say what timber I bought?", "excerpt": "what timber I bought", "label": false, "source": "human_reviewed"}

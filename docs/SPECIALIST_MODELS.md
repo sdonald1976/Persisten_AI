@@ -209,7 +209,7 @@ and evaluation at §16, after several models are in. Building the measurement fi
 | Phase | Status |
 |---|---|
 | 1 — runtime seam | **built** — see `src/Companion.Core/Abstractions/ICognitiveModel.cs`, `Companion.Infrastructure/Cognition/` |
-| 2 — shadow + evaluation | not started |
+| 2 — shadow + evaluation | **built** — `IShadowRecorder`, `/diagnostics/shadow`, `tools/Companion.Eval` |
 | 3 — cross-encoder | not started |
 | 4 — NLI | not started |
 | 5 — cognitive classifier | not started |
@@ -220,6 +220,62 @@ and evaluation at §16, after several models are in. Building the measurement fi
 No model files are shipped or downloaded. Every specialist model is **disabled by default**, and the
 companion starts, runs and passes its full suite with none present — that is the fallback
 requirement, and it is tested rather than asserted.
+
+### What Phase 2 found on its first run
+
+```
+decision       n=16  P=0.778 R=1.000 F1=0.875  FP=2  FN=0
+assertion      n=16  P=0.875 R=1.000 F1=0.933  FP=1  FN=0
+supersession   n=12  P=1.000 R=0.500 F1=0.667  FP=0  FN=3
+```
+
+Three things, none of which needed a model to learn:
+
+1. **`DecisionDetector` had two false positives, and both were questions** — "have we decided on the
+   database yet?" and "if we went with PostgreSQL, would that be simpler?". The same
+   question-is-not-a-claim confusion that put fabricated facts in the memory store, in a different
+   detector, unnoticed. Gating it on `AssertionGuard` took it to **F1 1.000**. That is the harness
+   paying for itself before a single model exists, and it is the argument for building it first.
+2. **The one remaining `assertion` miss is precisely the case NLI catches and mood cannot**: "I
+   wouldn't say I've bought the timber yet" is a well-formed statement that does not entail the
+   fact. Independent evidence for §3.3 — *add* an entailment veto, don't replace the mood check.
+3. **Supersession's wording signal has perfect precision and 50% recall.** It never claims a
+   replacement wrongly and misses half the real ones ("I'm on decaf"). Note what is being measured:
+   the wording signal alone. In production, cardinality catches "I live in Cambridge now" and "it's
+   Scott Donald" with no wording at all. So 0.667 is the floor of the half a model would replace,
+   which is the honest thing to benchmark.
+
+### Using it
+
+```bash
+dotnet run --project tools/Companion.Eval              # score every suite against its baseline
+dotnet run --project tools/Companion.Eval -- --verbose # print the mistakes, not the successes
+```
+
+Non-zero exit when a suite falls below `Baselines.Floors`, so it can gate a change. The harness
+references `Companion.Core` deliberately and scores the **real** heuristics — a reimplementation
+would drift and end up flattering whatever replaced it.
+
+Datasets are JSONL under `tools/Companion.Eval/datasets/`, each row tagged with where its label came
+from: `real_conversation`, `human_reviewed`, `hard_negative`, `weakly_labelled`, `synthetic`. The
+hard negatives are the ones that matter — rows sharing vocabulary with the opposite label, which is
+what separates a model from a keyword list.
+
+### Shadow mode
+
+Off by default. `CognitiveModels:ShadowMode: true` runs a model beside the heuristic it might
+replace and records both, **changing nothing** — the production answer stays the heuristic's, and
+each row records `Applied: "legacy"` explicitly rather than leaving it to be inferred from a config
+flag whose value at the time isn't in the row.
+
+- `GET /diagnostics/shadow` — agreement rate, average confidence and added latency per subject.
+- `GET /diagnostics/shadow/disagreements?subject=&count=` — the cases worth a human deciding.
+
+When it is off, the model is not merely ignored, it is **not run**: shadowing costs a real inference
+per turn, and paying for an answer nobody reads is how a measurement feature becomes a latency
+regression. Input text is only stored when a caller passes it, because the rest of the telemetry
+deliberately holds sizes and outcomes rather than content so it can be kept for weeks without
+becoming a second, unguarded conversation store.
 
 ---
 

@@ -35,5 +35,20 @@ internal static class DiagnosticsEndpoints
         app.MapGet("/diagnostics/cognitive", (
             ITextPairScorer reranker, INliModel nli, ITextClassifier classifier) =>
             Results.Ok(new[] { reranker.Status, nli.Status, classifier.Status }));
+
+        // How often a shadowed model disagrees with the heuristic it might replace, and how much
+        // latency it adds. The two questions that decide a promotion.
+        app.MapGet("/diagnostics/shadow", async (
+            IShadowRecorder shadow, TimeProvider clock, double? hours, CancellationToken ct) =>
+        {
+            var window = TimeSpan.FromHours(Math.Clamp(hours ?? 24 * 7, 0.1, 24 * 90));
+            return Results.Ok(await shadow.GetAgreementAsync(clock.GetUtcNow() - window, ct));
+        });
+
+        // The disagreements themselves — the queue of cases worth a human deciding who was right,
+        // which is the only thing that turns an agreement rate into evidence.
+        app.MapGet("/diagnostics/shadow/disagreements", async (
+            IShadowRecorder shadow, string? subject, int? count, CancellationToken ct) =>
+            Results.Ok(await shadow.GetDisagreementsAsync(subject, count ?? 50, ct)));
     }
 }
