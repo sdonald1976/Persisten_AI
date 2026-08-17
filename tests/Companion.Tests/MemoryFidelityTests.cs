@@ -203,12 +203,18 @@ public class MemoryFidelityTests
     }
 
     /// <summary>
-    /// The extractor can now say outright that the user is changing something, which is the signal
-    /// the pipeline used to have to infer. It carries a replacement whose wording gives nothing
-    /// away — "I'm on decaf" has no "actually" and no "no longer" in it.
+    /// The extractor saying "this replaces something" is NOT enough on its own, and this test
+    /// asserted the opposite until eight generated lives said otherwise.
+    ///
+    /// A replacement has to name what it replaces. "I'm on decaf" plainly supersedes black coffee to
+    /// a reader, and shares no word with it — so it is kept alongside instead. That is a real recall
+    /// loss and it is the right side to err on: the same permissiveness, applied to the `health`
+    /// slot, let "I don't run any more, my knee's gone" retire a penicillin allergy in seven lives
+    /// out of eight. Two coffee preferences sitting side by side is untidy; a destroyed medical fact
+    /// is dangerous, and only one of them is recoverable.
     /// </summary>
     [Fact]
-    public async Task TheExtractorSayingSo_IsEnoughToReplace()
+    public async Task TheExtractorSayingSo_IsNotEnoughOnItsOwn()
     {
         await using var host = new TestHost(Now);
         using var scope = host.CreateScope();
@@ -228,8 +234,12 @@ public class MemoryFidelityTests
         var result = await BuildPipeline(scope.ServiceProvider, host.Clock, RuleOnly(), candidate)
             .ProcessAsync(User, new[] { changed });
 
-        Assert.Equal(MemoryDecisionKind.Superseded, Assert.Single(result.Decisions).Outcome);
-        Assert.Contains("decaf", Assert.Single(await ActiveFactsAsync(scope)).NormalizedFact);
+        Assert.Equal(MemoryDecisionKind.Accepted, Assert.Single(result.Decisions).Outcome);
+
+        var active = await ActiveFactsAsync(scope);
+        Assert.Equal(2, active.Count);
+        Assert.Contains(active, m => m.NormalizedFact.Contains("decaf"));
+        Assert.Contains(active, m => m.NormalizedFact.Contains("black"));
     }
 
     /// <summary>
