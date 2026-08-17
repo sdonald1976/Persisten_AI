@@ -135,27 +135,33 @@ public class MemoryFidelityTests
     }
 
     /// <summary>
-    /// The same rule from the other side: changing a preference must replace it, even though the
-    /// extraction model chose an unrelated predicate for the new value ("drinks_coffee_black" then
-    /// "prefers"), so the two never shared a slot. The user's own "Actually I've gone off…" is what
-    /// carries the meaning, and it survives whatever the model does with the schema.
+    /// Changing a preference replaces it. The user's own "Actually I've gone off…" is what carries
+    /// the meaning.
+    ///
+    /// This used to work ACROSS slots, because the extractor invented a predicate per phrasing and
+    /// the same fact arrived as "drinks_coffee_black" then "prefers", so the two never met. The
+    /// closed vocabulary fixed that at the source — in a real 44-turn conversation both coffee
+    /// facts landed under "likes" and superseded correctly — and the cross-slot fallback was then
+    /// removed, because it was reaching for the nearest memory of any kind and retired a penicillin
+    /// allergy off the back of a sentence about jogging. See
+    /// <see cref="ChangingOneThing_DoesNotRetireAnUnrelatedOne"/>.
     /// </summary>
     [Fact]
-    public async Task ChangingAPreference_ReplacesIt_EvenAcrossADifferentPredicate()
+    public async Task ChangingAPreference_ReplacesIt()
     {
         await using var host = new TestHost(Now);
         using var scope = host.CreateScope();
 
         var stated = UserMsg("I drink my coffee black, no sugar.");
         await BuildPipeline(scope.ServiceProvider, host.Clock, RuleOnly(), Fact(
-                "drinks_coffee_black", "no sugar",
+                "likes", "black coffee without sugar",
                 "The user drinks their coffee black without any sugar.",
                 stated, "I drink my coffee black, no sugar"))
             .ProcessAsync(User, new[] { stated });
 
         var changed = UserMsg("Actually I've gone off black coffee. I take oat milk lattes now.");
         var result = await BuildPipeline(scope.ServiceProvider, host.Clock, RuleOnly(), Fact(
-                "prefers", "oat milk lattes over black coffee",
+                "likes", "oat milk lattes instead of black coffee",
                 "The user prefers oat milk lattes over black coffee.",
                 changed, "Actually I've gone off black coffee. I take oat milk lattes now."))
             .ProcessAsync(User, new[] { changed });
@@ -287,6 +293,41 @@ public class MemoryFidelityTests
             .ProcessAsync(User, new[] { plot });
 
         Assert.Contains(await ActiveFactsAsync(scope), m => m.NormalizedFact.Contains("Norwich"));
+    }
+
+    /// <summary>
+    /// Saying you have stopped doing one thing must not retire an unrelated one.
+    ///
+    /// Verbatim from a 44-turn driven conversation. "I don't run any more, my knee's given out.
+    /// Swimming instead." fired the replacement signal — correctly, something IS being replaced —
+    /// and the pipeline then applied it to the nearest memory of any kind, which was a penicillin
+    /// allergy. Both are medical, both cleared the similarity floor, and the audit trail recorded
+    /// it as "the user said this replaces it", which he had not. A safety-relevant fact, destroyed
+    /// by a sentence about jogging.
+    ///
+    /// The signal is read from the whole turn, so it can say that something changed and never which
+    /// thing. Only the slot can say that.
+    /// </summary>
+    [Fact]
+    public async Task ChangingOneThing_DoesNotRetireAnUnrelatedOne()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+
+        var allergy = UserMsg("I'm allergic to penicillin, worth you knowing.");
+        await BuildPipeline(scope.ServiceProvider, host.Clock, RuleOnly(), Fact(
+                "health", "allergic to penicillin", "The user is allergic to penicillin.",
+                allergy, "I'm allergic to penicillin"))
+            .ProcessAsync(User, new[] { allergy });
+
+        var knee = UserMsg("I don't run any more, my knee's given out. Swimming instead.");
+        await BuildPipeline(scope.ServiceProvider, host.Clock, RuleOnly(), Fact(
+                "routine", "swimming", "The user swims instead of running.",
+                knee, "I don't run any more, my knee's given out"))
+            .ProcessAsync(User, new[] { knee });
+
+        var active = await ActiveFactsAsync(scope);
+        Assert.Contains(active, m => m.NormalizedFact.Contains("penicillin"));
     }
 
     /// <summary>

@@ -214,9 +214,20 @@ public sealed class MemoryPipeline : IMemoryPipeline
 
         if (wordingSaysReplace)
         {
-            var (replaced, replacedSim) = slotBest is not null && slotSim >= _options.ReplacementSimilarityThreshold
-                ? (slotBest, slotSim)
-                : (nearest, similarity);
+            // Same slot only. The replacement signal is read from the whole turn, so it says
+            // "something here is being changed" and NOT which thing — and letting it fall back to
+            // the nearest memory of any kind is how "I don't run any more, my knee's given out"
+            // retired a penicillin allergy. The audit trail recorded that as "the user said this
+            // replaces it", which he had not: both memories were medical, they cleared the
+            // similarity floor, and the wrong one was the closest.
+            //
+            // The cross-slot fallback existed because the extractor invented a predicate per
+            // phrasing, so a changed fact rarely landed back where the old one was. The closed
+            // vocabulary fixed that at the source, which leaves this doing nothing but damage.
+            // Failing to supersede keeps two facts and looks untidy; superseding the wrong one
+            // silently destroys something the user told us, and only one of those is recoverable.
+            var replaced = slotBest;
+            var replacedSim = slotSim;
 
             if (replaced is not null && replacedSim >= _options.ReplacementSimilarityThreshold)
             {
