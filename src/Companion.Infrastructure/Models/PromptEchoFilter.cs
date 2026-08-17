@@ -36,9 +36,22 @@ internal static partial class PromptEchoFilter
     [GeneratedRegex(@"^[ \t]*[^\n]{0,120}:[ \t]*$", RegexOptions.Multiline)]
     private static partial Regex LabelLine();
 
-    /// <summary>A bullet.</summary>
-    [GeneratedRegex(@"^[ \t]*[-*•][ \t]+\S", RegexOptions.Multiline)]
+    /// <summary>A bullet, dashed or numbered — "- thing", "* thing", "1. thing", "2) thing".</summary>
+    [GeneratedRegex(@"^[ \t]*([-*•]|\d{1,2}[.)])[ \t]+\S", RegexOptions.Multiline)]
     private static partial Regex Bullet();
+
+    /// <summary>
+    /// A line that talks <em>about</em> the person being spoken to rather than to them.
+    ///
+    /// In a reply addressed to someone, "the user" is never speech — it is the model narrating its
+    /// own working. It appeared in a real turn as a trailing block: a complete, warm answer about an
+    /// allotment, then "# Adjustments — Given the user's mention of their allotment, I've shifted
+    /// into a more supportive and curious tone", then "# Key response points: 1. Acknowledge and
+    /// show appreciation for the user's hobby…". Nine hundred characters of scratchpad, delivered
+    /// as though it were part of the conversation.
+    /// </summary>
+    [GeneratedRegex(@"\bthe user\b|\bthe companion\b", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
+    private static partial Regex ThirdPersonSubject();
 
     /// <summary>
     /// A line that opens somebody else's turn: a bare role name, a "User:"/"Assistant:" prefix, or
@@ -240,9 +253,16 @@ internal static partial class PromptEchoFilter
 
         var lines = reply.Replace("\r\n", "\n").Split('\n');
 
-        // Walk backwards for the last marker that could open an echoed section. Only a marker with
-        // real content before it counts: a reply that *starts* with one is her formatting a genuine
+        // Walk backwards for markers that could open an echoed section. Only a marker with real
+        // content before it counts: a reply that *starts* with one is her formatting a genuine
         // answer, not appending to the packet.
+        //
+        // The scan keeps going after it finds one, and cuts at the EARLIEST qualifying marker
+        // rather than the last. A leaked scratchpad is routinely more than one section — the turn
+        // that prompted this had "# Adjustments" followed by "# Key response points" — and stopping
+        // at the last of them removes the final section while leaving the first one on screen,
+        // which is a tidier version of the same bug.
+        var cut = -1;
         for (var i = lines.Length - 1; i > 0; i--)
         {
             var line = lines[i];
@@ -254,17 +274,17 @@ internal static partial class PromptEchoFilter
             var before = string.Join("\n", lines.Take(i)).TrimEnd();
 
             if (before.Length == 0)
-                return reply; // nothing but the marker — leave it alone
+                break; // nothing but the marker — leave it alone
 
-            // A heading with nothing after it is just a heading she wrote; only strip when the
-            // marker is followed by something that reads as packet structure.
+            // A heading with nothing after it is just a heading she wrote; only cut when the
+            // marker is followed by something that reads as packet structure or as her own working.
             if (!LooksLikeStructure(after))
                 continue;
 
-            return before;
+            cut = i;
         }
 
-        return reply;
+        return cut > 0 ? string.Join("\n", lines.Take(cut)).TrimEnd() : reply;
     }
 
     /// <summary>
@@ -280,6 +300,13 @@ internal static partial class PromptEchoFilter
         var lines = block.Split('\n').Where(l => l.Trim().Length > 0).ToArray();
         if (lines.Length == 0)
             return false;
+
+        // Anything trailing that discusses "the user" is the model's own working, whatever shape it
+        // is in. This is the surer signal than layout: prose can look like speech and still be about
+        // the conversation rather than part of it, and in a reply addressed to someone by name the
+        // third person is never something she is saying to them.
+        if (lines.Any(l => ThirdPersonSubject().IsMatch(l)))
+            return true;
 
         var hasLabel = lines.Any(l => LabelLine().IsMatch(l));
         var allBullets = lines.All(l => Bullet().IsMatch(l));

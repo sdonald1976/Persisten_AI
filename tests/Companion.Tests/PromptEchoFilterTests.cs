@@ -184,4 +184,53 @@ public class PromptEchoFilterTests
         Assert.Contains("Second thought, still me talking.", cleaned);
         Assert.DoesNotContain("Remembered items", cleaned);
     }
+
+    /// <summary>
+    /// The model's own scratchpad, delivered as conversation. Verbatim from a real turn during a
+    /// 44-turn driven run: a complete, warm answer about an allotment, and then nine hundred more
+    /// characters explaining to nobody how the answer had been constructed.
+    ///
+    /// Two things let it through. The list is NUMBERED, and the structure test only knew about
+    /// dashes and asterisks; and there are two sections, while the scan stopped at the last marker
+    /// and would have left the first one on screen.
+    /// </summary>
+    [Fact]
+    public void ALeakedScratchpad_IsRemovedEntirely()
+    {
+        const string reply =
+            "Rebuilding a greenhouse irrigation system sounds like a rewarding project, Scott!\n" +
+            "\n" +
+            "Looking forward to hearing more about your allotment! How long have you been tending it?\n" +
+            "\n" +
+            "# Adjustments\n" +
+            "- Given the user's mention of their allotment, I've shifted into a supportive tone.\n" +
+            "- The closing sentence adds warmth by expressing genuine interest.\n" +
+            "\n" +
+            "# Key response points\n" +
+            "1. Acknowledge and show appreciation for the user's hobby.\n" +
+            "2. Ask a question about challenges to encourage sharing.\n" +
+            "3. End with warmth, without being overly demanding.";
+
+        var cleaned = PromptEchoFilter.Trim(reply);
+
+        Assert.DoesNotContain("Adjustments", cleaned);
+        Assert.DoesNotContain("Key response points", cleaned);
+        Assert.DoesNotContain("the user", cleaned, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("rewarding project, Scott", cleaned);
+        Assert.Contains("How long have you been tending it?", cleaned);
+    }
+
+    /// <summary>A numbered list she actually wrote, in answer to a question, is hers.</summary>
+    [Fact]
+    public void ANumberedListSheMeant_IsKept()
+    {
+        const string reply =
+            "Three things I would check first:\n" +
+            "\n" +
+            "1. Whether the header tank is actually filling.\n" +
+            "2. The solenoid, which fails more often than the timer does.\n" +
+            "3. The timer itself, last, because it is the least likely.";
+
+        Assert.Equal(reply, PromptEchoFilter.Trim(reply));
+    }
 }
