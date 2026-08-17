@@ -75,8 +75,17 @@ public static class PipelineScenarios
                     foreach (var names in new[] { true, false })
                     {
                         var said = Render(phrase, oldValue, newValue, names);
+
+                        // What the sentence ACTUALLY says, not what the flag intended. One template
+                        // — "I've switched to {new}." — carries no {old} placeholder, so asking for
+                        // it to name the old value produced a sentence that did not, and eight
+                        // scenarios then expected a replacement the text gave no way to target. The
+                        // pipeline was right and the generator was wrong, which is the third time a
+                        // failure here has turned out to be the harness.
+                        var actuallyNames = NamesWholeWord(said, oldValue);
                         scenarios.Add(Replacement(
-                            $"T0-{n++}", seed + n, predicate, single, oldValue, newValue, said, signals, names));
+                            $"T0-{n++}", seed + n, predicate, single, oldValue, newValue,
+                            said, signals, actuallyNames));
                     }
                 }
             }
@@ -154,6 +163,31 @@ public static class PipelineScenarios
         Content = $"The user's {predicate.Replace('_', ' ')} is {value}.",
         ProposedConfidence = 0.9,
     };
+
+    /// <summary>
+    /// Whether the sentence names the old value as a WORD.
+    ///
+    /// Substring matching said yes to "I don't that any more. Cocoa instead." naming "tea", because
+    /// "instead" contains it — so the generator expected a replacement the pipeline had no way to
+    /// target, and reported the correct behaviour as a failure. Third time today that substring
+    /// matching has produced a phantom bug; the pipeline compares tokens, so the generator must too.
+    /// </summary>
+    private static bool NamesWholeWord(string sentence, string value)
+    {
+        // Compared the way the pipeline compares: whole tokens. Substring matching said
+        // "instead" names "tea", which is the third phantom bug it has produced today.
+        var words = Tokens(sentence);
+        return Tokens(value).All(words.Contains);
+    }
+
+    private static HashSet<string> Tokens(string text)
+    {
+        var separators = text.Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray();
+        return new string(separators)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => w.ToLowerInvariant())
+            .ToHashSet(StringComparer.Ordinal);
+    }
 
     private static string Render(string phrase, string oldValue, string newValue, bool namesOld)
         => phrase
