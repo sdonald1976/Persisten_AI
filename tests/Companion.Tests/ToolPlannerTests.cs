@@ -56,7 +56,7 @@ public class ToolPlannerTests
     private sealed class ThrowingChatModel : IChatModel
     {
         public Task<ChatCompletion> CompleteAsync(
-            string systemPrompt, string userMessage, bool jsonMode = false,
+            string systemPrompt, string userMessage, ResponseFormat? format = null,
             string? assistantPrefix = null, CancellationToken ct = default)
             => throw new HttpRequestException("planner endpoint down");
 

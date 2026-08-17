@@ -10,7 +10,7 @@ public sealed class CannedChatModel : IChatModel
     public CannedChatModel(string response) => _response = response;
 
     public Task<ChatCompletion> CompleteAsync(
-        string systemPrompt, string userMessage, bool jsonMode = false,
+        string systemPrompt, string userMessage, ResponseFormat? format = null,
         string? assistantPrefix = null, CancellationToken ct = default)
         => Task.FromResult(ChatCompletion.FromText(_response));
 

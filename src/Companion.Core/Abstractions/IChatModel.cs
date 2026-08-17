@@ -9,9 +9,9 @@ public interface IChatModel
 {
     /// <summary>
     /// Generates an assistant reply for a rendered system/context prompt and the user message.
-    /// When <paramref name="jsonMode"/> is true, the provider is asked (where supported) to return
-    /// a JSON object/array — used by structured tasks like memory extraction. Output is still
-    /// treated as untrusted and validated by the caller.
+    /// <paramref name="format"/> asks the provider (where supported) for JSON, optionally
+    /// constrained to a schema — used by structured tasks like memory extraction. Output is still
+    /// treated as untrusted and validated by the caller: a schema bounds the shape, not the truth.
     ///
     /// When <paramref name="assistantPrefix"/> is supplied, it is the assistant text produced so
     /// far and the model is asked to resume from exactly where that text left off (used to continue
@@ -19,7 +19,7 @@ public interface IChatModel
     /// new continuation, not the prefix.
     /// </summary>
     Task<ChatCompletion> CompleteAsync(
-        string systemPrompt, string userMessage, bool jsonMode = false,
+        string systemPrompt, string userMessage, ResponseFormat? format = null,
         string? assistantPrefix = null, CancellationToken ct = default);
 
     /// <summary>

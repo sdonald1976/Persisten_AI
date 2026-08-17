@@ -56,7 +56,7 @@ public sealed class LlmIntentParser : IIntentParser
 
         try
         {
-            var raw = (await _chat.CompleteAsync(Prompts.Get("intent.system"), text, jsonMode: true, ct: ct)).Text;
+            var raw = (await _chat.CompleteAsync(Prompts.Get("intent.system"), text, format: ResponseFormat.Json, ct: ct)).Text;
             var dto = JsonSerializer.Deserialize<IntentDto>(StripFence(raw), Json);
             if (dto?.Intent is null)
                 return ruled;

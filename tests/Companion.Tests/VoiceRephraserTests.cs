@@ -20,7 +20,7 @@ public class VoiceRephraserTests
 
     private sealed class ThrowingChatModel : IChatModel
     {
-        public Task<ChatCompletion> CompleteAsync(string s, string u, bool j = false, string? a = null, CancellationToken ct = default)
+        public Task<ChatCompletion> CompleteAsync(string s, string u, ResponseFormat? f = null, string? a = null, CancellationToken ct = default)
             => throw new InvalidOperationException("model down");
         public Task<ChatCompletion> StreamAsync(string s, string u, IProgress<string> sink, string? a = null, CancellationToken ct = default)
             => throw new InvalidOperationException("model down");

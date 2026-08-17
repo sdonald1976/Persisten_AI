@@ -25,11 +25,11 @@ public class ConcurrencyTests
         public void Release() => _gate.TrySetResult();
 
         public async Task<ChatCompletion> CompleteAsync(
-            string systemPrompt, string userMessage, bool jsonMode = false,
+            string systemPrompt, string userMessage, ResponseFormat? format = null,
             string? assistantPrefix = null, CancellationToken ct = default)
         {
             // The planner's JSON call must not block the test; only the reply generation gates.
-            if (jsonMode)
+            if (format is not null)
                 return ChatCompletion.FromText("""{"needsTools": false, "reason": "n/a", "calls": []}""");
 
             Entered.TrySetResult();

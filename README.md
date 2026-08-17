@@ -310,6 +310,12 @@ The companion is built to be safe for real local use, not just a demo:
   second guard requires the excerpt to sit in a sentence the user was asserting. "Did I ever tell
   you what timber I bought?" contains its own presupposition, and used to become "the user bought
   timber" on an honestly-cited excerpt; questions, hypotheticals and suppositions are now rejected.
+- **The model's structured output is constrained, not just parsed.** Extraction is decoded against a
+  JSON Schema (enforced by Ollama/LM Studio during generation), so the relation a fact occupies comes
+  from a closed vocabulary rather than being invented per phrasing. Deterministic code downstream can
+  then key on it safely — previously the same fact arrived as `drinks_coffee_black` one turn and
+  `prefers` the next, so a genuine change was never noticed. Output is still validated: a schema
+  bounds the shape, never the truthfulness.
 - **A new fact replaces an old one only when it actually replaces it.** Whether a fact supersedes
   or joins is decided by whether the predicate can hold one value or many (you have one birthday
   and any number of projects) and by whether the user's own words mark a change ("actually, I've

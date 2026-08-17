@@ -108,6 +108,22 @@ how she behaves (named presets, free-text tweaks on top).
 **Model preflight** (`ModelPreflight` + `ModelPreflightWorker`) probes the provider catalog at
 startup and reports roles whose model is missing, instead of failing on first use an hour later.
 
+**The extraction interface is typed, not parsed.** `ExtractionSchema` is sent as a JSON Schema and
+enforced by Ollama during decoding (≥ 0.5; verified on 0.32.6), so every field the pipeline decides
+on is an enum the model *cannot* generate outside of. `PredicateVocabulary` is the closed set of
+relations and says which hold one value and which hold many. This is the root fix rather than a
+guard: `drinks_coffee_black` is not a value that can be produced, so nothing downstream has to cope
+with it, and slot keys are stable across models, prompts and reruns.
+
+It has a cost, and it is worth knowing before it bites. A misclassification used to coin a fresh
+slot nobody else used, which was inert. Now it lands in a real one — qwen2.5:7b answers `lives_in`
+for "a second allotment plot at Marsh Lane" — and a wrong single-valued slot displaces a true fact.
+Hence the higher similarity bar on that path, and hence single-valued is applied sparingly.
+
+`replaces` is on the schema too: the model is now asked outright whether the user is changing
+something or adding it, instead of the pipeline inferring it afterwards. It is a proposal — the
+pipeline still requires a plausible target, user evidence, and its own reading of the wording.
+
 **What the store is allowed to learn** — three deterministic rules, all of them written after a real
 conversation put something false in the database:
 

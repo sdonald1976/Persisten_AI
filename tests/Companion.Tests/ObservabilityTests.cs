@@ -21,7 +21,7 @@ public class ObservabilityTests
     private sealed class ExplodingChatModel : IChatModel
     {
         public Task<ChatCompletion> CompleteAsync(
-            string systemPrompt, string userMessage, bool jsonMode = false,
+            string systemPrompt, string userMessage, ResponseFormat? format = null,
             string? assistantPrefix = null, CancellationToken ct = default)
             => throw new InvalidOperationException("boom");
 

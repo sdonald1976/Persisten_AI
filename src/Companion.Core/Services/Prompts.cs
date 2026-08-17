@@ -436,11 +436,18 @@ public static class Prompts
             "exactly as the user writes it. Use it for every memory that belongs to the same work, not just the " +
             "first one. This is how the companion learns what the user is working on — leave it out and the project " +
             "is invisible to it. If the memory has nothing to do with a named project, omit the field.\n\n" +
-            "Return ONLY a JSON array. Each item: {\"kind\":\"semantic\"|\"episodic\", \"subject\":string?, " +
-            "\"predicate\":string?, \"value\":string?, \"content\":string, " +
-            "\"validity\":\"Current\"|\"Temporary\"|\"Historical\"?, " +
+            "Return ONLY {\"memories\": [ ... ]}. Each item: {\"kind\":\"semantic\"|\"episodic\", " +
+            "\"subject\":string?, \"predicate\":string?, \"value\":string?, \"content\":string, " +
+            "\"replaces\":boolean?, \"validity\":\"Current\"|\"Temporary\"|\"Historical\"?, " +
             "\"episodeStatus\":\"Occurred\"|\"Planned\"|\"InProgress\"|\"Resolved\"?, \"relatedProject\":string?, " +
             "\"importance\":0..1, \"confidence\":0..1, \"excerpt\":\"the user's own words that support this\"}.\n\n" +
+            "\"predicate\" must be one of these exact values — pick the closest, and \"other\" only when " +
+            "none of them fits:\n" + PredicateVocabulary.Describe() + "\n\n" +
+            "\"replaces\" is true ONLY when the user is CHANGING a fact they gave you before — \"actually, " +
+            "I've gone off black coffee\", \"I don't live in Norwich any more\". It is false when they are " +
+            "ADDING something, and a second project, a second pet or another dislike is always adding. " +
+            "When unsure, false: people add far more often than they change, and a wrong true costs them a " +
+            "memory they can't see you lose.\n\n" +
             "Examples:\n" +
             "User: \"My name is Ava and I have a corgi named Kanga.\"\n" +
             "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"name\",\"value\":\"Ava\"," +
@@ -449,9 +456,14 @@ public static class Prompts
             "\"content\":\"The user has a corgi named Kanga.\",\"importance\":0.7,\"confidence\":0.9," +
             "\"excerpt\":\"I have a corgi named Kanga\"}]\n" +
             "User: \"I prefer tea over coffee these days.\"\n" +
-            "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"prefers\",\"value\":\"tea over coffee\"," +
-            "\"content\":\"The user prefers tea over coffee.\",\"importance\":0.5,\"confidence\":0.8," +
-            "\"excerpt\":\"I prefer tea over coffee\"}]\n" +
+            "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"likes\",\"value\":\"tea over coffee\"," +
+            "\"content\":\"The user prefers tea over coffee.\",\"replaces\":true,\"importance\":0.5," +
+            "\"confidence\":0.8,\"excerpt\":\"I prefer tea over coffee these days\"}]\n" +
+            "User: \"I've started a second allotment plot over at Marsh Lane.\"\n" +
+            "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"works_on\",\"value\":\"the Marsh Lane plot\"," +
+            "\"content\":\"The user has started a second allotment plot at Marsh Lane.\",\"replaces\":false," +
+            "\"relatedProject\":\"Marsh Lane\",\"importance\":0.6,\"confidence\":0.9," +
+            "\"excerpt\":\"I've started a second allotment plot over at Marsh Lane\"}]\n" +
             "User: \"I'm rebuilding the greenhouse irrigation before the frost — I've only got the weekend.\"\n" +
             "[{\"kind\":\"semantic\",\"subject\":\"user\",\"predicate\":\"works_on\"," +
             "\"value\":\"greenhouse irrigation\",\"content\":\"The user is rebuilding the greenhouse irrigation.\"," +

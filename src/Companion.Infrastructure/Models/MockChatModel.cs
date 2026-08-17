@@ -11,7 +11,7 @@ namespace Companion.Infrastructure.Models;
 public sealed class MockChatModel : IChatModel
 {
     public Task<ChatCompletion> CompleteAsync(
-        string systemPrompt, string userMessage, bool jsonMode = false,
+        string systemPrompt, string userMessage, ResponseFormat? format = null,
         string? assistantPrefix = null, CancellationToken ct = default)
     {
         var bullets = systemPrompt
@@ -49,7 +49,7 @@ public sealed class MockChatModel : IChatModel
         // Simulate streaming by reporting the deterministic reply in word-sized chunks. The chunks
         // reconstruct the text EXACTLY (space re-added only between words), so a caller that
         // concatenates the stream gets back the same string this returns.
-        var full = await CompleteAsync(systemPrompt, userMessage, jsonMode: false, assistantPrefix, ct);
+        var full = await CompleteAsync(systemPrompt, userMessage, null, assistantPrefix, ct);
         var words = full.Text.Split(' ');
         for (var i = 0; i < words.Length; i++)
         {

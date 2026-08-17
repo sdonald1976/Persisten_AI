@@ -40,7 +40,7 @@ public sealed class LlmCompletionJudge : ICompletionJudge
 
         try
         {
-            var verdict = await _judge.CompleteAsync(SystemPrompt, prompt, jsonMode: false, ct: ct);
+            var verdict = await _judge.CompleteAsync(SystemPrompt, prompt, ct: ct);
             var answer = verdict.Text.Trim();
 
             // Fail closed: only an explicit, unambiguous CONTINUE keeps generation going.

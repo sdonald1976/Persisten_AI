@@ -197,6 +197,99 @@ public class MemoryFidelityTests
     }
 
     /// <summary>
+    /// The extractor can now say outright that the user is changing something, which is the signal
+    /// the pipeline used to have to infer. It carries a replacement whose wording gives nothing
+    /// away — "I'm on decaf" has no "actually" and no "no longer" in it.
+    /// </summary>
+    [Fact]
+    public async Task TheExtractorSayingSo_IsEnoughToReplace()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+
+        var stated = UserMsg("I drink my coffee black.");
+        await BuildPipeline(scope.ServiceProvider, host.Clock, RuleOnly(), Fact(
+                "likes", "black coffee", "The user drinks black coffee.", stated, "I drink my coffee black"))
+            .ProcessAsync(User, new[] { stated });
+
+        var changed = UserMsg("I'm on decaf.");
+        var candidate = Fact(
+            "likes", "decaf", "The user drinks decaf.", changed, "I'm on decaf") with
+        {
+            ProposedReplacement = true,
+        };
+
+        var result = await BuildPipeline(scope.ServiceProvider, host.Clock, RuleOnly(), candidate)
+            .ProcessAsync(User, new[] { changed });
+
+        Assert.Equal(MemoryDecisionKind.Superseded, Assert.Single(result.Decisions).Outcome);
+        Assert.Contains("decaf", Assert.Single(await ActiveFactsAsync(scope)).NormalizedFact);
+    }
+
+    /// <summary>
+    /// But it is a proposal, not authority. A model claiming a brand-new fact replaces something
+    /// must not be able to delete a memory on its own say-so — there has to be a plausible target
+    /// for it to replace, and here there is nothing it resembles.
+    /// </summary>
+    [Fact]
+    public async Task TheExtractorSayingSo_CannotDeleteAnUnrelatedFact()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+
+        var stated = UserMsg("My name is Scott.");
+        await BuildPipeline(scope.ServiceProvider, host.Clock, RuleOnly(), Fact(
+                "name", "Scott", "The user's name is Scott.", stated, "My name is Scott"))
+            .ProcessAsync(User, new[] { stated });
+
+        // A floor high enough that nothing in the store is a plausible target — as the real
+        // threshold is for genuinely unrelated facts.
+        var strict = RuleOnly();
+        strict.ReplacementSimilarityThreshold = 0.95;
+
+        var unrelated = UserMsg("I have a corgi called Kanga.");
+        var candidate = Fact(
+            "has_pet", "a corgi called Kanga", "The user has a corgi called Kanga.",
+            unrelated, "I have a corgi called Kanga") with { ProposedReplacement = true };
+
+        await BuildPipeline(scope.ServiceProvider, host.Clock, strict, candidate)
+            .ProcessAsync(User, new[] { unrelated });
+
+        var active = await ActiveFactsAsync(scope);
+        Assert.Equal(2, active.Count);
+        Assert.Contains(active, m => m.NormalizedFact.Contains("Scott"));
+    }
+
+    /// <summary>
+    /// The cost of a closed vocabulary, guarded. A misclassified fact now lands in a real slot
+    /// rather than inventing one — qwen2.5:7b really does answer <c>lives_in</c> for "a second
+    /// allotment plot at Marsh Lane" — and <c>lives_in</c> holds one value, so without a bar on how
+    /// alike the two have to be, a gardening remark would retire where the user lives.
+    /// </summary>
+    [Fact]
+    public async Task AMisclassifiedFact_DoesNotRetireWhereTheUserLives()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+
+        var home = UserMsg("I live in Norwich.");
+        await BuildPipeline(scope.ServiceProvider, host.Clock, RuleOnly(), Fact(
+                "lives_in", "Norwich", "The user lives in Norwich.", home, "I live in Norwich"))
+            .ProcessAsync(User, new[] { home });
+
+        var strict = RuleOnly();
+        strict.ReplacementSimilarityThreshold = 0.95;   // as production is, for facts this unalike
+
+        var plot = UserMsg("I've started a second allotment plot at Marsh Lane.");
+        await BuildPipeline(scope.ServiceProvider, host.Clock, strict, Fact(
+                "lives_in", "near Marsh Lane", "The user has an allotment plot at Marsh Lane.",
+                plot, "I've started a second allotment plot at Marsh Lane"))
+            .ProcessAsync(User, new[] { plot });
+
+        Assert.Contains(await ActiveFactsAsync(scope), m => m.NormalizedFact.Contains("Norwich"));
+    }
+
+    /// <summary>
     /// Two dislikes are two dislikes. This is the same shape as the two projects, and the reason
     /// similarity cannot be the deciding signal: measured on the real embedding model, "dislikes
     /// coriander" vs "dislikes olives" (0.753) scores HIGHER than the coffee change that must
