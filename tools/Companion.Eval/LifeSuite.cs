@@ -97,8 +97,12 @@ public static class LifeSuite
 
             if (!verbose)
                 continue;
-            foreach (var m in rule.Take(3))
-                Console.WriteLine($"     {m.Life}: {m.Expected.Predicate}/{m.Expected.Keyword} — {m.Problem}");
+            foreach (var m in rule.Take(2))
+            {
+                Console.WriteLine($"     {m.Life}: expected {m.Expected.Predicate}/{m.Expected.Keyword} — {m.Problem}");
+                foreach (var actual in m.Slot.Take(4))
+                    Console.WriteLine($"        store holds: {actual}");
+            }
         }
 
         // The rules nobody broke are the more useful half of the report: they are the regressions

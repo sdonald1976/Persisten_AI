@@ -54,7 +54,13 @@ public sealed class LifeRunner : IAsyncDisposable
         }).Build();
 
         var services = new ServiceCollection();
-        services.AddLogging(b => b.SetMinimumLevel(LogLevel.Error));
+        services.AddLogging(b =>
+        {
+            b.SetMinimumLevel(LogLevel.Error);
+            // The one thing worth hearing from inside a run: why a fact did or didn't replace another.
+            b.AddFilter("Companion.Core.Services.MemoryPipeline", LogLevel.Debug);
+            b.AddSimpleConsole(o => o.SingleLine = true);
+        });
         services.AddCompanion(configuration, $"Data Source={path}");
         var provider = services.BuildServiceProvider();
         await provider.MigrateDatabaseAsync();
@@ -136,22 +142,42 @@ public sealed record LifeResult(Life Life, IReadOnlyList<SemanticMemory> Stored,
             if (want.ShouldBeActive && active.Count == 0)
             {
                 yield return new Mismatch(Life.Name, want,
-                    hits.Count > 0 ? "present but not current" : "missing entirely", hits.Count);
+                    hits.Count > 0 ? "present but not current" : "missing entirely", hits.Count, Slot(want));
             }
             else if (!want.ShouldBeActive && active.Count > 0)
             {
-                yield return new Mismatch(Life.Name, want, "still current when it should not be", active.Count);
+                yield return new Mismatch(Life.Name, want,
+                    "still current when it should not be", active.Count, Slot(want));
             }
             else if (want.ShouldBeActive && active.Count > 1)
             {
-                yield return new Mismatch(Life.Name, want, "stored more than once", active.Count);
+                yield return new Mismatch(Life.Name, want, "stored more than once", active.Count, Slot(want));
             }
         }
     }
+
+    /// <summary>
+    /// Everything the store actually holds that could plausibly be the fact in question — the same
+    /// predicate, or any predicate whose value mentions the keyword.
+    ///
+    /// Without this a mismatch says only that something is wrong, and the interesting part is
+    /// always WHERE the fact ended up instead: a different slot, a different subject, or nowhere.
+    /// Reading that off a report beats reasoning about it from the code, which is how a plausible
+    /// theory becomes a fix that does something else.
+    /// </summary>
+    private IReadOnlyList<string> Slot(Expectation want)
+        => Stored
+            .Where(m => string.Equals(m.Predicate, want.Predicate, StringComparison.OrdinalIgnoreCase)
+                || Mentions(m, want.Keyword))
+            .Select(m => $"{m.Subject}/{m.Predicate} = \"{m.Value}\" [{m.Status}]  content: {m.NormalizedFact}")
+            .Distinct()
+            .ToList();
 
     private static bool Mentions(SemanticMemory memory, string keyword)
         => (memory.Value ?? "").Contains(keyword, StringComparison.OrdinalIgnoreCase)
             || (memory.NormalizedFact ?? "").Contains(keyword, StringComparison.OrdinalIgnoreCase);
 }
 
-public sealed record Mismatch(string Life, Expectation Expected, string Problem, int Count);
+public sealed record Mismatch(
+    string Life, Expectation Expected, string Problem, int Count,
+    IReadOnlyList<string> Slot);

@@ -51,7 +51,7 @@ public static class LifeGenerator
     };
     private static readonly string[] Conditions =
     {
-        "allergic to penicillin", "coeliac", "asthmatic", "allergic to bee stings",
+        "allergic to penicillin", "coeliac", "allergic to bee stings", "diabetic",
     };
     private static readonly string[] Relatives = { "my daughter Immy", "my son Rafe", "my sister Nell" };
     private static readonly string[] RelativeLikes = { "rockpooling", "climbing", "birdwatching" };
