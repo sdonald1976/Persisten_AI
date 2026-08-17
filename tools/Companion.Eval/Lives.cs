@@ -23,6 +23,13 @@ public sealed record Life
 
     /// <summary>Values that must be Active at the end, by predicate.</summary>
     public required IReadOnlyList<Expectation> Expected { get; init; }
+
+    /// <summary>
+    /// Where this life came from, so a failure can be regenerated exactly rather than described.
+    /// Defaults to the baseline family for lives built before provenance was tracked.
+    /// </summary>
+    public Provenance Provenance { get; init; } =
+        new(Provenance.CurrentVersion, "baseline", Difficulty.Distractors, 0);
 }
 
 /// <param name="Predicate">The vocabulary slot the fact belongs in.</param>
@@ -59,10 +66,21 @@ public static class LifeGenerator
     public static IReadOnlyList<Life> Build(int count, int seed)
     {
         var rng = new Random(seed);
-        return Enumerable.Range(0, count).Select(i => One(rng, i)).ToList();
+        return Enumerable.Range(0, count).Select(i => One(rng, i, seed * 1000 + i)).ToList();
     }
 
-    private static Life One(Random rng, int index)
+    /// <summary>
+    /// A curriculum: the baseline family plus every adversarial one, so a run reports across
+    /// difficulty rather than producing an average that hides which levels a policy cannot do.
+    /// </summary>
+    public static IReadOnlyList<Life> BuildCurriculum(int count, int seed)
+    {
+        var lives = new List<Life>(Build(count, seed));
+        lives.AddRange(Adversarial.All(seed));
+        return lives;
+    }
+
+    private static Life One(Random rng, int index, int seed)
     {
         var name = $"Person{index}";
         var from = Pick(rng, Towns);
@@ -122,7 +140,14 @@ public static class LifeGenerator
                 "somebody else's interest must not become the user's"),
         };
 
-        return new Life { Name = name, Messages = messages, Expected = expected };
+        return new Life
+        {
+            Name = name,
+            Messages = messages,
+            Expected = expected,
+            Provenance = new Provenance(
+                Provenance.CurrentVersion, "baseline", Difficulty.Distractors, seed),
+        };
     }
 
     /// <summary>The same project, said differently — the store should recognise it as one thing.</summary>
