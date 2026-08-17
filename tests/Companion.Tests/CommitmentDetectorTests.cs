@@ -24,4 +24,19 @@ public class CommitmentDetectorTests
     [InlineData("")]
     public void Detect_IgnoresFillerAndNonCommitments(string reply)
         => Assert.Null(CommitmentDetector.Detect(reply));
+
+    /// <summary>
+    /// A promise to do something she has no body or life to do with. This is the exact sentence a
+    /// real turn produced when the model answered about the user's allotment as though it were her
+    /// own; it became an open loop and then opened the next session, so a hallucinated afternoon in
+    /// a greenhouse turned into something she believed she had said she would do.
+    /// </summary>
+    [Theory]
+    [InlineData("I'll have some space set aside for experimental varieties, maybe some heirloom tomatoes.")]
+    [InlineData("I'm going to mix compost into the base layer of each bed this week.")]
+    [InlineData("I'll plant the tomatoes once the weather warms up.")]
+    [InlineData("I'll pop down to the plot on Saturday and take a look.")]
+    [InlineData("I'll buy the timber tomorrow.")]
+    public void Detect_IgnoresPromisesSheCannotKeep(string reply)
+        => Assert.Null(CommitmentDetector.Detect(reply));
 }

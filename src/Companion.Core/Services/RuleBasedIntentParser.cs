@@ -155,11 +155,22 @@ public sealed class RuleBasedIntentParser : IIntentParser
     }
 
     // A disputed FACT (not reply quality): "that's wrong / not right / incorrect / false".
+    // Whatever follows is kept: people say which thing is wrong in the same breath ("that's wrong,
+    // the irrigation isn't at the allotment"), and without it the dispute can only fall back to
+    // "the newest memory", which is how a correction once flagged the wrong fact.
     private static readonly Regex DisputeRx = new(
-        @"^(?:no,?\s+)?that'?s (?:wrong|not right|incorrect|false|not correct)\b", Opts);
+        @"^(?:no,?\s+)?that'?s (?:wrong|not right|incorrect|false|not correct)\b[\s,.:;—-]*(?<rest>.*)$",
+        Opts | RegexOptions.Singleline);
 
     private static Intent? TryDispute(string text)
-        => DisputeRx.IsMatch(text) ? new Intent { Kind = IntentKind.Dispute } : null;
+    {
+        var m = DisputeRx.Match(text);
+        if (!m.Success)
+            return null;
+
+        var rest = m.Groups["rest"].Value.Trim();
+        return new Intent { Kind = IntentKind.Dispute, Argument = rest.Length > 0 ? rest : null };
+    }
 
     private static readonly Regex ForgetRx = new(@"^forget\s+(?:about\s+)?(.*)$", Opts);
     private static readonly Regex DeleteMemRx =

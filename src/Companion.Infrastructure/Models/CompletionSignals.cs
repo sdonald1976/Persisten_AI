@@ -40,6 +40,45 @@ internal static partial class CompletionSignals
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ContinuationSolicitation();
 
+    /// <summary>
+    /// The user describing their <em>own</em> work — "I'm writing a talk", "we built the deck last
+    /// year". The verb list alone cannot tell that from a request, because it looks only at the
+    /// word: "I'm writing a talk on soil chemistry for the county show" was read as an instruction
+    /// to write one, which put an ordinary conversational turn on the deliverable path and let the
+    /// completion judge chase it through five rounds and four separate sign-offs.
+    /// </summary>
+    [GeneratedRegex(
+        @"\b(?:i|we)\s*(?:'m|'ve|'ll|\s+am|\s+have|\s+was|\s+were|\s+had|\s+will)?\s*" +
+        @"(?:just\s+|been\s+|currently\s+|still\s+|finally\s+)*" +
+        @"(?:writing|write|wrote|drafting|draft|drafted|composing|composed|building|build|built|" +
+        @"creating|create|created|planning|plan|planned|making|make|made|outlining|listing|" +
+        @"summari[sz]ing|revising|rewriting|expanding|translating|implementing|brainstorming|" +
+        @"describing|explaining|working\s+on)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SelfReportedWork();
+
+    /// <summary>Marks that the deliverable is being asked of <em>her</em>, whoever is doing what.</summary>
+    [GeneratedRegex(
+        @"\b(?:can|could|would|will)\s+you\b|\bplease\b|\bfor me\b" +
+        @"|\b(?:i'?d like|i'?d love|i want|i need)\s+(?:you\s+to|a|an|some|the|your)\b" +
+        @"|\b(?:help|give|show|make|write|send|walk|tell)\s+me\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex RequestCue();
+
+    /// <summary>
+    /// Closing courtesies — the shape of a reply that has finished. Used to overrule the completion
+    /// judge, which cannot see that a reply already said goodbye and so kept asking for more,
+    /// producing four complete answers with four sign-offs concatenated into one turn.
+    /// </summary>
+    [GeneratedRegex(
+        @"(?:let me know|hope (?:this|that) helps|hope it helps|good luck|best of luck|" +
+        @"happy (?:to help|planning|writing|building)|feel free to|i'?m (?:always )?here|" +
+        @"if you (?:have|'ve got) any (?:other |more |further )?questions|" +
+        @"anything else i can|glad to help|you'?ve got this)" +
+        @"[^.!?\n]{0,80}[.!?]?\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SignOff();
+
     // Characters that end a finished thought. Anything else at the end reads as mid-sentence.
     // Includes markdown closers: "**bold**", "_emphasis_", a table row's trailing '|', "~~done~~".
     private const string TerminalPunctuation = ".!?…\"')]}”’`*_|~";
@@ -47,6 +86,11 @@ internal static partial class CompletionSignals
     public static bool IsDeliverableRequest(string? message)
     {
         if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        // Someone telling you what they are working on has not asked you for it. Only an explicit
+        // cue that the work is wanted from her overrides that reading.
+        if (SelfReportedWork().IsMatch(message) && !RequestCue().IsMatch(message))
             return false;
 
         if (DeliverableVerbs().IsMatch(message))
@@ -58,6 +102,13 @@ internal static partial class CompletionSignals
 
         return false;
     }
+
+    /// <summary>
+    /// Whether the reply has already signed off. A finished reply that ends "let me know if you'd
+    /// like more input" is not a reply that needs continuing, whatever a small judge model thinks.
+    /// </summary>
+    public static bool LooksFinished(string? reply)
+        => !string.IsNullOrWhiteSpace(reply) && SignOff().IsMatch(reply.TrimEnd());
 
     public static bool LooksUnfinished(string? reply)
     {

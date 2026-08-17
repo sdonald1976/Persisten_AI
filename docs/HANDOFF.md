@@ -40,7 +40,11 @@ actually happened, and every derived thing must be able to say where it came fro
   - `src/Companion.Core` — domain + interfaces + all logic. Pure, no I/O deps.
   - `src/Companion.Infrastructure` — EF, model provider adapters, world link, DI composition root.
   - `src/Companion.Api` — headless HTTP + SSE + WebSocket face (+ `wwwroot` reference client).
-  - `tests/Companion.Tests` — full suite, **699 passing** at last handoff.
+  - `tests/Companion.Tests` — full suite, **853 passing** at last handoff.
+  - `tools/Companion.Soak` — drives real conversations against a running companion over HTTP and
+    reports what is wrong with the replies *and with the store afterwards*. Run it before believing
+    a memory change works: `dotnet test` has never caught one of these failures, because they all
+    live in seams whose components are individually correct.
 - `global.json` pins .NET 9 (`9.0.313`, `latestFeature`).
 - EF migrations: `dotnet ef migrations add <Name> --project src/Companion.Infrastructure
   --startup-project src/Companion.Infrastructure`.
@@ -104,6 +108,21 @@ how she behaves (named presets, free-text tweaks on top).
 **Model preflight** (`ModelPreflight` + `ModelPreflightWorker`) probes the provider catalog at
 startup and reports roles whose model is missing, instead of failing on first use an hour later.
 
+**What the store is allowed to learn** — three deterministic rules, all of them written after a real
+conversation put something false in the database:
+
+- `AssertionGuard` — an excerpt has to sit in a sentence I was *asserting*. Evidence verification
+  proves the words are real, not that I claimed them, so "did I ever tell you what timber I bought?"
+  became "the user bought timber" on a perfectly honest citation.
+- `FactSupersession` — whether a new fact replaces or joins is decided by predicate cardinality (one
+  birthday, many projects) and by whether my own words mark a change. **Not** by similarity: measured
+  on nomic-embed-text, the change that must replace scores 0.763 and two dislikes that must both
+  survive score 0.753. There is no threshold in that ordering, and the old rule lost my first project
+  the moment I mentioned a second.
+- `UnfinishedWorkDetector` — a backstop for open loops. Seventeen turns of real conversation produced
+  zero episodic memories, and loops only come from episodic candidates, so "what's unfinished?"
+  answered "nothing" while I was mid-job with a deadline.
+
 **Prompt hygiene**: `ReasoningFilter` strips think-tags and `<|…|>` spans; `PromptEchoFilter` strips
 trailing packet structure and cuts fabricated turns at invented role markers; stop sequences on the
 chat endpoint block role markers at source. All three exist because the model wrote *my* side of the
@@ -147,6 +166,16 @@ raise it before adding autonomy that widens what she produces unprompted.
 ## Open backlog
 
 - **Content gate** — see above. Ask me about this rather than assuming either way.
+- **She still invents progress on my projects.** Asked "how's that plot coming along?", she answers
+  with a description instead of saying she can't see it. Three rounds of prompt work took it from
+  three paragraphs of specifics (compost layers, heirloom tomatoes, a south-facing slope) written in
+  the *first person*, down to a vague clause or two — and one attempt was obeyed by switching to
+  narrating me as "the user", which is why the soak harness now fails on that phrase. The damage is
+  contained: none of it can become a memory (no user evidence) or an open loop (`CommitmentDetector`
+  only accepts things she can actually do), so it stays on screen and out of the store. But it still
+  reaches me, and prompt wording has stopped paying. The remaining levers are a different model for
+  the chat role, a lower temperature than 0.8, or the content gate above — my call, not an
+  assumption to make.
 - **Step 7, voice and co-presence** — the last unbuilt step of the world plan.
 - **Model lease / preemption** — background reflection can collide with a live turn on one GPU.
 - **Recall raw dump** exposes memory GUIDs; deliberate for now, a product decision later.

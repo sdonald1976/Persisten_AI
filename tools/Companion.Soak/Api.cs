@@ -113,6 +113,52 @@ public sealed class Api
         }
     }
 
+    /// <summary>
+    /// Every memory with the status the store gave it. The status is the point: a fact the user
+    /// changed should be Superseded and a fact they denied should be Disputed, and reading only the
+    /// text cannot tell a store that quietly kept two contradictory facts from one that revised.
+    /// </summary>
+    public async Task<IReadOnlyList<(string Content, string Status)>> MemoryStatesAsync()
+    {
+        try
+        {
+            var mem = await _http.GetFromJsonAsync<JsonElement>("/memories");
+            if (mem.ValueKind != JsonValueKind.Array)
+                return Array.Empty<(string, string)>();
+
+            return mem.EnumerateArray()
+                .Select(m => (
+                    Content: m.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "",
+                    Status: m.TryGetProperty("status", out var s) ? s.GetString() ?? "" : ""))
+                .Where(x => x.Content.Length > 0)
+                .ToList();
+        }
+        catch (Exception)
+        {
+            return Array.Empty<(string, string)>();
+        }
+    }
+
+    /// <summary>What she currently thinks is unfinished.</summary>
+    public async Task<IReadOnlyList<string>> OpenLoopsAsync()
+    {
+        try
+        {
+            var loops = await _http.GetFromJsonAsync<JsonElement>("/loops");
+            if (loops.ValueKind != JsonValueKind.Array)
+                return Array.Empty<string>();
+
+            return loops.EnumerateArray()
+                .Select(l => l.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "")
+                .Where(s => s.Length > 0)
+                .ToList();
+        }
+        catch (Exception)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
     /// <summary>How many memories the last turn actually pulled into the prompt.</summary>
     public async Task<int> LastTurnMemoriesRetrievedAsync()
     {

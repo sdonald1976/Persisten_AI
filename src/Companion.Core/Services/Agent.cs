@@ -77,7 +77,7 @@ public sealed class Agent : IAgent
             IntentKind.Chat => await ChatAsync(userId, conversationId, input, tokenSink, ct),
             IntentKind.Recall => await RecallAsync(userId, intent.Argument, ct),
             IntentKind.Forget => await ForgetAsync(userId, conversationId, intent.Argument, ct),
-            IntentKind.Dispute => await DisputeAsync(userId, conversationId, ct),
+            IntentKind.Dispute => await DisputeAsync(userId, conversationId, intent.Argument, ct),
             IntentKind.ListProjects => await ListProjectsAsync(userId, ct),
             IntentKind.ListOpenLoops => await ListOpenLoopsAsync(userId, ct),
             IntentKind.Consolidate => await ConsolidateAsync(userId, ct),
@@ -178,16 +178,44 @@ public sealed class Agent : IAgent
         };
     }
 
-    private async Task<AgentReply> DisputeAsync(string userId, Guid conversationId, CancellationToken ct)
+    private async Task<AgentReply> DisputeAsync(
+        string userId, Guid conversationId, string? reference, CancellationToken ct)
     {
-        var target = await ResolveMemoryAsync(userId, conversationId, null, ct);
-        if (target is null)
+        // Naming the wrong fact is worse than admitting we don't know which one is meant: the fact
+        // the user was correcting stays current, and a true one gets flagged in its place.
+        var ranked = await RankMemoriesAsync(userId, reference, ct);
+        if (ranked.Count == 0)
             return AgentReply.Act(IntentKind.Dispute, "I'm not sure which memory is wrong — mention it and I'll flag it.");
 
+        if (ranked.Count > 1 && !Decisive(ranked[0].Score, ranked[1].Score))
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Which one is wrong? I don't want to flag the wrong fact:");
+            foreach (var (memory, _) in ranked.Take(3))
+                sb.AppendLine($"  - [{Short(memory.Id)}] {Truncate(memory.Content)}");
+            sb.Append("Say \"/dispute <id>\", or tell me the right version and I'll store that instead.");
+            return AgentReply.Act(IntentKind.Dispute, sb.ToString());
+        }
+
+        var target = ranked[0].Memory;
         await _curator.DisputeAsync(userId, target.Id, "user said it's wrong", ct);
         return AgentReply.Act(IntentKind.Dispute,
-            $"Got it — I've flagged \"{Truncate(target.Content)}\" as disputed and won't rely on it.");
+            $"Got it — I've flagged \"{Truncate(target.Content)}\" as disputed and won't rely on it. " +
+            "Tell me the right version and I'll remember that instead.");
     }
+
+    /// <summary>
+    /// Relative confidence the best match must reach to be acted on without asking. Deliberately
+    /// the same number as <see cref="CompanionOptions.ResolutionConfidenceThreshold"/>, which asks
+    /// the identical question about an ambiguous project reference — a literal here rather than an
+    /// injected option only because the agent takes no configuration, and a memory flagged wrongly
+    /// is the same kind of mistake as a project resolved wrongly.
+    /// </summary>
+    private const double DecisiveConfidence = 0.65;
+
+    /// <summary>Whether the best match is far enough ahead of the runner-up to act on it.</summary>
+    private static bool Decisive(double top, double runnerUp)
+        => top > 0 && top / (top + runnerUp) >= DecisiveConfidence;
 
     private async Task<AgentReply> ListProjectsAsync(string userId, CancellationToken ct)
     {
@@ -425,26 +453,50 @@ public sealed class Agent : IAgent
     private async Task<IMemory?> ResolveMemoryAsync(
         string userId, Guid conversationId, string? reference, CancellationToken ct)
     {
+        var ranked = await RankMemoriesAsync(userId, reference, ct);
+        return ranked.Count == 0 ? null : ranked[0].Memory;
+    }
+
+    /// <summary>
+    /// The memories a plain-language reference could mean, best first, with the score that put them
+    /// there. Callers that can do damage with a wrong pick (dispute, forget) look at the runner-up
+    /// before acting; callers that only read take the head of the list.
+    /// </summary>
+    private async Task<List<(IMemory Memory, double Score)>> RankMemoriesAsync(
+        string userId, string? reference, CancellationToken ct)
+    {
         var memories = await _memories.GetRetrievalCandidatesAsync(userId, ct);
         if (memories.Count == 0)
-            return null;
+            return new List<(IMemory, double)>();
 
         if (!string.IsNullOrWhiteSpace(reference))
         {
-            return memories
-                .Select(m => (m, score: ScoreMath.KeywordOverlap(reference, m.Content)))
-                .Where(x => x.score > 0)
-                .OrderByDescending(x => x.score)
-                .Select(x => x.m)
-                .FirstOrDefault();
+            var matched = memories
+                .Select(m => (Memory: m, Score: ScoreMath.KeywordOverlap(reference, m.Content)))
+                .Where(x => x.Score > 0)
+                .OrderByDescending(x => x.Score)
+                .Cast<(IMemory, double)>()
+                .ToList();
+            if (matched.Count > 0)
+                return matched;
+            // Nothing in the reference matched anything we hold; fall through to recency rather
+            // than answering "no idea" to a user who is plainly correcting something.
         }
 
-        // "that" / "it" with no name → the most recent active memory (the thing most likely just discussed).
-        return memories
+        // "that" / "it" with no usable reference → the most recent active memory (the thing most
+        // likely just discussed). Scored 1/0 so a caller checking for a runner-up sees a clear win.
+        var recent = memories
             .Where(m => m.Status == MemoryStatus.Active)
             .OrderByDescending(m => m.CreatedAt)
             .FirstOrDefault();
+
+        return recent is null
+            ? new List<(IMemory, double)>()
+            : new List<(IMemory, double)> { (recent, 1.0) };
     }
+
+    /// <summary>The short id shown to the user, matching what <c>/remember</c> prints.</summary>
+    private static string Short(Guid id) => id.ToString()[..8];
 
     /// <summary>The last (user message, assistant response) pair in a conversation, read from the store.</summary>
     private async Task<(string? UserMessage, string? Response)> LastExchangeAsync(

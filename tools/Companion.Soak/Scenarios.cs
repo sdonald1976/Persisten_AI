@@ -16,14 +16,17 @@ public sealed record Result(string Scenario, List<Fault> Faults, List<Turn> Turn
 /// </summary>
 public static class Scenarios
 {
-    public static IReadOnlyList<string> Names => new[] { "memory", "register", "compound", "long" };
+    public static IReadOnlyList<string> Names =>
+        new[] { "memory", "fidelity", "register", "compound", "restart", "long" };
 
     public static async Task<Result> RunAsync(string name, Api api, int promptBudget, int longTurns)
         => name switch
         {
             "memory" => await MemoryAsync(api, promptBudget),
+            "fidelity" => await FidelityAsync(api, promptBudget),
             "register" => await RegisterAsync(api, promptBudget),
             "compound" => await CompoundAsync(api, promptBudget),
+            "restart" => await RestartAsync(api, promptBudget),
             "long" => await LongAsync(api, promptBudget, longTurns),
             _ => throw new ArgumentException($"unknown scenario '{name}'", nameof(name)),
         };
@@ -219,6 +222,146 @@ public static class Scenarios
 
         return new Result("long", faults, turns, notes);
     }
+
+    /// <summary>
+    /// What the store is holding at the end of a conversation, rather than how the replies read.
+    ///
+    /// Every check here failed against a running companion, and none of them is visible from the
+    /// reply text — she talked her way through the whole conversation sounding entirely coherent
+    /// while the store behind her filled up with facts the user never stated, lost the ones they
+    /// did, and answered "nothing unfinished" to someone in the middle of a job with a deadline.
+    /// That is why this scenario reads /memories and /loops instead of judging prose: a reply is
+    /// generated fresh from a transcript that is still in the prompt, so it looks right for the
+    /// entire session in which the damage is being done, and only a later session shows it.
+    /// </summary>
+    private static async Task<Result> FidelityAsync(Api api, int budget)
+    {
+        var faults = new List<Fault>();
+        var turns = new List<Turn>();
+        var notes = new List<string>();
+
+        // A nonce per run: dedup is working correctly, so a fixed noun would be merged into the
+        // memory left by the previous run and every check after the first would measure nothing.
+        var nonce = Nonce();
+        var conv = await api.StartConversationAsync("soak: fidelity");
+
+        await SayAsync(api, conv, $"I'm rebuilding the irrigation at the {nonce} allotment before the frost.", turns, faults, budget);
+        await SayAsync(api, conv, $"I've started a second thing too - a raised-bed build over at {nonce} Marsh Lane.", turns, faults, budget);
+
+        // 1. Two projects are two projects. Both landing in the slot user/works_on used to mean the
+        //    first was superseded by the second, and the audit trail called it a stated new value.
+        var afterProjects = await api.MemoryStatesAsync();
+        var irrigation = afterProjects.Where(m => Mentions(m.Content, "irrigation")).ToList();
+        var beds = afterProjects.Where(m => Mentions(m.Content, "raised", "bed")).ToList();
+        notes.Add($"projects held: {irrigation.Count} irrigation, {beds.Count} raised-bed");
+
+        if (irrigation.Count > 0 && !irrigation.Any(m => m.Status == "Active"))
+            faults.Add(new Fault("project-clobbered", "starting a second project retired the first", irrigation[0].Content));
+        else if (irrigation.Count == 0)
+            notes.Add("no irrigation memory was formed at all — check Models:Extraction");
+
+        // 2. A question is not a statement. Every word of the fact below is in the message, which
+        //    is exactly why evidence verification passed it: it checks the words are real, not that
+        //    they were claimed.
+        var before = await api.MemoryCountAsync();
+        await SayAsync(api, conv, $"Did I ever tell you what timber I bought for the {nonce} beds?", turns, faults, budget);
+        var invented = (await api.MemoryStatesAsync())
+            .FirstOrDefault(m => Mentions(m.Content, "timber") && Mentions(m.Content, "bought", "buy", "purchas"));
+        if (invented.Content is { Length: > 0 })
+            faults.Add(new Fault("question-became-fact", "stored something the user only asked about", invented.Content));
+        notes.Add($"memories after the question: {before} → {await api.MemoryCountAsync()}");
+
+        // 3. A change the user announces has to land. The predicates differ ("drinks_coffee_black"
+        //    then "prefers"), so this never worked through slot matching alone.
+        await SayAsync(api, conv, "I drink my coffee black, no sugar.", turns, faults, budget);
+        await SayAsync(api, conv, "Actually I've gone off black coffee. I take oat milk lattes now.", turns, faults, budget);
+
+        var coffee = (await api.MemoryStatesAsync()).Where(m => Mentions(m.Content, "coffee", "latte")).ToList();
+        var currentCoffee = coffee.Where(m => m.Status == "Active").ToList();
+        notes.Add($"coffee facts: {string.Join("; ", coffee.Select(m => $"{m.Status} \"{Flat(m.Content)}\""))}");
+
+        if (currentCoffee.Count > 1)
+        {
+            faults.Add(new Fault(
+                "change-not-applied",
+                $"{currentCoffee.Count} contradictory coffee facts are both current",
+                Flat(currentCoffee[0].Content)));
+        }
+        else if (currentCoffee.Count == 1 && !Mentions(currentCoffee[0].Content, "latte", "oat"))
+        {
+            faults.Add(new Fault("change-not-applied", "the superseded preference is the one still current",
+                Flat(currentCoffee[0].Content)));
+        }
+
+        // 4. Unfinished work is the product. Nothing episodic was extracted across an entire real
+        //    conversation, so nothing ever opened a loop, so "what's unfinished?" said "nothing".
+        var loops = await api.OpenLoopsAsync();
+        notes.Add($"open loops: {loops.Count}");
+        if (loops.Count == 0)
+            faults.Add(new Fault("no-open-loop", "a deadline and an unfinished job left nothing on her radar", ""));
+
+        // 5. Loops must be hers to hold, not hers to have invented. An open loop describing the
+        //    companion doing the user's gardening came from a hallucinated first-person reply and
+        //    then opened the following session.
+        var appropriated = loops.FirstOrDefault(l =>
+            Mentions(l, "compost", "planting", "heirloom", "tomato", "set aside", "sow"));
+        if (appropriated is not null)
+            faults.Add(new Fault("appropriated-loop", "opened a loop about living the user's life", Flat(appropriated)));
+
+        return new Result("fidelity", faults, turns, notes);
+    }
+
+    /// <summary>
+    /// An ordinary remark must not be mistaken for a commission.
+    ///
+    /// "I'm writing a talk on soil chemistry for the county show in October" matched the
+    /// deliverable-verb list on the word "writing", which put a conversational turn on the
+    /// auto-continuation path. The completion judge then declared a finished reply unfinished four
+    /// times: five generation rounds, 277 seconds, and four complete answers with four sign-offs
+    /// concatenated into one turn.
+    /// </summary>
+    private static async Task<Result> RestartAsync(Api api, int budget)
+    {
+        var faults = new List<Fault>();
+        var turns = new List<Turn>();
+
+        var conv = await api.StartConversationAsync("soak: restart");
+        var turn = await SayAsync(
+            api, conv,
+            "Separate thing entirely: I'm writing a talk on soil chemistry for the county show in October.",
+            turns, faults, budget);
+
+        var notes = new List<string>
+        {
+            $"generation rounds: {turn.Rounds}",
+            $"reply length: {turn.Reply.Length} characters in {turn.Took.TotalSeconds:N0}s",
+        };
+
+        if (turn.Rounds > 1)
+        {
+            faults.Add(new Fault(
+                "continued-a-finished-reply",
+                $"an ordinary remark was continued over {turn.Rounds} rounds",
+                Flat(turn.Reply)));
+        }
+
+        // The visible signature, independent of the round count: a reply that says goodbye more
+        // than once has answered more than once.
+        var signOffs = SignOff.Matches(turn.Reply).Count;
+        if (signOffs > 1)
+            faults.Add(new Fault("restarted", $"signed off {signOffs} times in one reply", Flat(turn.Reply)));
+
+        return new Result("restart", faults, turns, notes);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex SignOff = new(
+        @"(let me know if|hope (this|that) helps|best of luck|happy planning|" +
+        @"feel free to (ask|reach)|i'?m always here|glad to help)",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase
+        | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static bool Mentions(string text, params string[] words)
+        => words.Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase));
 
     private static async Task<Turn> SayAsync(
         Api api, string conv, string message, List<Turn> turns, List<Fault> faults, int budget)

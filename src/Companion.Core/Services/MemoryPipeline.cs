@@ -66,6 +66,16 @@ public sealed class MemoryPipeline : IMemoryPipeline
 
         var userMessageIds = exchange.Where(m => m.Role == MessageRole.User).Select(m => m.Id).ToHashSet();
         var validMessageIds = exchange.Select(m => m.Id).ToHashSet();
+        var messageText = exchange
+            .GroupBy(m => m.Id)
+            .ToDictionary(g => g.Key, g => g.First().Content ?? string.Empty);
+
+        // The user's own words this turn, for the deterministic reads that need the phrasing rather
+        // than the extracted fact — chiefly whether a new value replaces an old one or joins it.
+        var userSaid = exchange
+            .Where(m => m.Role == MessageRole.User)
+            .Select(m => m.Content ?? string.Empty)
+            .ToList();
 
         // Persona guard, layered under the turn-level in-character gate: a candidate that
         // references the companion herself (her name, or a relationship the persona claims) is a
@@ -94,8 +104,10 @@ public sealed class MemoryPipeline : IMemoryPipeline
             }
 
             var decision = candidate.Kind == MemoryKind.Semantic
-                ? await ProcessSemanticAsync(userId, candidate, existingSemantic, userMessageIds, validMessageIds, ct)
-                : await ProcessEpisodicAsync(userId, candidate, existingEpisodic, userMessageIds, validMessageIds, ct);
+                ? await ProcessSemanticAsync(
+                    userId, candidate, existingSemantic, userMessageIds, validMessageIds, messageText, userSaid, ct)
+                : await ProcessEpisodicAsync(
+                    userId, candidate, existingEpisodic, userMessageIds, validMessageIds, messageText, ct);
             decisions.Add(decision);
         }
 
@@ -111,12 +123,21 @@ public sealed class MemoryPipeline : IMemoryPipeline
 
     private async Task<MemoryDecision> ProcessSemanticAsync(
         string userId, MemoryCandidate candidate, List<SemanticMemory> existing,
-        HashSet<Guid> userMessageIds, HashSet<Guid> validMessageIds, CancellationToken ct)
+        HashSet<Guid> userMessageIds, HashSet<Guid> validMessageIds,
+        IReadOnlyDictionary<Guid, string> messageText, IReadOnlyList<string> userSaid, CancellationToken ct)
     {
-        // 6. Require evidence traceable to a real message in this exchange.
+        // 6. Require evidence traceable to a real message in this exchange...
         var evidence = ValidEvidence(candidate, validMessageIds);
         if (evidence.Count == 0)
             return Reject(candidate, "no valid source evidence");
+
+        // ...and require that the user asserted it, rather than merely saying the words. A question
+        // contains its own presupposition, so an honestly-cited excerpt can still be a fact the user
+        // never stated.
+        var asserted = AssertedEvidence(evidence, messageText);
+        if (asserted.Count == 0)
+            return Reject(candidate, AssertionGuard.Explain(evidence[0].Excerpt, Text(messageText, evidence[0])));
+        evidence = asserted;
 
         var fromUser = evidence.Any(e => userMessageIds.Contains(e.MessageId));
         var embedding = await _embeddings.EmbedAsync(candidate.Content, ct);
@@ -133,21 +154,43 @@ public sealed class MemoryPipeline : IMemoryPipeline
         if (nearest is not null && similarity >= _options.DuplicateSimilarityThreshold)
             return await ConfirmSemanticAsync(nearest, candidate, evidence, fromUser, ct);
 
-        // Same subject+predicate AND the same topic (moderately similar), but a different value
-        // → a genuine change to one fact. A direct user statement about their own fact is
-        // authoritative, so it supersedes the old value (kept as history); a weaker/inferred
-        // contradiction is parked for review instead. A same-slot fact about a DIFFERENT topic
-        // (e.g. two unrelated preferences) is not a contradiction at all.
+        // Does this new value REPLACE an existing one, or join it? See FactSupersession — the short
+        // version is that a slot match plus similarity cannot tell those apart, so the question is
+        // decided by whether the predicate can hold more than one value and by whether the user
+        // said they were changing something.
         var slotKey = MemoryNormalizer.SemanticSlotKey(candidate.Subject, candidate.Predicate);
         var slotMatches = existing
             .Where(m => MemoryNormalizer.SemanticSlotKey(m.Subject, m.Predicate) == slotKey)
             .ToList();
         var (slotBest, slotSim) = BestMatch(slotMatches, embedding);
-        if (slotBest is not null && slotSim >= _options.ContradictionSimilarityThreshold)
+
+        // A single-valued predicate — a name, a birthday, where they live — holds one value by
+        // definition, so a new one displaces the old whether or not they flagged the change.
+        if (slotBest is not null
+            && slotSim >= _options.ContradictionSimilarityThreshold
+            && FactSupersession.IsSingleValued(candidate.Predicate))
         {
             return fromUser
-                ? await SupersedeSemanticAsync(userId, candidate, embedding, evidence, slotBest, ct)
+                ? await SupersedeSemanticAsync(userId, candidate, embedding, evidence, slotBest, "a single-valued fact", ct)
                 : await NeedsReviewSemanticAsync(userId, candidate, embedding, evidence, slotBest, fromUser, ct);
+        }
+
+        // Anything else replaces only when the user's own words say it does. The old value is
+        // then found by topic, not by slot, because the extraction model picks the predicate and
+        // a changed fact rarely lands back in the same one ("drinks_coffee_black" → "prefers").
+        if (FactSupersession.SignalsReplacement(candidate.Evidence.Select(e => e.Excerpt), userSaid))
+        {
+            var (replaced, replacedSim) = slotBest is not null && slotSim >= _options.ReplacementSimilarityThreshold
+                ? (slotBest, slotSim)
+                : (nearest, similarity);
+
+            if (replaced is not null && replacedSim >= _options.ReplacementSimilarityThreshold)
+            {
+                return fromUser
+                    ? await SupersedeSemanticAsync(
+                        userId, candidate, embedding, evidence, replaced, "the user said this replaces it", ct)
+                    : await NeedsReviewSemanticAsync(userId, candidate, embedding, evidence, replaced, fromUser, ct);
+            }
         }
 
         // 5. Otherwise a new fact — score confidence and accept if it clears the bar.
@@ -160,11 +203,17 @@ public sealed class MemoryPipeline : IMemoryPipeline
 
     private async Task<MemoryDecision> ProcessEpisodicAsync(
         string userId, MemoryCandidate candidate, List<EpisodicMemory> existing,
-        HashSet<Guid> userMessageIds, HashSet<Guid> validMessageIds, CancellationToken ct)
+        HashSet<Guid> userMessageIds, HashSet<Guid> validMessageIds,
+        IReadOnlyDictionary<Guid, string> messageText, CancellationToken ct)
     {
         var evidence = ValidEvidence(candidate, validMessageIds);
         if (evidence.Count == 0)
             return Reject(candidate, "no valid source evidence");
+
+        var asserted = AssertedEvidence(evidence, messageText);
+        if (asserted.Count == 0)
+            return Reject(candidate, AssertionGuard.Explain(evidence[0].Excerpt, Text(messageText, evidence[0])));
+        evidence = asserted;
 
         var fromUser = evidence.Any(e => userMessageIds.Contains(e.MessageId));
         var embedding = await _embeddings.EmbedAsync(candidate.Content, ct);
@@ -317,7 +366,7 @@ public sealed class MemoryPipeline : IMemoryPipeline
 
     private async Task<MemoryDecision> SupersedeSemanticAsync(
         string userId, MemoryCandidate c, float[] embedding, List<MemoryEvidence> evidence,
-        SemanticMemory old, CancellationToken ct)
+        SemanticMemory old, string because, CancellationToken ct)
     {
         var now = _clock.GetUtcNow();
         var confidence = ConfidenceCalculator.Compute(c.ProposedConfidence, fromDirectUserStatement: true, corroborations: 0);
@@ -343,7 +392,8 @@ public sealed class MemoryPipeline : IMemoryPipeline
         AttachEvidence(replacement.Evidence, evidence, replacement.Id, MemoryKind.Semantic, userId);
 
         await _curator.SupersedeSemanticAsync(
-            userId, old.Id, replacement, $"User stated a new value for '{old.Predicate}'.", ct);
+            userId, old.Id, replacement,
+            $"Replaced \"{old.Value}\" with \"{replacement.Value}\" — {because}.", ct);
 
         return new MemoryDecision
         {
@@ -448,6 +498,18 @@ public sealed class MemoryPipeline : IMemoryPipeline
         }
         return (best, bestSim);
     }
+
+    /// <summary>
+    /// Keeps only the evidence whose excerpt sits in a sentence the user actually asserted. An
+    /// excerpt from a message we can't read is kept — the guard refuses what it can prove is a
+    /// non-assertion, not everything it can't confirm.
+    /// </summary>
+    private static List<MemoryEvidence> AssertedEvidence(
+        List<MemoryEvidence> evidence, IReadOnlyDictionary<Guid, string> messageText)
+        => evidence.Where(e => AssertionGuard.IsAsserted(e.Excerpt, Text(messageText, e))).ToList();
+
+    private static string? Text(IReadOnlyDictionary<Guid, string> messageText, MemoryEvidence e)
+        => messageText.TryGetValue(e.MessageId, out var text) ? text : null;
 
     private static List<MemoryEvidence> ValidEvidence(MemoryCandidate c, HashSet<Guid> validMessageIds)
         => c.Evidence
