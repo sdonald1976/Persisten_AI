@@ -22,7 +22,7 @@ CognitiveModels:Directory resolves to by default.
 [CmdletBinding()]
 param(
     [string] $Destination = (Join-Path $PSScriptRoot "..\src\Companion.Api\models"),
-    [ValidateSet("reranker", "all")]
+    [ValidateSet("reranker", "nli", "all")]
     [string] $Model = "all"
 )
 
@@ -41,6 +41,22 @@ $models = @(
         Files    = @(
             @{ Remote = "onnx/model.onnx"; Local = "reranker.onnx" },
             @{ Remote = "vocab.txt";       Local = "vocab.txt" }
+        )
+    },
+    @{
+        Name     = "nli"
+        Repo     = "cross-encoder/nli-MiniLM2-L6-H768"
+        Revision = "main"
+        Licence  = "apache-2.0"
+        # config.json comes down with the weights because the LABEL ORDER lives in it, and NLI
+        # models do not agree on one: this repo is contradiction/entailment/neutral, while the
+        # DeBERTa family is entailment/neutral/contradiction. Reading it is the difference between
+        # "these facts contradict" and "these facts agree" — assuming it would be a coin flip on the
+        # one judgment that retires a memory.
+        Files    = @(
+            @{ Remote = "onnx/model.onnx";  Local = "nli.onnx" },
+            @{ Remote = "tokenizer.json";   Local = "nli-tokenizer.json" },
+            @{ Remote = "config.json";      Local = "nli-config.json" }
         )
     }
 )

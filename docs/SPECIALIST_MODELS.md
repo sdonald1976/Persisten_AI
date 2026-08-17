@@ -111,6 +111,14 @@ reranking to prove itself only once the store is large. Seed a few hundred memor
 
 ### 3.2 NLI for supersession is the strongest-evidenced item in the brief and should move up
 
+> **This was wrong, and Phase 4 measured it wrong.** The argument below is sound about the *problem*
+> — similarity genuinely cannot separate these cases — and wrong about the *fix*. An off-the-shelf
+> MNLI model scores 0.462 against the heuristic's 0.667, because it asks whether two sentences
+> describe the same scene, not whether both can be true of one person over time. Left in place
+> rather than quietly edited, because a design document that only records the predictions that came
+> true is worth nothing. See §6.
+
+
 I measured this today. On nomic-embed-text:
 
 ```
@@ -211,7 +219,7 @@ and evaluation at §16, after several models are in. Building the measurement fi
 | 1 — runtime seam | **built** — see `src/Companion.Core/Abstractions/ICognitiveModel.cs`, `Companion.Infrastructure/Cognition/` |
 | 2 — shadow + evaluation | **built** — `IShadowRecorder`, `/diagnostics/shadow`, `tools/Companion.Eval` |
 | 3 — cross-encoder | **built, measured, NOT adopted** — see below |
-| 4 — NLI | not started |
+| 4 — NLI | **built, measured, REJECTED for now** — and it disproved §3.2. See below |
 | 5 — cognitive classifier | not started |
 | 6 — emotion | not started |
 | 7 — roaming seam | not started |
@@ -304,6 +312,64 @@ Collapsing those into one is how a model gets promoted for the crime of being pr
 `/diagnostics/shadow/disagreements` rather than invented; and a retrieval test at scale, which needs
 a few hundred memories in the store, since today the retriever returns everything and there is
 nothing to rerank.
+
+### Phase 4: NLI, and the part of this document that was wrong
+
+§3.2 argued that NLI on supersession was the strongest-evidenced item in the whole brief — the one
+place the existing approach was *provably* unable to work. It was measured. It is worse.
+
+`cross-encoder/nli-MiniLM2-L6-H768` (apache-2.0, ONNX, RoBERTa BPE), ~27 ms per call on CPU:
+
+```
+supersession        (wording heuristic)  P=1.000 R=0.500 F1=0.667
+supersession-nli    (entailment model)   P=0.429 R=0.500 F1=0.462
+```
+
+Before blaming the model, the plumbing was ruled out. The C# byte-level BPE was verified token-for-
+token against Hugging Face's own tokenizer (`RobertaTokenizationTests`), and the whole stack was
+re-run through Python/onnxruntime, which produced **identical** probabilities. On canonical NLI the
+model is excellent — entailment 0.97, contradiction 1.00, neutral 0.99 on the textbook triple. It
+works. It is answering a different question from the one supersession asks.
+
+**Why, and this is the useful part.** MNLI trains on premise/hypothesis pairs describing *the same
+scene*, where two descriptions compete. Memory asks whether both can be true *of one person, over
+time*. Those come apart badly:
+
+| pair | needs | NLI says |
+|---|---|---|
+| corgi called Kanga / cat called Mim | coexist | **contradiction 1.00** |
+| dislikes coriander / dislikes olives | coexist | **contradiction 0.92** |
+| plays cello / plays piano | coexist | **contradiction 1.00** |
+| soil-chemistry talk / irrigation rebuild | coexist | **contradiction 0.92** |
+| coffee black / oat milk lattes now | replace | **neutral 0.82** |
+| low-carb / keto | replace | **neutral 0.91** |
+
+It is wrong in both directions, confidently, and precisely on the cases that matter. A person with
+two pets is not a contradiction; someone who changed their coffee order is not a neutral remark.
+
+**The assertion veto fails too, differently.** §3.3 proposed NLI as a *second* veto beside the mood
+check. Measured, it cannot be the *first*:
+
+```
+"Did I ever tell you what timber I bought for the beds?"  ⊨ "The user bought timber."   entailment 0.97
+"If I bought cedar for the beds, would it last longer?"   ⊨ "The user bought cedar."    entailment 0.68
+"I wouldn't say I've bought the timber yet."              ⊨ "The user bought timber."   contradiction (0.23)
+```
+
+Given a question, it happily entails the presupposition at 97% — the exact fabrication that started
+all this. It gets right only the one case mood cannot reach. So the composition §3.3 argued for is
+confirmed and its *order* is now evidenced: mood first, structurally, and NLI only afterwards on
+sentences already judged declarative. Not implemented, because on current data it would gain one row
+in sixteen, and one row is not evidence.
+
+**So NLI stays off, and it is not a failed experiment.** What it cost was an afternoon; what it
+bought was knowing that the most confident recommendation in this document was wrong, before it was
+wired into the path that retires memories. That is the entire purpose of building the harness first.
+
+**What would change the verdict:** a fine-tune on supersession-framed pairs rather than MNLI —
+"can both of these be true of this person?" instead of "do these describe the same scene?". The
+brief anticipated this. It needs labelled data, which needs shadow mode running on real
+conversations, which is the next thing to do rather than the next model to add.
 
 ### Shadow mode
 

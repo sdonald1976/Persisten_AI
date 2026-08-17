@@ -435,10 +435,13 @@ public static class DependencyInjection
         else
             services.AddSingleton<IShadowRecorder, NullShadowRecorder>();
 
-        // Phases 4 and 5 supply the implementations; the seam and the honest "not here" exist now
-        // so the callers can be written against the interface rather than around its absence.
-        services.AddSingleton<INliModel>(_ => new UnavailableNliModel(
-            "nli", options.Nli.Enabled ? "not implemented yet — see docs/SPECIALIST_MODELS.md" : "disabled"));
+        services.AddSingleton<INliModel>(sp => options.Nli.Enabled
+            ? new OnnxNliModel(
+                "nli", options.Nli, directory, timeout, sp.GetRequiredService<ILogger<OnnxNliModel>>())
+            : new UnavailableNliModel("nli", "disabled"));
+
+        // Phase 5 supplies the classifier; the seam and the honest "not here" exist now so callers
+        // can be written against the interface rather than around its absence.
         services.AddSingleton<ITextClassifier>(_ => new UnavailableTextClassifier(
             "classifier",
             options.Classifier.Enabled ? "not implemented yet — see docs/SPECIALIST_MODELS.md" : "disabled"));
