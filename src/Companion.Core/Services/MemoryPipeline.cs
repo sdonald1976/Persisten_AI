@@ -23,6 +23,12 @@ public sealed class MemoryPipeline : IMemoryPipeline
     private readonly TimeProvider _clock;
     private readonly ILogger<MemoryPipeline> _logger;
 
+    // Optional, and both default to the "not here" implementations. Shadow comparison is a
+    // measurement that must never change a decision, so the pipeline has to work identically with
+    // neither of these present — which is also how every existing test constructs it.
+    private readonly IShadowRecorder? _shadow;
+    private readonly INliModel? _nli;
+
     public MemoryPipeline(
         IMemoryExtractor extractor,
         IMemoryStore store,
@@ -32,7 +38,9 @@ public sealed class MemoryPipeline : IMemoryPipeline
         IPersonalityService personality,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
-        ILogger<MemoryPipeline> logger)
+        ILogger<MemoryPipeline> logger,
+        IShadowRecorder? shadow = null,
+        INliModel? nli = null)
     {
         _extractor = extractor;
         _store = store;
@@ -43,6 +51,8 @@ public sealed class MemoryPipeline : IMemoryPipeline
         _options = options.Value;
         _clock = clock;
         _logger = logger;
+        _shadow = shadow;
+        _nli = nli;
     }
 
     public async Task<MemoryExtractionResult> ProcessAsync(
@@ -192,8 +202,17 @@ public sealed class MemoryPipeline : IMemoryPipeline
         // it as a change, or the user's own wording marks one. Two independent readings of the same
         // question, and either is enough to look, because the guards below (a plausible target, a
         // similarity floor, and evidence from the user) are what decide whether anything happens.
-        if (candidate.ProposedReplacement
-            || FactSupersession.SignalsReplacement(candidate.Evidence.Select(e => e.Excerpt), userSaid))
+        var wordingSaysReplace = candidate.ProposedReplacement
+            || FactSupersession.SignalsReplacement(candidate.Evidence.Select(e => e.Excerpt), userSaid);
+
+        // The one shadow comparison wired into the live path: what an entailment model would have
+        // said about this same "replace or join?" question. Recorded, never acted on — the decision
+        // below is unchanged by it. Measured on a hand-written set the model loses badly (0.462 to
+        // the heuristic's 0.667), and the whole reason to record it here is that a set somebody
+        // wrote down is not a conversation.
+        await RecordSupersessionShadowAsync(candidate, nearest, wordingSaysReplace, ct);
+
+        if (wordingSaysReplace)
         {
             var (replaced, replacedSim) = slotBest is not null && slotSim >= _options.ReplacementSimilarityThreshold
                 ? (slotBest, slotSim)
@@ -214,6 +233,31 @@ public sealed class MemoryPipeline : IMemoryPipeline
             return Reject(candidate, $"confidence {confidence:F2} below threshold {_options.MinAcceptConfidence:F2}", confidence);
 
         return await AcceptSemanticAsync(userId, candidate, embedding, evidence, confidence, ct);
+    }
+
+    /// <summary>
+    /// Asks the NLI model the same question the wording signal just answered, and files the pair.
+    /// Costs nothing when shadow mode is off: the recorder reports it is not recording and the
+    /// model is never run, because an inference whose answer nobody reads is pure latency.
+    /// </summary>
+    private async Task RecordSupersessionShadowAsync(
+        MemoryCandidate candidate, SemanticMemory? nearest, bool wordingSaysReplace, CancellationToken ct)
+    {
+        if (_shadow is not { IsRecording: true } || _nli is not { IsAvailable: true } || nearest is null)
+            return;
+
+        var premise = nearest.NormalizedFact;
+        await Shadow.CompareAsync<bool>(
+            _shadow,
+            "supersession.replaces",
+            wordingSaysReplace,
+            async token =>
+            {
+                var verdict = await _nli.ClassifyAsync(premise, candidate.Content, token);
+                return (verdict.Label == Entailment.Contradiction, verdict.Confidence);
+            },
+            input: $"{premise} || {candidate.Content}",
+            ct: ct);
     }
 
     private async Task<MemoryDecision> ProcessEpisodicAsync(

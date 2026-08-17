@@ -381,6 +381,12 @@ flag whose value at the time isn't in the row.
 - `GET /diagnostics/shadow` — agreement rate, average confidence and added latency per subject.
 - `GET /diagnostics/shadow/disagreements?subject=&count=` — the cases worth a human deciding.
 
+**Wired call sites:** `supersession.replaces` only, in `MemoryPipeline` — the wording signal against
+NLI's contradiction verdict, on every real turn. Worth saying plainly that the first version of this
+shipped with *none*: the recorder, the endpoints and the helper all existed and nothing called them,
+so switching shadow mode on recorded an empty table. A measurement feature that is never invoked
+looks exactly like one that finds no disagreements.
+
 When it is off, the model is not merely ignored, it is **not run**: shadowing costs a real inference
 per turn, and paying for an answer nobody reads is how a measurement feature becomes a latency
 regression. Input text is only stored when a caller passes it, because the rest of the telemetry
