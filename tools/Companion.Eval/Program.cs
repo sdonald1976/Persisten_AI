@@ -33,6 +33,13 @@ var chosen = only is null
     ? suites
     : suites.Where(s => s.Name.Equals(only, StringComparison.OrdinalIgnoreCase)).ToArray();
 
+// Build the training corpus and score the incumbent heuristics against it.
+if (only is not null && only.Equals("corpus", StringComparison.OrdinalIgnoreCase))
+{
+    var outDir = ArgValue("--out") ?? Path.Combine(AppContext.BaseDirectory, "corpus");
+    return CorpusSuite.Run(outDir, verbose);
+}
+
 // Truth tables for the single-message decisions: pure functions, no store, no models.
 if (only is not null && only.Equals("text", StringComparison.OrdinalIgnoreCase))
     return TextTruthTables.Run(verbose);
@@ -60,7 +67,7 @@ var rankingOnly = only is not null && only.Equals("resolution", StringComparison
 if (chosen.Length == 0 && !rankingOnly)
 {
     Console.Error.WriteLine(
-        $"Unknown suite '{only}'. Known: {string.Join(", ", suites.Select(s => s.Name))}, resolution, lives, tier0, text");
+        $"Unknown suite '{only}'. Known: {string.Join(", ", suites.Select(s => s.Name))}, resolution, lives, tier0, text, corpus");
     return 2;
 }
 
