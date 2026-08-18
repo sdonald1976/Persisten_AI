@@ -131,6 +131,13 @@ public static class DependencyInjection
         services.AddSingleton<WebSocketWorldLink>();
         services.AddSingleton<IWorldLink>(sp => sp.GetRequiredService<WebSocketWorldLink>());
 
+        // Where she goes, behind an interface so a learned policy can be measured against this one
+        // rather than replacing it in a commit. The heuristic is the only implementation and stays
+        // the default; see IRoamingPolicy for what a learned one is actually blocked on, which is
+        // not the seam.
+        services.AddSingleton<IRoamingPolicy>(
+            new HeuristicRoamingPolicy(TimeSpan.FromMinutes(Math.Max(0, worldOptions.RestlessMinutes))));
+
         // A model name is the one setting nothing else validates — a typo or an un-pulled tag
         // builds, starts, and tests clean, then 503s on the first real sentence. The preflight
         // checks the provider's catalog once at startup and reports what's actually missing.
