@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Companion.Core.Domain;
+using Companion.Core.Services;
 
 namespace Companion.Core.Abstractions;
 
@@ -32,6 +33,13 @@ public interface IShadowRecorder
 
     /// <summary>The most recent disagreements, newest first — the queue of things worth a human look.</summary>
     Task<IReadOnlyList<ShadowComparison>> GetDisagreementsAsync(
+        string? subject, int count, CancellationToken ct = default);
+
+    /// <summary>
+    /// The most recent captures — rows with no model answer, newest first. See
+    /// <see cref="Shadow.CaptureAsync"/> for why these exist and what they are for.
+    /// </summary>
+    Task<IReadOnlyList<ShadowComparison>> GetCapturesAsync(
         string? subject, int count, CancellationToken ct = default);
 }
 
@@ -98,6 +106,56 @@ public static class Shadow
         }, ct);
 
         return legacy;
+    }
+
+    /// <summary>
+    /// Records what the heuristic said about a real sentence, with no model involved at all.
+    ///
+    /// This is the way out of a deadlock the rest of this document keeps arriving at. Every "what
+    /// would change the verdict" note in <c>docs/SPECIALIST_MODELS.md</c> ends at the same place:
+    /// the corpus is synthetic, one person wrote every template, and the honest answer to "does the
+    /// model generalise or has it learned that person's writing habits" is that nobody can tell. A
+    /// model needs real examples; real examples arrive through the turn; and shadow comparison
+    /// cannot collect them because it needs a model to compare against.
+    ///
+    /// So this records the half that already exists. The incumbent's verdict on a real sentence is
+    /// a weak label, and a weak label plus the sentence is exactly what a human review queue is
+    /// made of. When a classifier does arrive it fills in <see cref="ShadowComparison.Model"/> on
+    /// the same subject and these rows become ordinary comparisons — the subject name is
+    /// deliberately the corpus decision key, so a captured row and a generated row are the same
+    /// shape and can be trained on together.
+    ///
+    /// <paramref name="input"/> is dropped, and only the verdict kept, when the text looks like it
+    /// contains a credential. That is a deliberate asymmetry rather than skipping the row: the
+    /// RATE the heuristic fires at is the thing this corpus most badly needs — every precision
+    /// figure computed so far has had to assume a conversational base rate rather than measure one
+    /// — and the rate is knowable without keeping the sentence.
+    /// </summary>
+    public static async Task CaptureAsync(
+        IShadowRecorder recorder,
+        string subject,
+        bool legacy,
+        string? input,
+        CancellationToken ct = default)
+    {
+        if (!recorder.IsRecording)
+            return;
+
+        await recorder.RecordAsync(new ShadowComparison
+        {
+            Id = Guid.NewGuid(),
+            Subject = subject,
+            Legacy = legacy ? "true" : "false",
+
+            // Null is what makes this a capture rather than a comparison, and every reader keys off
+            // it: agreement rates exclude these rows, because a model that was never asked cannot
+            // have agreed with anything.
+            Model = null,
+            Confidence = 0,
+            Agreed = true,
+            Applied = "legacy",
+            Input = SecretDetector.LooksLikeSecret(input) ? null : input,
+        }, ct);
     }
 
     private static string Describe<T>(T value) => value switch

@@ -54,6 +54,20 @@ public sealed class CognitiveModelOptions
     /// </summary>
     public bool ShadowMode { get; set; }
 
+    /// <summary>
+    /// Record the heuristics' verdicts on real sentences, so the corpus a model is judged on stops
+    /// being entirely synthetic. Off by default, and a separate switch from <see cref="ShadowMode"/>
+    /// on purpose: shadow mode needs a model to compare against, capture needs only the rule, and
+    /// capture is therefore the one that is useful when there is no model yet.
+    ///
+    /// It writes user text into the telemetry store, which the rest of that store deliberately
+    /// avoids. Three things bound it: it runs only on turns already allowed to produce durable
+    /// memory (so nothing private, in-character, or off the record is captured), the text is
+    /// dropped and only the verdict kept when it looks like a credential, and it is off unless
+    /// somebody sets this. Switching it on is a decision about your own conversations.
+    /// </summary>
+    public bool Capture { get; set; }
+
     public IEnumerable<(string Name, CognitiveModelEntry Entry)> All()
     {
         yield return ("reranker", Reranker);

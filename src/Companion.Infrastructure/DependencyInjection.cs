@@ -446,10 +446,19 @@ public static class DependencyInjection
 
         // Shadow mode costs a real inference per turn whose answer is then discarded, so when it is
         // off the recorder says so and callers skip the work entirely rather than paying for it.
-        if (options.ShadowMode)
+        // Capture writes to the same table and needs the same recorder, hence either flag.
+        if (options.ShadowMode || options.Capture)
             services.AddSingleton<IShadowRecorder, ShadowRecorder>();
         else
             services.AddSingleton<IShadowRecorder, NullShadowRecorder>();
+
+        // Capture is the one measurement that is useful before any model exists — it collects the
+        // real sentences every "what would change the verdict" note in docs/SPECIALIST_MODELS.md
+        // asks for. Its own flag, so turning shadow mode on does not start writing user text.
+        if (options.Capture)
+            services.AddSingleton<ICognitiveCapture, CognitiveCapture>();
+        else
+            services.AddSingleton<ICognitiveCapture, NoCognitiveCapture>();
 
         services.AddSingleton<INliModel>(sp => options.Nli.Enabled
             ? new OnnxNliModel(

@@ -89,6 +89,24 @@ def load(decision, split):
     return [Row(json.loads(line)) for line in path.open(encoding="utf-8") if line.strip()]
 
 
+def load_reviewed(decision):
+    """Human-labelled sentences from real conversations, if any have been harvested yet.
+
+    These go into the DEVELOPMENT set rather than the held-out one, which is the opposite of what
+    it feels like it should be. Real rows are the scarce and valuable thing, and the temptation is
+    to save them for the final test — but the held-out families exist to catch a model that has
+    learned a phrasing rather than the concept, and a real sentence is its own family, so a test
+    set made of them measures something different from the one the synthetic families measure. Two
+    incomparable numbers is worse than one honest one. When there are enough real rows to hold some
+    back, they should become their own suite rather than being mixed into this one.
+    """
+    path = CORPUS / f"{decision}.reviewed.jsonl"
+    if not path.exists():
+        return []
+    rows = [Row(json.loads(line)) for line in path.open(encoding="utf-8") if line.strip()]
+    return [r for r in rows if r.label is not None]
+
+
 def decisions():
     return sorted({p.name.split(".train.jsonl")[0] for p in CORPUS.glob("*.train.jsonl")})
 
@@ -180,7 +198,8 @@ def precision_at_prior(truth, pred, prior):
 
 
 def run(decision):
-    develop = load(decision, "train") + load(decision, "validation")
+    reviewed = load_reviewed(decision)
+    develop = load(decision, "train") + load(decision, "validation") + reviewed
     holdout = load(decision, "test")
     families = {r.family for r in develop}
 
@@ -194,6 +213,12 @@ def run(decision):
 
     print(f"    development {len(develop):>4} rows / {len(families)} families   "
           f"held out {len(holdout):>4} rows / {len({r.family for r in holdout})} families")
+    if reviewed:
+        print(f"    of which {len(reviewed)} are human-labelled sentences from real conversations "
+              f"({len(reviewed) / len(develop):.0%} of the corpus)")
+    else:
+        print("    all synthetic — no reviewed captures yet, so every number below is a statement "
+              "about one person's templates. See training/cognition/harvest.py")
 
     texts = [r.text for r in develop]
     labels = [r.label for r in develop]
