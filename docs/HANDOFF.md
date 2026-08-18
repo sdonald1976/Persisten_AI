@@ -12,7 +12,7 @@ you're oriented before making changes.
 
 | | |
 |---|---|
-| `C:\Source\Persisten_AI` | Her mind. Branch **`claude/inner-monologue`**. |
+| `C:\Source\Persisten_AI` | Her mind. Branch **`master`**. (`claude/inner-monologue` is an ancestor of master and stale — do not check it out.) |
 | `C:\Source\AvaWorld` | Her world. Branch **`main`**, `github.com/sdonald1976/AvaWorld`. |
 
 They are deliberately separate applications that talk over a WebSocket. **The world is not part of
@@ -40,7 +40,7 @@ actually happened, and every derived thing must be able to say where it came fro
   - `src/Companion.Core` — domain + interfaces + all logic. Pure, no I/O deps.
   - `src/Companion.Infrastructure` — EF, model provider adapters, world link, DI composition root.
   - `src/Companion.Api` — headless HTTP + SSE + WebSocket face (+ `wwwroot` reference client).
-  - `tests/Companion.Tests` — full suite, **945 passing** at last handoff.
+  - `tests/Companion.Tests` — full suite, **951 passing** at last handoff.
   - `tools/Companion.Soak` — drives real conversations against a running companion over HTTP and
     reports what is wrong with the replies *and with the store afterwards*. Run it before believing
     a memory change works: `dotnet test` has never caught one of these failures, because they all
@@ -228,7 +228,17 @@ and had no real conversation data. Everything blocked on those three things was 
 far as it could be, and left with the untested part labelled. **This machine is where those come
 unblocked**, which is the whole reason to move the work here.
 
-Branch: `claude/continue-previous-prompt-w8dksm`, pushed. 945 tests green.
+Merged to `master` 2026-08-18 (PR #1, from `claude/continue-previous-prompt-w8dksm`).
+951 tests green, and a full six-scenario soak ran first against a live instance with the real
+model roster and a scratch database. Four scenarios green, including the memory and fidelity
+seams this branch touches — supersession worked live (coffee correctly superseded, second project
+correctly coexisted), and the first two production pair-capture rows were recorded correctly on
+the way. Two scenarios failed, both in the chat model's reply behaviour, which this branch does
+not touch: `register` tripped the documented third-person-"the user" and interrogation checks,
+and `long` lost a fact at turn 26 that the turn trace proves was retrieved top-ranked (1.37) and
+present in the packet — the model apologised instead of reading it. That last one is new
+evidence for the standing "prompt wording has stopped paying" backlog item: the failure is not
+retrieval, it is Stheno ignoring what retrieval handed it.
 Decide whether it merges into the main working branch before or after the model experiments — it
 touches `Companion.Core`, `Companion.Infrastructure` and `Companion.Api`, all additively.
 
