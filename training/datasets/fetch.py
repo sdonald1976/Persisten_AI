@@ -50,6 +50,8 @@ SOURCES = {
     # viewer never ran there is no auto-converted parquet branch to fall back to either. It is kept
     # last only so the error names it. `pietrolesci/dialogue_nli` is what the tasksource collection
     # loads programmatically, which is decent evidence it is script-free.
+    # CONFIRMED by a --probe run: loads, and carries dtype/id/label/original_label/sentence1/
+    # sentence2/triple1/triple2. The triples are what make --audit possible at all.
     "dialogue-nli": dict(
         hf=[("pietrolesci/dialogue_nli", None), ("tasksource/dialogue-nli", None),
             ("xksteven/dialogue_nli", None)],
@@ -59,6 +61,7 @@ SOURCES = {
              "uses sentence1/sentence2, the Hub mirrors premise/hypothesis. Both are handled.",
         manual="https://wellecks.github.io/dialogue_nli/ — download, then --from-file the JSON. "
                "This is the reliable route, not the fallback: the Hub copies are script-based."),
+    # CONFIRMED by --probe: aps/super_glue/cb loads, columns premise/hypothesis/label/idx.
     "commitment-bank": dict(
         hf=[("aps/super_glue", "cb"), ("super_glue", "cb")],
         split="train", decision="memory.assertion",
@@ -67,14 +70,20 @@ SOURCES = {
         kwargs=dict(encoding="superglue"),
         manual="https://github.com/mcdm/CommitmentBank — the original release keeps the Likert "
                "ratings; use --from-file with adapters.commitment_bank(encoding='likert')"),
+    # CONFIRMED by --probe: clinc/clinc_oos/plus loads, columns text/intent.
     "clinc150": dict(
         hf=[("clinc/clinc_oos", "plus"), ("DeepPavlov/clinc150", None), ("clinc_oos", "plus")],
         split="train", decision="tool.capability",
         licence="unconfirmed — CC BY-SA 3.0 per the UCI listing",
         note="150 intents + out-of-scope. Positives are the assistant-about-itself intents.",
         manual="https://github.com/clinc/oos-eval — data/data_full.json"),
+    # The one that does NOT resolve. Both of the obvious ids are script-based and fail outright on
+    # datasets >= 4.5, confirmed by --probe. The two below are untried alternatives; if neither
+    # works the corpus is a hand download, and it is also the one with the awkward licence, so it
+    # is the least costly of the four to go without.
     "daily-dialog": dict(
-        hf=[("li2017dailydialog/daily_dialog", None), ("daily_dialog", None)],
+        hf=[("roskoN/dailydialog", None), ("Akhil391/daily_dialog", None),
+            ("li2017dailydialog/daily_dialog", None), ("daily_dialog", None)],
         split="train", decision="companion.commitment",
         licence="CC BY-NC-SA 4.0 — NON-COMMERCIAL, ShareAlike",
         note="commissive acts. The DETECTION half only; the capability gate stays code.",
@@ -157,58 +166,108 @@ def probe():
     print("and it raises with both lists rather than writing an all-negative corpus.")
 
 
-def audit(name, rows):
-    """Cross-tabulates DialogueNLI's own relation triples against its labels.
+def label_of(row, label_names=None):
+    """The string label, however this mirror happens to store it.
 
-    This exists because the claim that made DialogueNLI worth borrowing is not fully verified. Its
-    labels come from human-annotated triples — (i, have_pet, dog) — with contradiction assigned via
-    an explicitly negating triple such as (i, not_have, dog), and pairs across DIFFERENT relations
-    labelled neutral by rule. That is person-level coherence rather than scene identity, which is
-    the right question and the one an off-the-shelf MNLI model was measured getting wrong.
-
-    What is NOT confirmed is the case the whole argument rests on: SAME relation, DIFFERENT value.
-    "I have a corgi" against "I have a cat" is one `have_pet` triple against another, and whether
-    that reads as neutral (a person may have both — what memory needs) or as contradiction (which
-    would make this corpus no better than MNLI for supersession) depends on whether `have_pet` is
-    treated as many-valued. The paper's rules as published do not settle it.
-
-    Five minutes of arithmetic over the real file does. If same-relation pairs are overwhelmingly
-    neutral, the corpus answers our question. If they are largely contradiction, it does not, and
-    the sensible move is to train only on the negation-derived rows.
+    `pietrolesci/dialogue_nli` carries both an integer `label` and a string `original_label`; the
+    integer column is a plain int64 with no ClassLabel metadata, so nothing can be read off the
+    schema and the string column is the only thing that states what an id means.
     """
-    triples = [(r.get("triple1"), r.get("triple2"), str(r.get("label", "")).lower())
-               for r in rows if r.get("triple1") and r.get("triple2")]
-    if not triples:
-        print(f"{name}: no triple annotations on these rows, so the label rule cannot be audited "
-              f"from here. The canonical release at wellecks.github.io carries them; a mirror may "
-              f"have dropped the columns.")
+    if row.get("original_label") not in (None, ""):
+        return str(row["original_label"]).strip().lower()
+    raw = row.get("label")
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        if not label_names:
+            return f"id:{raw}"
+        return str(label_names[raw]).strip().lower()
+    return str(raw).strip().lower()
+
+
+def audit(name, rows, label_names=None):
+    """Cross-tabulates DialogueNLI's own relation triples against its own labels.
+
+    This exists because the claim that made DialogueNLI worth borrowing — that it is annotated for
+    "can both be true of one person" rather than "do these describe one scene" — was a recollection
+    of the annotation scheme rather than a reading of the data.
+
+    THE FIRST VERSION OF THIS FUNCTION WAS WRONG TWICE, and both are worth keeping written down
+    because they are the same kind of mistake the rest of this project keeps finding:
+
+      1. It compared the label against the string "neutral" while the mirror stores integers, so
+         the count was always zero and it printed "mostly NOT neutral" whatever the data said. A
+         verdict that cannot come out the other way is not a measurement. Labels are now decoded
+         through `original_label`, which is the column that actually states them.
+
+      2. It bucketed on the RELATION alone, which conflates two unrelated cases. A pair of persona
+         sentences sharing the *same triple* is an entailment by construction — that is how the
+         corpus makes its positives — and it lands in the same bucket as the case we care about.
+         The question is specifically SAME RELATION, DIFFERENT VALUE: "I have a corgi" against
+         "I have a cat", one `have_pet` against another. Only that bucket decides whether this
+         corpus answers our question or shares MNLI's problem.
+
+    The third bucket, different relations, is the control: the paper labels relation swaps neutral
+    by construction, so if it does not come out overwhelmingly neutral, the triples are not being
+    read correctly and nothing else here should be believed.
+    """
+    import collections
+
+    buckets = collections.defaultdict(collections.Counter)
+    for r in rows:
+        t1, t2 = r.get("triple1"), r.get("triple2")
+        if not t1 or not t2 or len(t1) < 3 or len(t2) < 3:
+            continue
+        label = label_of(r, label_names)
+        if t1[1] != t2[1]:
+            buckets["different relation (control: should be neutral)"][label] += 1
+        elif str(t1[2]).strip().lower() == str(t2[2]).strip().lower():
+            buckets["same relation, SAME value"][label] += 1
+        else:
+            buckets["same relation, DIFFERENT value"][label] += 1
+
+    if not buckets:
+        print(f"{name}: no usable triple annotations on these rows, so the label rule cannot be "
+              f"audited. The canonical release and pietrolesci/dialogue_nli both carry triple1 and "
+              f"triple2; a mirror that dropped them cannot answer this.")
         return
 
-    import collections
-    same = collections.Counter()
-    cross = collections.Counter()
-    for t1, t2, label in triples:
-        r1 = t1[1] if len(t1) > 1 else "?"
-        r2 = t2[1] if len(t2) > 1 else "?"
-        (same if r1 == r2 else cross)[label] += 1
+    total = sum(sum(c.values()) for c in buckets.values())
+    print(f"{name}: {total} pairs carrying triples\n")
+    for bucket in ("same relation, DIFFERENT value", "same relation, SAME value",
+                   "different relation (control: should be neutral)"):
+        counts = buckets.get(bucket)
+        if not counts:
+            continue
+        n = sum(counts.values())
+        print(f"  {bucket:<46} n={n:<8} " +
+              "  ".join(f"{k} {v / n:.0%}" for k, v in counts.most_common(4)))
 
-    def rate(counter, what):
-        total = sum(counter.values()) or 1
-        print(f"  {what:<34} n={total:<7} " + "  ".join(
-            f"{k} {v / total:.0%}" for k, v in counter.most_common()))
+    decisive = buckets.get("same relation, DIFFERENT value")
+    if not decisive:
+        print("\n  No same-relation/different-value pairs at all, which is itself the answer: the "
+              "corpus never asks our question and cannot settle it.")
+        return
 
-    print(f"{name}: how the corpus labels {len(triples)} pairs that carry triples")
-    rate(same, "SAME relation, e.g. pet vs pet")
-    rate(cross, "different relations")
+    n = sum(decisive.values())
+    neutral = decisive.get("neutral", 0) / n
+    contradiction = decisive.get("contradiction", 0) / n
+    unknown = sum(v for k, v in decisive.items() if k.startswith("id:")) / n
     print()
-    neutral = same.get("neutral", 0) / (sum(same.values()) or 1)
-    if neutral >= 0.6:
-        print("  Same-relation pairs are mostly NEUTRAL — one person may hold both. That is the")
-        print("  question memory supersession asks, and the reason to prefer this over MNLI.")
+    if unknown > 0.5:
+        print("  Labels could not be decoded — no original_label column and no label names. The")
+        print("  percentages above are raw ids and the verdict below is withheld rather than")
+        print("  guessed, because a wrong mapping here inverts the conclusion entirely.")
+    elif neutral >= 0.6:
+        print(f"  {neutral:.0%} NEUTRAL. One person may hold both, which is the question memory")
+        print("  supersession asks and the reason to prefer this corpus over MNLI. Use it whole.")
+    elif contradiction >= 0.6:
+        print(f"  {contradiction:.0%} CONTRADICTION. Two different pets read as a conflict, so for")
+        print("  supersession this corpus shares MNLI's problem exactly. Train only on the rows")
+        print("  whose contradiction comes from an explicitly negating triple (not_have and its")
+        print("  kin), and treat same-relation/different-value rows as unusable.")
     else:
-        print("  Same-relation pairs are mostly NOT neutral. This corpus then shares MNLI's problem")
-        print("  for our purposes: two different pets read as a conflict. Train on the")
-        print("  negation-derived rows only, and treat the rest as unusable for supersession.")
+        print(f"  Split — {neutral:.0%} neutral against {contradiction:.0%} contradiction. The")
+        print("  corpus is inconsistent on exactly the case we need, which is a third answer and")
+        print("  the worst one: it cannot be used whole and cannot be filtered by label alone.")
 
 
 def rows_from_file(name, path):
@@ -306,7 +365,8 @@ def main():
     if args.audit:
         for name in wanted:
             rows, source_label = resolve(name, args.limit)
-            audit(name, list(rows))
+            names = list(getattr(getattr(rows, "features", {}).get("label", None), "names", []) or [])
+            audit(name, list(rows), label_names=names)
         return
 
     results = []
