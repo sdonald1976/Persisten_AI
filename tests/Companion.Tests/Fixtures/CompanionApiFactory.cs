@@ -15,10 +15,11 @@ public sealed class CompanionApiFactory : WebApplicationFactory<Program>
 
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"companion-api-test-{Guid.NewGuid():N}.db");
 
-    public CompanionApiFactory()
+    public CompanionApiFactory(string? userId = null)
     {
         Environment.SetEnvironmentVariable("Database__Path", _dbPath);
         Environment.SetEnvironmentVariable("Models__Provider", "Mock");
+        Environment.SetEnvironmentVariable("User__Id", userId ?? "demo-user");
         Environment.SetEnvironmentVariable("Api__AuthEnabled", "true");
         Environment.SetEnvironmentVariable("Api__Token", Token);
         Environment.SetEnvironmentVariable("Api__AllowedOrigins__0", AllowedOrigin);
