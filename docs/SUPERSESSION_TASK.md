@@ -366,6 +366,30 @@ The generator already contains the remedy unbuilt into these artifacts: `LlmSynt
 with validation/quarantine and `verbalizationGroupId` grouping. Structure from the simulator,
 surface from a verbalizer, folds on the verbalization group.
 
+The template-grouped run (the generator's own third split axis, 31 template groups) closes the
+diagnosis and adds the one insight worth keeping. Same corpus, folds on unseen verbalizations:
+
+| class | life-grouped F1 | template-grouped F1 | what that says |
+|---|---|---|---|
+| DUPLICATE | 1.000 | **1.000** | value identity is IN THE PAIR — a structural cue that genuinely generalizes |
+| CONTRADICTS | 1.000 | **1.000** | antonym structure, though only one scenario family carries it |
+| SUPERSEDES | 1.000 | 0.911 (R=1.000, P=0.837) | partially structural; over-predicted on unseen phrasing |
+| CORRECTS | 1.000 | 0.893 | mostly survives |
+| UNCERTAIN | 1.000 | 0.601 | half surface |
+| REFINES | 1.000 | 0.480 (R=0.316) | mostly surface |
+| **COEXIST** | 1.000 | **0.000** | never once right on an unseen template — 382 rows called SUPERSEDES, 152 UNCERTAIN |
+
+Action level on unseen templates: F1 0.906, false-supersede **0.076 against the incumbent's 0.000
+on this corpus** — and 382 of those false supersedes are COEXIST rows, the "second project
+silently buried" failure by name. Calibration guard rejected the fit; holdout unchanged at 3/12.
+
+So the split is clean: classes whose evidence lives in the PAIR STRUCTURE (value identity,
+antonymy) transfer to unseen phrasings; classes whose evidence lives in the UTTERANCE (additive
+wording, hedges, specificity) collapse without linguistic diversity. The model can read structure
+when structure is there. What it cannot do is read English it has never seen 41 templates' worth
+of — which is the precise argument for running the simulator's structures through the
+verbalization layer that shipped alongside it, and folding on `verbalizationGroupId`.
+
 Generator defects recorded for the dev_automate line, not fixed here: the `establish-fact` state
 bug; new values chosen independent of state (source of the 1,507 inconsistent rows); shipped
 split files ungrouped; `synthetic-life-1000.jsonl` and `synthetic-life-phase3-1000.jsonl` are
