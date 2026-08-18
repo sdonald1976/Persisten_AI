@@ -15,7 +15,20 @@ public sealed class CompanionApiFactory : WebApplicationFactory<Program>
 
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"companion-api-test-{Guid.NewGuid():N}.db");
 
-    public CompanionApiFactory(string? userId = null)
+    // xUnit constructs collection fixtures by reflection and requires exactly ONE public
+    // constructor, parameterless — an optional parameter does not count, and a second public
+    // overload is rejected outright. The day this gained `string? userId = null`, every test in
+    // the ApiSecurity, ProjectCurationApi and WebSocketGreeting collections failed with
+    // "unresolved constructor arguments". The synthetic evaluation, which is not a fixture and
+    // wants a caller-chosen user id, goes through ForUser instead.
+    public CompanionApiFactory() : this(null)
+    {
+    }
+
+    /// <summary>A factory for a specific user id — for direct construction, never as a fixture.</summary>
+    public static CompanionApiFactory ForUser(string userId) => new(userId);
+
+    private CompanionApiFactory(string? userId)
     {
         Environment.SetEnvironmentVariable("Database__Path", _dbPath);
         Environment.SetEnvironmentVariable("Models__Provider", "Mock");

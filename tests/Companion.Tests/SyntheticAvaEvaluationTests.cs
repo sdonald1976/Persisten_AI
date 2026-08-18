@@ -35,7 +35,7 @@ public class SyntheticAvaEvaluationTests
             TurnsPerPerson: 24,
             EventsPerPerson: 2)).Single();
         var userId = SyntheticUserSafety.UserIdFor(scenario);
-        using var factory = new CompanionApiFactory(userId);
+        using var factory = CompanionApiFactory.ForUser(userId);
         var http = factory.CreateClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CompanionApiFactory.Token);
         var evaluator = new SyntheticAvaEvaluator(_ => new HttpAvaConversationClient(http, userId));
