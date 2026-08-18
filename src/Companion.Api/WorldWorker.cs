@@ -20,6 +20,7 @@ namespace Companion.Api;
 public sealed class WorldWorker : BackgroundService
 {
     private readonly IWorldLink _link;
+    private readonly IRoamingPolicy _policy;
     private readonly WorldOptions _options;
     private readonly IUserContext _user;
     private readonly IServiceScopeFactory _scopes;
@@ -37,10 +38,11 @@ public sealed class WorldWorker : BackgroundService
     private DateTimeOffset _settledAt;
 
     public WorldWorker(
-        IWorldLink link, WorldOptions options, IUserContext user, IServiceScopeFactory scopes,
-        TimeProvider clock, ILogger<WorldWorker> logger)
+        IWorldLink link, IRoamingPolicy policy, WorldOptions options, IUserContext user,
+        IServiceScopeFactory scopes, TimeProvider clock, ILogger<WorldWorker> logger)
     {
         _link = link;
+        _policy = policy;
         _options = options;
         _user = user;
         _scopes = scopes;
@@ -149,11 +151,18 @@ public sealed class WorldWorker : BackgroundService
             _settledAt = now;
         }
 
-        var choice = RoamingPolicy.Choose(
+        var deliberation = _policy.Deliberate(new RoamingObservation(
             _link.Places, _link.CurrentPlace, _previousPlace, state, preoccupations,
-            _settledIn is null ? null : now - _settledAt,
-            TimeSpan.FromMinutes(Math.Max(0, _options.RestlessMinutes)));
+            _settledIn is null ? null : now - _settledAt, now));
 
+        // Logged whichever way it went, because "why is she still in the study" is asked at least
+        // as often as "why did she move", and only one of those left a record before.
+        _logger.LogDebug(
+            "Roaming ({Policy}): {Outcome} — {Reason}. Best {Best} by {Margin:F2} against a threshold of {Threshold:F2}.",
+            _policy.Name, deliberation.Move is null ? "staying" : "moving", deliberation.Reason,
+            deliberation.Best?.PlaceId ?? "(nowhere)", deliberation.Margin, deliberation.MoveThreshold);
+
+        var choice = deliberation.Move;
         if (choice is null)
             return;
 

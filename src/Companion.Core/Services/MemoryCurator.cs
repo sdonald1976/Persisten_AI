@@ -15,17 +15,23 @@ public sealed class MemoryCurator : IMemoryCurator
     private readonly IEmbeddingModel _embeddings;
     private readonly TimeProvider _clock;
     private readonly ILogger<MemoryCurator> _logger;
+    private readonly IShadowRecorder? _shadow;
 
     public MemoryCurator(
         IMemoryStore memories,
         IEmbeddingModel embeddings,
         TimeProvider clock,
-        ILogger<MemoryCurator> logger)
+        ILogger<MemoryCurator> logger,
+        IShadowRecorder? shadow = null)
     {
         _memories = memories;
         _embeddings = embeddings;
         _clock = clock;
         _logger = logger;
+
+        // Optional, like every other measurement seam here: the curator's job is the memory, and a
+        // telemetry table that is not switched on must not be something it has to have.
+        _shadow = shadow;
     }
 
     public async Task SupersedeSemanticAsync(
@@ -97,7 +103,41 @@ public sealed class MemoryCurator : IMemoryCurator
     }
 
     public async Task<bool> ForgetAsync(string userId, Guid memoryId, string reason, CancellationToken ct = default)
-        => await SetStatusAsync(userId, memoryId, MemoryStatus.Deleted, RevisionKind.Deleted, reason, purgeEmbedding: true, ct);
+    {
+        // The excerpts are read BEFORE the status changes, because they are the only handle on the
+        // sentences this memory came from and nothing guarantees they stay reachable afterwards.
+        List<string> excerpts = [];
+        if (_shadow is { IsRecording: true })
+        {
+            excerpts = (await _memories.GetEvidenceAsync(userId, memoryId, ct))
+                .Select(e => e.Excerpt).ToList();
+
+            // The id too: pair-capture rows (memory.supersession.pair) reference the stored memory
+            // by id rather than by its evidence — the excerpts in a pair row are the user's words
+            // for the INCOMING fact, so forgetting the stored one would never match them. A guid
+            // string is 36 characters, comfortably over the minimum-excerpt bar, and cannot
+            // collide with conversational text.
+            excerpts.Add(memoryId.ToString());
+        }
+
+        var forgotten = await SetStatusAsync(
+            userId, memoryId, MemoryStatus.Deleted, RevisionKind.Deleted, reason,
+            purgeEmbedding: true, ct);
+
+        // And the captured sentences go with it. Capture's gate is evaluated at turn time — private,
+        // in-character, off the record — which covers everything except changing your mind later,
+        // and changing your mind later is what /forget IS. Without this the memory is deleted, its
+        // embedding purged, and the sentence stays in the corpus table as training data.
+        if (forgotten && excerpts.Count > 0 && _shadow is not null)
+        {
+            var removed = await _shadow.ForgetCapturesAsync(excerpts, ct);
+            if (removed > 0)
+                _logger.LogInformation(
+                    "Forgetting {MemoryId} also removed {Count} captured sentences.", memoryId, removed);
+        }
+
+        return forgotten;
+    }
 
     public async Task<bool> DisputeAsync(string userId, Guid memoryId, string reason, CancellationToken ct = default)
         => await SetStatusAsync(userId, memoryId, MemoryStatus.Disputed, RevisionKind.Disputed, reason, purgeEmbedding: false, ct);

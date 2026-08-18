@@ -17,6 +17,15 @@ namespace Companion.Eval;
 /// <param name="Difficulty">Curriculum level, so a model can be scored where it actually fails.</param>
 /// <param name="Source">synthetic | weakly_labelled | human_reviewed | real_conversation.</param>
 /// <param name="Generator">Generator version, so two corpora are never silently mixed.</param>
+/// <param name="Heuristic">
+/// What the shipped rule answered for this row, or null where nothing implements the decision yet.
+///
+/// Carried in the data rather than recomputed by whatever trains on it. The alternative — a
+/// trainer transcribing the regex into its own language so it can score the baseline on the same
+/// rows — is duplication that cannot be kept honest: the two drift, and the day they do, the
+/// comparison silently stops being a comparison. This way the incumbent's answer is a fact about
+/// the row, produced by the code that actually runs in production.
+/// </param>
 public sealed record TrainingRow(
     string Text,
     bool Label,
@@ -24,7 +33,8 @@ public sealed record TrainingRow(
     string Family,
     int Difficulty,
     string Source,
-    string Generator);
+    string Generator,
+    bool? Heuristic = null);
 
 /// <summary>
 /// Turns generated cases into train/validation/test files.

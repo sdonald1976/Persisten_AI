@@ -50,5 +50,12 @@ internal static class DiagnosticsEndpoints
         app.MapGet("/diagnostics/shadow/disagreements", async (
             IShadowRecorder shadow, string? subject, int? count, CancellationToken ct) =>
             Results.Ok(await shadow.GetDisagreementsAsync(subject, count ?? 50, ct)));
+
+        // Captured judgements: what the heuristics said about real sentences, with no model
+        // involved. This is the export that turns a synthetic corpus into a real one — see
+        // training/cognition/harvest.py, which reads this endpoint and writes a review queue.
+        app.MapGet("/diagnostics/shadow/captures", async (
+            IShadowRecorder shadow, string? subject, int? count, CancellationToken ct) =>
+            Results.Ok(await shadow.GetCapturesAsync(subject, count ?? 500, ct)));
     }
 }

@@ -28,6 +28,7 @@ public sealed class MemoryPipeline : IMemoryPipeline
     // neither of these present — which is also how every existing test constructs it.
     private readonly IShadowRecorder? _shadow;
     private readonly INliModel? _nli;
+    private readonly ICognitiveCapture _capture;
 
     public MemoryPipeline(
         IMemoryExtractor extractor,
@@ -40,7 +41,8 @@ public sealed class MemoryPipeline : IMemoryPipeline
         TimeProvider clock,
         ILogger<MemoryPipeline> logger,
         IShadowRecorder? shadow = null,
-        INliModel? nli = null)
+        INliModel? nli = null,
+        ICognitiveCapture? capture = null)
     {
         _extractor = extractor;
         _store = store;
@@ -53,6 +55,7 @@ public sealed class MemoryPipeline : IMemoryPipeline
         _logger = logger;
         _shadow = shadow;
         _nli = nli;
+        _capture = capture ?? new NoCognitiveCapture();
     }
 
     public async Task<MemoryExtractionResult> ProcessAsync(
@@ -178,7 +181,10 @@ public sealed class MemoryPipeline : IMemoryPipeline
 
         // The same fact restated, word for word in the slot's own terms → confirmation.
         if (exact is not null)
+        {
+            await CapturePairAsync(candidate, exact, sameSlot: true, similarity: 1.0, "duplicate", ct);
             return await ConfirmSemanticAsync(exact, candidate, evidence, fromUser, ct);
+        }
 
         // Does this new value REPLACE an existing one, or join it? See FactSupersession — the short
         // version is that a slot match plus similarity cannot tell those apart, so the question is
@@ -219,6 +225,8 @@ public sealed class MemoryPipeline : IMemoryPipeline
             && slotSim >= singleValuedBar
             && FactSupersession.IsSingleValued(candidate.Predicate))
         {
+            await CapturePairAsync(candidate, slotBest, sameSlot: true, slotSim,
+                fromUser ? "supersedes:single_valued" : "needs_review:single_valued", ct);
             return fromUser
                 ? await SupersedeSemanticAsync(userId, candidate, embedding, evidence, slotBest, "a single-valued fact", ct)
                 : await NeedsReviewSemanticAsync(userId, candidate, embedding, evidence, slotBest, fromUser, ct);
@@ -279,6 +287,8 @@ public sealed class MemoryPipeline : IMemoryPipeline
 
             if (replaced is not null && replacedSim >= _options.ReplacementSimilarityThreshold)
             {
+                await CapturePairAsync(candidate, replaced, sameSlot: true, replacedSim,
+                    fromUser ? "supersedes:wording" : "needs_review:wording", ct);
                 return fromUser
                     ? await SupersedeSemanticAsync(
                         userId, candidate, embedding, evidence, replaced, "the user said this replaces it", ct)
@@ -297,9 +307,25 @@ public sealed class MemoryPipeline : IMemoryPipeline
         // not a restatement however similar the sentence reads. Cardinality and the replacement
         // rules get first refusal, and this catches what they decline.
         if (nearest is not null && similarity >= _options.DuplicateSimilarityThreshold)
+        {
+            await CapturePairAsync(
+                candidate, nearest, IsSameSlot(candidate, nearest), similarity, "duplicate:similar", ct);
             return await ConfirmSemanticAsync(nearest, candidate, evidence, fromUser, ct);
+        }
 
-        // 5. Otherwise a new fact — score confidence and accept if it clears the bar.
+        // 5. Otherwise a new fact. If it landed beside something — same slot, or near enough that
+        // the replacement rules were even in play — the decision NOT to supersede is a decision
+        // too, and the pair corpus needs those every bit as much as the replacements: a model
+        // trained only on the pairs that superseded learns that everything supersedes.
+        var beside = slotBest ?? (similarity >= _options.ReplacementSimilarityThreshold ? nearest : null);
+        if (beside is not null)
+        {
+            var besideSim = ReferenceEquals(beside, slotBest) ? slotSim : similarity;
+            await CapturePairAsync(
+                candidate, beside, ReferenceEquals(beside, slotBest), besideSim, "coexist", ct);
+        }
+
+        // Score confidence and accept if it clears the bar.
         var confidence = ConfidenceCalculator.Compute(candidate.ProposedConfidence, fromUser, corroborations: 0);
         if (confidence < _options.MinAcceptConfidence)
             return Reject(candidate, $"confidence {confidence:F2} below threshold {_options.MinAcceptConfidence:F2}", confidence);
@@ -327,6 +353,40 @@ public sealed class MemoryPipeline : IMemoryPipeline
             " ", new[] { candidate.Value }.Concat(candidate.Evidence.Select(e => e.Excerpt)));
         return ScoreMath.KeywordOverlap(said, old.Value) > 0;
     }
+
+    /// <summary>
+    /// One pair, one row, at the moment the decision was made. Never throws into the turn and
+    /// never runs a model — see ICognitiveCapture. Ages are computed here because only the
+    /// pipeline holds both the memory and the clock at decision time.
+    /// </summary>
+    private async Task CapturePairAsync(
+        MemoryCandidate candidate, SemanticMemory existing, bool sameSlot, double similarity,
+        string outcome, CancellationToken ct)
+    {
+        if (!_capture.IsCapturing)
+            return;
+
+        var now = _clock.GetUtcNow();
+        await _capture.CapturePairAsync(new SupersessionPairCapture(
+            IncomingFact: candidate.Content,
+            IncomingValue: candidate.Value,
+            Predicate: candidate.Predicate,
+            Utterance: string.Join(" ", candidate.Evidence.Select(e => e.Excerpt)),
+            ExistingId: existing.Id,
+            ExistingFact: existing.NormalizedFact,
+            ExistingValue: existing.Value,
+            ExistingPredicate: existing.Predicate,
+            ExistingAgeDays: (int)Math.Max(0, (now - existing.FirstObserved).TotalDays),
+            ExistingConfirmedDays: (int)Math.Max(0, (now - existing.LastConfirmed).TotalDays),
+            SameSlot: sameSlot,
+            SingleValued: FactSupersession.IsSingleValued(candidate.Predicate),
+            Similarity: similarity,
+            IncumbentOutcome: outcome), ct);
+    }
+
+    private static bool IsSameSlot(MemoryCandidate candidate, SemanticMemory memory)
+        => MemoryNormalizer.SemanticSlotKey(candidate.Subject, candidate.Predicate)
+            == MemoryNormalizer.SemanticSlotKey(memory.Subject, memory.Predicate);
 
     private async Task RecordSupersessionShadowAsync(
         MemoryCandidate candidate, SemanticMemory? nearest, bool wordingSaysReplace, CancellationToken ct)

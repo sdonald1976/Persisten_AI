@@ -31,6 +31,7 @@ public sealed class Companion : ICompanion
     private readonly IReplyGate _gate;
     private readonly SafetyOptions _safety;
     private readonly IShadowRecorder _shadow;
+    private readonly ICognitiveCapture _capture;
     private readonly IPersonalityService _personality;
     private readonly IMemoryPipeline _pipeline;
     private readonly IProjectUpdater _projectUpdater;
@@ -86,11 +87,13 @@ public sealed class Companion : ICompanion
         ILogger<Companion> logger,
         IReplyGate? gate = null,
         IOptions<SafetyOptions>? safety = null,
-        IShadowRecorder? shadow = null)
+        IShadowRecorder? shadow = null,
+        ICognitiveCapture? capture = null)
     {
         _gate = gate ?? new AlwaysOpenGate();
         _safety = safety?.Value ?? new SafetyOptions();
         _shadow = shadow ?? new NoShadowRecorder();
+        _capture = capture ?? new NoCognitiveCapture();
         _conversations = conversations;
         _projectContext = projectContext;
         _pending = pending;
@@ -453,6 +456,13 @@ public sealed class Companion : ICompanion
                 await _procedures.ApplyRevisionAsync(userId, extractionSource, now, ct);
                 await _procedures.AddOrUpdateFromTeachingAsync(userId, conversationId, extractionSource, now, ct);
                 await CaptureCommitmentAsync(userId, response, assistantMsg.Id, now, ct);
+
+                // Corpus capture, last and deliberately inside this gate: a turn that is not
+                // allowed to produce durable memory is not allowed to produce durable training
+                // data either. Off unless CognitiveModels:Capture is set, and it changes nothing
+                // it observes — see ICognitiveCapture.
+                await _capture.CaptureUserMessageAsync(extractionSource.Content, ct);
+                await _capture.CaptureReplyAsync(response, ct);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -869,6 +879,8 @@ public sealed class Companion : ICompanion
     {
         public bool IsRecording => false;
 
+        public bool IsShadowing => false;
+
         public Task RecordAsync(ShadowComparison comparison, CancellationToken ct = default)
             => Task.CompletedTask;
 
@@ -879,5 +891,13 @@ public sealed class Companion : ICompanion
         public Task<IReadOnlyList<ShadowComparison>> GetDisagreementsAsync(
             string? subject, int count, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ShadowComparison>>(Array.Empty<ShadowComparison>());
+
+        public Task<IReadOnlyList<ShadowComparison>> GetCapturesAsync(
+            string? subject, int count, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ShadowComparison>>(Array.Empty<ShadowComparison>());
+
+        public Task<int> ForgetCapturesAsync(
+            IReadOnlyCollection<string> excerpts, CancellationToken ct = default)
+            => Task.FromResult(0);
     }
 }
