@@ -474,6 +474,29 @@ def rows_from_file(name, path):
     return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 
+def derive_dialogue_nli_labels(rows, label_names=None):
+    """The label vocabulary this mirror uses, read off its own triples.
+
+    Same machinery as --audit, for the same reason and against the same trap: the canonical release
+    says entailment/neutral/contradiction and pietrolesci/dialogue_nli says positive/neutral/
+    negative, and an adapter that knows only the first spelling silently discarded every row that
+    was not neutral — 100,000 rows, none positive, which the all-negative guard caught and would
+    not have caught had two of the three spellings happened to match.
+
+    Returns None when the corpus cannot state its own encoding, and the caller stops rather than
+    picking one.
+    """
+    import collections
+
+    buckets = collections.defaultdict(collections.Counter)
+    for row in rows:
+        placed = bucket_of(row.get("triple1"), row.get("triple2"))
+        if placed is None:
+            continue
+        buckets[placed[0]][label_of(row, label_names)] += 1
+    return derive_label_names(buckets) if buckets else None
+
+
 def build(name, rows):
     spec = SOURCES[name]
     kwargs = dict(spec.get("kwargs", {}))
@@ -488,7 +511,27 @@ def build(name, rows):
             if names:
                 kwargs["label_names"] = names
 
-    mapped = adapters.ADAPTERS[name](list(rows), **kwargs)
+    materialised = list(rows)
+
+    # DialogueNLI states its classes as strings, but which strings depends on the mirror. Derived
+    # from the corpus's construction rather than read off the spelling, and printed, because a
+    # decoding nobody sees is a decoding nobody can question.
+    if name == "dialogue-nli":
+        derived = derive_dialogue_nli_labels(materialised, kwargs.get("label_names"))
+        if derived is None:
+            raise SystemExit(
+                f"{name}: could not derive what this mirror's labels mean. The two anchors it "
+                f"reads them from — same-triple pairs are entailment by construction, unrelated "
+                f"relation swaps are neutral by rule — did not come out cleanly, so the classes "
+                f"cannot be named without guessing, and guessing here inverts the corpus. Run "
+                f"`--audit` to see the buckets, or pass the mapping by hand.")
+        if any(raw != canonical for raw, canonical in derived.items()):
+            print("  label vocabulary derived from the corpus's own triples: " +
+                  ", ".join(f"{raw} = {canonical}" for raw, canonical in sorted(
+                      derived.items(), key=lambda pair: CANONICAL.index(pair[1]))))
+        kwargs["label_map"] = derived
+
+    mapped = adapters.ADAPTERS[name](materialised, **kwargs)
 
     # A corpus with no positives is the failure this is most likely to produce and the least likely
     # to be noticed: it trains a model that says no to everything and reports excellent accuracy.

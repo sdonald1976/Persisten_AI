@@ -58,6 +58,11 @@ public static class CorpusSuite
                 Console.WriteLine($"        {(wrong.Label ? "missed " : "false +")} {wrong.Text}");
         }
 
+        // The rows that came from elsewhere. Stamped by running the same detectors, so that a
+        // borrowed corpus makes the baseline harder rather than handing it fifteen thousand easy
+        // negatives it was never asked about.
+        BorrowedStamp.Run(directory, Heuristic);
+
         Console.WriteLine();
         Console.WriteLine("splits are drawn on the TEMPLATE FAMILY, never the row: fillers make many");
         Console.WriteLine("rows one sentence, and splitting by row would score memorisation.");
@@ -80,7 +85,12 @@ public static class CorpusSuite
         "memory.decision" => t => DecisionDetector.Detect(t) is not null,
         "memory.unfinished" => t => UnfinishedWorkDetector.Detect(t) is not null,
         "companion.commitment" => t => CommitmentDetector.Detect(t) is not null,
-        "tool.capability" => t => ToolNudge.Detect(t) is not null,
+        // The CAPABILITY nudge, not "any nudge fired". ToolNudge dispatches seven different
+        // lookups, and scoring all of them as this one decision made the preferences nudge
+        // answering "what are your hobbies" — which is its job, correctly done — read as a
+        // capability false positive. On CLINC150 that alone was 22 of the 72 recorded, so the
+        // number being reported was partly a measurement artefact rather than a defect.
+        "tool.capability" => t => ToolNudge.Detect(t)?.Tool == "capability.list",
         _ => null,
     };
 }

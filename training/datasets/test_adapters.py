@@ -79,6 +79,30 @@ except ValueError as e:
     check("without names, it refuses rather than assuming an order", "not guessed" in str(e))
 
 print()
+print("dialogue-nli — a label spelled differently is a mapping bug, not a row to skip")
+# The failure this encodes: pietrolesci/dialogue_nli says positive/neutral/negative, the adapter
+# knew only the canonical three, and `continue` turned every non-neutral row into silence. What
+# came out was 100,000 rows with no positives — caught by fetch.py's guard, and only because all
+# three spellings differed. Two matching spellings would have written a skewed corpus that passed.
+try:
+    dialogue_nli([{"sentence1": "a", "sentence2": "b", "label": 2, "original_label": "negative"}])
+    check("an unrecognised label raises rather than dropping the row", False, "no error raised")
+except ValueError as e:
+    check("an unrecognised label raises rather than dropping the row",
+          "not guessed" not in str(e) and "label_map" in str(e), str(e)[:90])
+
+mapped = dialogue_nli(
+    [{"sentence1": "a", "sentence2": "b", "label": 2, "original_label": "negative"},
+     {"sentence1": "c", "sentence2": "d", "label": 0, "original_label": "positive"},
+     {"sentence1": "e", "sentence2": "f", "label": 1, "original_label": "neutral"}],
+    label_map={"negative": "contradiction", "positive": "entailment", "neutral": "neutral"})
+check("with a derived map, this mirror's spelling decodes",
+      [r["label"] for r in mapped] == [True, False, False], [r["label"] for r in mapped])
+
+check("an explicitly unlabelled row is still skipped, not raised on",
+      len(dialogue_nli([{"sentence1": "x", "sentence2": "y", "label": -1, "original_label": "-"}])) == 0)
+
+print()
 print("commitment-bank — both label encodings, because which you get depends where you downloaded it")
 likert = commitment_bank([
     {"premise": "Did I ever tell you what timber I bought?", "hypothesis": "The speaker bought timber.", "label": 2.5},
