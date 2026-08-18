@@ -217,6 +217,35 @@ raise it before adding autonomy that widens what she produces unprompted.
 [`IMPROVEMENT_BACKLOG.md`](IMPROVEMENT_BACKLOG.md) tracks the earlier engineering backlog, mostly
 done and marked as such.
 
+## Picking the specialist-model work up locally
+
+The last several sessions ran in a remote container that could not reach Hugging Face, had no GPU,
+and had no real conversation data. Everything blocked on those three things was written, tested as
+far as it could be, and left with the untested part labelled. **This machine is where those come
+unblocked**, which is the whole reason to move the work here.
+
+Branch: `claude/continue-previous-prompt-w8dksm`, pushed. 941 tests green from a clean clone.
+Decide whether it merges into the main working branch before or after the model experiments — it
+touches `Companion.Core`, `Companion.Infrastructure` and `Companion.Api`, all additively.
+
+Three things only this machine can do, in the order they unblock each other:
+
+1. **The borrowed corpora.** `python training/datasets/fetch.py --probe` says which repository ids
+   resolve; three of four did on the last run and DailyDialog did not. Then
+   `--audit` on `dialogue-nli`, which settles whether that corpus answers the supersession question
+   or shares MNLI's problem — an earlier answer to this was an artefact of two bugs and should not
+   be trusted, see §"The audit, and two ways it was wrong" in `SPECIALIST_MODELS.md`.
+2. **A real encoder.** `python training/cognition/finetune_encoder.py memory.unfinished` fine-tunes
+   a 22M MiniLM and exports ONNX into `models/`, which the C# side already loads. Nothing in that
+   script has ever executed. The classifier every published verdict was measured against is 1,113
+   parameters of character n-grams and cannot represent word order at all.
+3. **Real sentences.** `CognitiveModels:Capture: true`, talk to her for a week, then
+   `python training/cognition/harvest.py`. No public corpus contains this user, and her
+   conversational base rate is the number several precision figures currently assume rather than
+   measure.
+
+`pip install -r training/requirements-encoder.txt` covers 1 and 2.
+
 ## Where to start
 
 Read `README.md`, [`PERSISTENT_COMPANION_ARCHITECTURE.md`](PERSISTENT_COMPANION_ARCHITECTURE.md),
