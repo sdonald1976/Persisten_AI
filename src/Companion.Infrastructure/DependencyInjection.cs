@@ -131,6 +131,13 @@ public static class DependencyInjection
         services.AddSingleton<WebSocketWorldLink>();
         services.AddSingleton<IWorldLink>(sp => sp.GetRequiredService<WebSocketWorldLink>());
 
+        // Where she goes, behind an interface so a learned policy can be measured against this one
+        // rather than replacing it in a commit. The heuristic is the only implementation and stays
+        // the default; see IRoamingPolicy for what a learned one is actually blocked on, which is
+        // not the seam.
+        services.AddSingleton<IRoamingPolicy>(
+            new HeuristicRoamingPolicy(TimeSpan.FromMinutes(Math.Max(0, worldOptions.RestlessMinutes))));
+
         // A model name is the one setting nothing else validates — a typo or an un-pulled tag
         // builds, starts, and tests clean, then 503s on the first real sentence. The preflight
         // checks the provider's catalog once at startup and reports what's actually missing.
@@ -446,10 +453,25 @@ public static class DependencyInjection
 
         // Shadow mode costs a real inference per turn whose answer is then discarded, so when it is
         // off the recorder says so and callers skip the work entirely rather than paying for it.
-        if (options.ShadowMode)
-            services.AddSingleton<IShadowRecorder, ShadowRecorder>();
+        // Capture writes to the same table and needs the same recorder, hence either flag.
+        if (options.ShadowMode || options.Capture)
+            services.AddSingleton<IShadowRecorder>(sp => new ShadowRecorder(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<ShadowRecorder>>(),
+                // Capture alone must not start running models. The two flags are documented as
+                // independent and were not: one recorder served both and said it was shadowing.
+                shadowing: options.ShadowMode));
         else
             services.AddSingleton<IShadowRecorder, NullShadowRecorder>();
+
+        // Capture is the one measurement that is useful before any model exists — it collects the
+        // real sentences every "what would change the verdict" note in docs/SPECIALIST_MODELS.md
+        // asks for. Its own flag, so turning shadow mode on does not start writing user text.
+        if (options.Capture)
+            services.AddSingleton<ICognitiveCapture, CognitiveCapture>();
+        else
+            services.AddSingleton<ICognitiveCapture, NoCognitiveCapture>();
 
         services.AddSingleton<INliModel>(sp => options.Nli.Enabled
             ? new OnnxNliModel(

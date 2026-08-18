@@ -1,0 +1,16 @@
+# Specialist encoder fine-tuning + ONNX export. Separate from requirements.txt, which pulls Unsloth
+# for generative LoRA work and is far heavier than this needs — a 22M encoder trains on CPU in
+# minutes and does not want a training stack built for 3B models.
+#
+#   python -m venv .venv && source .venv/bin/activate
+#   pip install -r training/requirements-encoder.txt
+torch>=2.2
+transformers>=4.44
+datasets>=2.20          # only for training/datasets/fetch.py
+onnx>=1.16
+onnxscript>=0.1            # torch >= 2.6 routes torch.onnx.export through the dynamo exporter and
+                           # imports this lazily, so its absence surfaces as a ModuleNotFoundError
+                           # AFTER training finishes and before anything is written — which on the
+                           # first real run cost a full fine-tune to discover.
+onnxruntime>=1.18       # for verifying the export before trusting it in C#
+scikit-learn>=1.4       # crossval.py — the baseline the encoder has to beat

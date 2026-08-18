@@ -40,12 +40,12 @@ actually happened, and every derived thing must be able to say where it came fro
   - `src/Companion.Core` — domain + interfaces + all logic. Pure, no I/O deps.
   - `src/Companion.Infrastructure` — EF, model provider adapters, world link, DI composition root.
   - `src/Companion.Api` — headless HTTP + SSE + WebSocket face (+ `wwwroot` reference client).
-  - `tests/Companion.Tests` — full suite, **853 passing** at last handoff.
+  - `tests/Companion.Tests` — full suite, **945 passing** at last handoff.
   - `tools/Companion.Soak` — drives real conversations against a running companion over HTTP and
     reports what is wrong with the replies *and with the store afterwards*. Run it before believing
     a memory change works: `dotnet test` has never caught one of these failures, because they all
     live in seams whose components are individually correct.
-- `global.json` pins .NET 9 (`9.0.313`, `latestFeature`).
+- `global.json` pins .NET 9 (`9.0.316`, `latestFeature`).
 - EF migrations: `dotnet ef migrations add <Name> --project src/Companion.Infrastructure
   --startup-project src/Companion.Infrastructure`.
 
@@ -181,7 +181,27 @@ raise it before adding autonomy that widens what she produces unprompted.
 
 ## Open backlog
 
-- **Content gate** — see above. Ask me about this rather than assuming either way.
+- **Content gate — built, and the decision left is whether to enforce it.** `IReplyGate` /
+  `LlmReplyGate`, off by default, and when switched on it defaults to **shadow**: it judges every
+  reply, records the verdict at `/diagnostics/shadow?subject=safety.gate`, and changes nothing. It
+  fails open on every path. Enforcing is a separate flag and a separate decision, and the honest
+  way to make it is to run it in shadow for a while and read what it would have stopped.
+- **Specialist models — the measurement exists, no model has earned adoption.** See
+  [`SPECIALIST_MODELS.md`](SPECIALIST_MODELS.md), which is the audit, the plan, and the record of
+  two predictions that turned out wrong. Cross-encoder and NLI are built, measured and **off**;
+  the cognitive classifier's corpus is built and cross-validated and the model **loses** on two of
+  three decisions. Every one of those verdicts is blocked on the same thing: the corpus is
+  synthetic and one person wrote it.
+  - **The supersession decision now has its own task design, approved and underway** —
+    [`SUPERSESSION_TASK.md`](SUPERSESSION_TASK.md): a seven-label taxonomy, pair capture wired
+    through the pipeline, a purpose-built corpus and a 7-way trainer with false-supersede budgets
+    and safe-coverage measurement. The incumbent is a baseline and fallback, not the architecture.
+  - **The one thing that needs you:** switch on `CognitiveModels:Capture` for a while. It records
+    what the heuristics said about real sentences — no model runs, nothing changes, and it only
+    touches turns already allowed to produce durable memory. Then
+    `python training/cognition/harvest.py` writes a review queue. That is the input everything
+    else is waiting on, and it also measures the conversational base rate that several published
+    precision figures currently assume.
 - **She still invents progress on my projects.** Asked "how's that plot coming along?", she answers
   with a description instead of saying she can't see it. Three rounds of prompt work took it from
   three paragraphs of specifics (compost layers, heirloom tomatoes, a south-facing slope) written in
@@ -200,6 +220,47 @@ raise it before adding autonomy that widens what she produces unprompted.
 
 [`IMPROVEMENT_BACKLOG.md`](IMPROVEMENT_BACKLOG.md) tracks the earlier engineering backlog, mostly
 done and marked as such.
+
+## Picking the specialist-model work up locally
+
+The last several sessions ran in a remote container that could not reach Hugging Face, had no GPU,
+and had no real conversation data. Everything blocked on those three things was written, tested as
+far as it could be, and left with the untested part labelled. **This machine is where those come
+unblocked**, which is the whole reason to move the work here.
+
+Branch: `claude/continue-previous-prompt-w8dksm`, pushed. 945 tests green.
+Decide whether it merges into the main working branch before or after the model experiments — it
+touches `Companion.Core`, `Companion.Infrastructure` and `Companion.Api`, all additively.
+
+**All three have now been done on this machine.** What follows is kept as the record of what the
+queue was; what it found is in `SPECIALIST_MODELS.md` §"The audit, and three ways it was wrong",
+§"Phase 5b: the encoder", and §"What a real corpus did to an incumbent". In short: DialogueNLI
+answers the supersession question and does it by encoding relation cardinality rather than by
+case-by-case annotation; the 22M MiniLM is the first model here to beat a heuristic alone and is
+still short on precision at the assumed base rate; `ToolNudge` scores F1 0.087 on real utterances
+against 0.778 on the corpus written here. The remaining blocker is the same one, and it is now the
+only one: **capture has not run**, so the 3 % base rate every precision figure depends on is still
+assumed.
+
+Three things only this machine can do, in the order they unblock each other:
+
+1. **The borrowed corpora.** `python training/datasets/fetch.py --probe` says which repository ids
+   resolve; three of four did on the last run and DailyDialog did not. Then
+   `--audit` on `dialogue-nli`, which settles whether that corpus answers the supersession question
+   or shares MNLI's problem — an earlier answer to this was an artefact of two bugs and should not
+   be trusted, see §"The audit, and two ways it was wrong" in `SPECIALIST_MODELS.md`.
+2. **A real encoder.** `python training/cognition/finetune_encoder.py memory.unfinished` fine-tunes
+   a 22M MiniLM and exports ONNX into `models/`, which the C# side already loads. Nothing in that
+   script has ever executed. The classifier every published verdict was measured against is 1,113
+   parameters of character n-grams and cannot represent word order at all.
+3. **Real sentences.** `CognitiveModels:Capture: true`, talk to her for a week, then
+   `python training/cognition/harvest.py`. No public corpus contains this user, and her
+   conversational base rate is the number several precision figures currently assume rather than
+   measure.
+
+`pip install -r training/requirements-encoder.txt` covers 1 and 2, and needs `onnxscript` with it —
+torch imports that lazily, so without it a fine-tune completes and *then* fails on the export.
+The virtualenv lives at `.venv/` in the repo root and is gitignored.
 
 ## Where to start
 

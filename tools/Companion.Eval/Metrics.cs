@@ -55,6 +55,26 @@ public sealed record Metrics
         };
     }
 
+    /// <summary>
+    /// The same metrics with one vote per template family instead of one per row.
+    ///
+    /// This is the number to lead with on a generated corpus, and it took a wrong conclusion to
+    /// learn that. Rows are templates crossed with fillers, and a template carrying a {when} filler
+    /// renders sixty rows where a bare one renders ten — so a row-weighted score counts "I need to
+    /// finish {t} {w}" six times as heavily as "I'm behind on {t}", for no reason except how many
+    /// fillers somebody happened to write. A family is one way of saying a thing, and generalising
+    /// to unseen ways of saying things is the entire question.
+    ///
+    /// A family counts as detected when the majority of its rows are. It is deliberately coarse:
+    /// a rule that fires on half a family has not understood the phrasing, it has caught some
+    /// fillers.
+    /// </summary>
+    public static Metrics ByFamily(
+        string name, IEnumerable<(string Family, bool Expected, bool Actual)> results)
+        => From(name, results
+            .GroupBy(r => r.Family, StringComparer.Ordinal)
+            .Select(g => (g.First().Expected, g.Count(r => r.Actual) * 2 >= g.Count())));
+
     public string ToLine() =>
         $"{Name,-22} n={Total,-4} P={Precision:F3} R={Recall:F3} F1={F1:F3} " +
         $"FP={FalsePositives,-3} FN={FalseNegatives,-3} (acc {Accuracy:P0})";
