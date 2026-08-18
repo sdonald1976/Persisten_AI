@@ -224,7 +224,7 @@ and evaluation at §16, after several models are in. Building the measurement fi
 | 4 — NLI | **built, measured, REJECTED for now** — and it disproved §3.2. See below |
 | 5 — cognitive classifier | **corpus built, cross-validated, NOT adopted** — and it retracted a claim. See below |
 | 6 — emotion | not started |
-| 7 — roaming seam | not started |
+| 7 — roaming seam | **built** — `IRoamingPolicy`, structured observation, ranked deliberation. No policy trained, and §Phase 7 says what actually blocks one |
 | 8 — retirement | not started |
 
 No model files are shipped or downloaded. Every specialist model is **disabled by default**, and the
@@ -463,6 +463,53 @@ misses "I've chosen X" and fires on "everyone assumes we're going with X"; `Tool
 patched — adding four phrases to a regex so it scores better on a corpus written in this repo is
 the treadmill the whole effort exists to leave, and it would quietly lower the bar a model has to
 clear. Recorded so that fixing them stays a decision.
+
+### Phase 7: the roaming seam, and the thing that actually blocks a learned policy
+
+The brief asked for the seam and not the model: make `RoamingPolicy` replaceable, create structured
+observations and actions, do not start on RL. That is what is built.
+
+- **`RoamingObservation`** — everything a policy may see, in one value: the places the world just
+  advertised, where she is, where she was, her spirits and energy, what is on her mind, how long she
+  has been sitting, and the time. Seven positional parameters is not something a second
+  implementation can be written against.
+- **`RoamingDeliberation`** — every place scored and ranked, the move or `null` for stay, the reason
+  either way, the threshold a move had to clear, and the margin it cleared it by. **The losers are
+  kept deliberately**: two policies with the same top pick from completely different rankings have
+  not agreed, and only the ranking tells those apart. Same reason retrieval reports what it excluded.
+- **`IRoamingPolicy`** with `HeuristicRoamingPolicy` as the only implementation and the registered
+  default. `RoamingPolicy.Choose` still exists and still runs the identical scoring, so the
+  twenty-one existing roaming tests were not touched — a refactor whose own tests had to be
+  rewritten has not been shown to preserve anything.
+- Staying now carries a reason. "Why is she still in the study?" is asked at least as often as "why
+  did she move", and it was the one outcome that left no record.
+
+**Two things are deliberately outside the seam, and the second is the interesting one.**
+
+*Concerns never reach a policy.* If something in the world needs doing, the worker acts on it before
+asking where she would rather be. That is not an oversight: feeding concerns in as ordinary
+preoccupations made a stove going cold score 0.5 against the study's 0.4 — a gap under the move
+threshold — so she sat and read while the fire went out. A need is not a preference. Models judge
+where she would like to be; code decides that something needing doing outranks it.
+
+*The observation contains only what the caller can actually supply.* The brief listed user presence,
+recent experiences, novelty, environment state, social state. None is gathered today, and a field
+that is always null is worse than a missing one — it reads as available, gets consumed, and quietly
+means nothing. Adding any of them is a change to what the world worker gathers, which is different
+work from making the policy replaceable.
+
+**And the part worth saying plainly: the seam was never what blocked a learned policy.** It is that
+**nothing in this system says a roam was good.** There is no reward — no signal that being in the
+greenhouse at four o'clock was better than being in the study, and no way to derive one from what is
+recorded. Reinforcement learning without a reward is not a hard problem, it is not a problem. A
+policy trained today could only imitate the rule it replaced, at greater cost and with less
+explanation, and it would pass any test that compared it to the rule.
+
+So the honest next step for Phase 7 is not a model and not more architecture. It is **a reward or a
+preference signal**: a way for a person to say "that was a good place to be" or "you've been in
+there all day", or an observable consequence the companion can be scored against. Until one exists,
+the heuristic is not a placeholder — it is the correct implementation, because it is the only one
+that can explain itself.
 
 ### Capture: the way out of the deadlock
 

@@ -1,3 +1,4 @@
+using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Companion.Core.Text;
 
@@ -114,35 +115,55 @@ public static class RoamingPolicy
         IReadOnlyList<string> preoccupations,
         TimeSpan? timeInPlace = null,
         TimeSpan? restlessAfter = null)
+        => Deliberate(
+            new RoamingObservation(places, currentPlace, previousPlace, state, preoccupations, timeInPlace),
+            restlessAfter ?? Restless).Move;
+
+    /// <summary>
+    /// The same decision, with everything it considered on the way — the shape
+    /// <see cref="IRoamingPolicy"/> is written against.
+    ///
+    /// <see cref="Choose"/> is the older, narrower view of this and stays because it reads better
+    /// at a call site that only wants the answer, and because a large body of tests pins the
+    /// behaviour through it. Both run the identical scoring; there is no second implementation to
+    /// drift.
+    /// </summary>
+    public static RoamingDeliberation Deliberate(RoamingObservation observation, TimeSpan? restlessAfter = null)
     {
-        if (places.Count == 0)
-            return null;
+        if (observation.Places.Count == 0)
+            return new RoamingDeliberation(Array.Empty<RoamingChoice>(), null, "there is no world to move in", 0);
 
-        var settled = Settledness(timeInPlace, restlessAfter ?? Restless);
+        var currentPlace = observation.CurrentPlace;
+        var settled = Settledness(observation.TimeInPlace, restlessAfter ?? Restless);
 
-        var scored = places
-            .Select(place => Score(place, currentPlace, previousPlace, state, preoccupations, settled))
+        var scored = observation.Places
+            .Select(place => Score(
+                place, currentPlace, observation.PreviousPlace,
+                observation.State, observation.Preoccupations, settled))
             .OrderByDescending(c => c.Score)
             .ThenBy(c => c.PlaceId, StringComparer.Ordinal) // ties resolve the same way every time
             .ToList();
 
         var best = scored[0];
 
-        if (currentPlace is not null && string.Equals(best.PlaceId, currentPlace, StringComparison.OrdinalIgnoreCase))
-            return null; // already in the best place
-
-        var here = scored.FirstOrDefault(c =>
-            currentPlace is not null && string.Equals(c.PlaceId, currentPlace, StringComparison.OrdinalIgnoreCase));
-
         // Getting up is hard at first and easier the longer she has been sitting. The margin that
         // keeps her from pacing over a trivial difference should not also keep her in one room all
         // day.
         var threshold = MoveThreshold * (1 - settled);
 
-        if (here is not null && best.Score - here.Score < threshold)
-            return null; // not enough in it to be worth getting up
+        if (currentPlace is not null && string.Equals(best.PlaceId, currentPlace, StringComparison.OrdinalIgnoreCase))
+            return new RoamingDeliberation(scored, null, "she's already where she'd rather be", threshold);
 
-        return best;
+        var here = scored.FirstOrDefault(c =>
+            currentPlace is not null && string.Equals(c.PlaceId, currentPlace, StringComparison.OrdinalIgnoreCase));
+
+        var margin = here is null ? best.Score : best.Score - here.Score;
+
+        if (here is not null && margin < threshold)
+            return new RoamingDeliberation(
+                scored, null, "not enough in it to be worth getting up", threshold) { Margin = margin };
+
+        return new RoamingDeliberation(scored, best, best.Reason, threshold) { Margin = margin };
     }
 
     /// <summary>
