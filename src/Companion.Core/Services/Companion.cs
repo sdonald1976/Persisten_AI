@@ -879,6 +879,8 @@ public sealed class Companion : ICompanion
     {
         public bool IsRecording => false;
 
+        public bool IsShadowing => false;
+
         public Task RecordAsync(ShadowComparison comparison, CancellationToken ct = default)
             => Task.CompletedTask;
 
@@ -893,5 +895,9 @@ public sealed class Companion : ICompanion
         public Task<IReadOnlyList<ShadowComparison>> GetCapturesAsync(
             string? subject, int count, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ShadowComparison>>(Array.Empty<ShadowComparison>());
+
+        public Task<int> ForgetCapturesAsync(
+            IReadOnlyCollection<string> excerpts, CancellationToken ct = default)
+            => Task.FromResult(0);
     }
 }

@@ -39,6 +39,17 @@ count: the RATE the rule fires at is what every precision figure so far has had 
 than measure, and the rate survives the redaction.
 """
 import argparse, collections, json, pathlib, sys, urllib.error, urllib.parse, urllib.request
+import sys
+
+# Windows consoles default to cp1252, and these scripts (and torch's own exporter) print em-dashes
+# and the odd emoji. Encoding is not cosmetic here: on the first real run torch.onnx.export
+# captured the graph successfully and then died with UnicodeEncodeError writing its own success
+# message, which reads exactly like a failed export. Reconfigured rather than left to the caller
+# to set PYTHONIOENCODING, because the failure names the wrong culprit.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus"
 

@@ -55,6 +55,42 @@ public class CognitiveCaptureTests
     }
 
     /// <summary>
+    /// And the direction that actually bit: switching CAPTURE on must not start RUNNING models.
+    ///
+    /// The two flags are documented as independent, and were not. Both resolved to one recorder
+    /// whose IsRecording was hard-coded true, and Shadow.CompareAsync gated the expensive half on
+    /// exactly that — so capture, which is meant to run nothing, would have begun paying an NLI
+    /// inference on every turn the moment a model file appeared. It was inert only because no
+    /// model is enabled, which is a safety that expires the first time one is.
+    /// </summary>
+    [Fact]
+    public async Task CaptureAlone_DoesNotStartRunningModels()
+    {
+        await using var host = new TestHost(Now, settings: new Dictionary<string, string?>
+        {
+            ["CognitiveModels:Capture"] = "true",
+        });
+        using var scope = host.CreateScope();
+        var recorder = scope.ServiceProvider.GetRequiredService<IShadowRecorder>();
+
+        Assert.True(recorder.IsRecording);
+        Assert.False(recorder.IsShadowing);
+    }
+
+    /// <summary>Shadow mode is the flag that says a model may run, and it still does.</summary>
+    [Fact]
+    public async Task ShadowMode_IsWhatTurnsModelsOn()
+    {
+        await using var host = new TestHost(Now, settings: new Dictionary<string, string?>
+        {
+            ["CognitiveModels:ShadowMode"] = "true",
+        });
+        using var scope = host.CreateScope();
+
+        Assert.True(scope.ServiceProvider.GetRequiredService<IShadowRecorder>().IsShadowing);
+    }
+
+    /// <summary>
     /// Every judgement on every message, including the ones that answer no. A capture log holding
     /// only the sentences a rule fired on cannot measure how often it fires, which is the single
     /// number this corpus most needs.
@@ -76,6 +112,56 @@ public class CognitiveCaptureTests
 
         Assert.Equal("true", Assert.Single(rows, r => r.Subject == "memory.unfinished").Legacy);
         Assert.Equal("false", Assert.Single(rows, r => r.Subject == "memory.decision").Legacy);
+    }
+
+    /// <summary>
+    /// Forgetting a memory takes the sentences it came from out of the capture table too.
+    ///
+    /// Capture's gate is evaluated at TURN time — private, in-character, "don't remember" — which
+    /// covers every way of saying no except the one people actually use, which is changing their
+    /// mind afterwards. Before this, /forget marked the memory deleted, purged its embedding, and
+    /// left the sentence sitting in the telemetry table as training data.
+    /// </summary>
+    [Fact]
+    public async Task ForgettingAMemory_RemovesTheSentencesItCameFrom()
+    {
+        await using var host = Host();
+        using var scope = host.CreateScope();
+        var recorder = scope.ServiceProvider.GetRequiredService<IShadowRecorder>();
+        var capture = scope.ServiceProvider.GetRequiredService<ICognitiveCapture>();
+
+        const string forgotten = "I still need to finish the shed roof this weekend.";
+        const string kept = "We have decided to use SQLite in the end.";
+        await capture.CaptureUserMessageAsync(forgotten);
+        await capture.CaptureUserMessageAsync(kept);
+        Assert.Equal(6, (await recorder.GetCapturesAsync(null, 100)).Count);
+
+        var removed = await recorder.ForgetCapturesAsync([forgotten]);
+
+        Assert.Equal(3, removed);
+        var left = await recorder.GetCapturesAsync(null, 100);
+        Assert.Equal(3, left.Count);
+        Assert.All(left, row => Assert.Equal(kept, row.Input));
+    }
+
+    /// <summary>
+    /// And it does not sweep out sentences nobody asked about. Evidence excerpts are often short
+    /// noun phrases, and "the roof" appears in every sentence about a roof — deleting more than was
+    /// asked is the worse error here, because a wrongly removed row cannot be recovered and the
+    /// only cost of keeping one is that a human sees it again.
+    /// </summary>
+    [Fact]
+    public async Task ForgettingDoesNotMatchOnShortExcerpts()
+    {
+        await using var host = Host();
+        using var scope = host.CreateScope();
+        var recorder = scope.ServiceProvider.GetRequiredService<IShadowRecorder>();
+        var capture = scope.ServiceProvider.GetRequiredService<ICognitiveCapture>();
+
+        await capture.CaptureUserMessageAsync("I still need to finish the shed roof.");
+
+        Assert.Equal(0, await recorder.ForgetCapturesAsync(["the roof"]));
+        Assert.Equal(3, (await recorder.GetCapturesAsync(null, 100)).Count);
     }
 
     /// <summary>

@@ -44,6 +44,15 @@ measure, and the day it drifts the comparison silently stops being one.
 """
 import collections, json, pathlib, random, statistics, sys
 
+# Windows consoles default to cp1252, and these scripts (and torch's own exporter) print em-dashes
+# and the odd emoji. Encoding is not cosmetic here: on the first real run torch.onnx.export
+# captured the graph successfully and then died with UnicodeEncodeError writing its own success
+# message, which reads exactly like a failed export. Reconfigured rather than left to the caller
+# to set PYTHONIOENCODING, because the failure names the wrong culprit.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import precision_recall_fscore_support
@@ -132,6 +141,19 @@ def decisions():
 MAX_FAMILIES = 4000
 
 
+# Which learner is being cross-validated. The linear model is the default because it is the one
+# every published verdict was measured against; --encoder swaps in the 22M MiniLM that
+# finetune_encoder.py exports, THROUGH THE SAME FOLDS, the same family-macro metric and the same
+# paired bootstrap. That is the whole point: "the fine-tune does not get to skip the comparison the
+# linear model was held to", and a separate script with its own splits would be a different
+# measurement wearing the same words.
+#
+# The training loop is imported from finetune_encoder rather than reimplemented. A second copy of
+# the thing under test is the drift this repo already removed once, when the incumbent's verdict
+# stopped being transcribed into Python and started being stamped into the data.
+LEARNERS = ("linear", "encoder")
+
+
 def fresh_model():
     # Character n-grams as well as words: the signal is often morphological ("haven't", "won't",
     # "-ing"), and a word-only model on a few hundred rows leans on the filler nouns instead.
@@ -218,7 +240,24 @@ def precision_at_prior(truth, pred, prior):
     return hits / (hits + false) if hits + false else 0.0
 
 
-def run(decision):
+def fit_encoder_fold(train_rows, test_rows, options):
+    """One fold of the encoder: fine-tune on this fold's training rows, score its test rows.
+
+    Row objects here carry __slots__, and finetune_encoder.fit reads dicts, so they are converted
+    rather than the trainer being taught a second row shape. The conversion is deliberately total —
+    text, label and family — so a fold sees exactly what the standalone script sees.
+    """
+    import importlib, sys as _sys
+    _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    encoder = importlib.import_module("finetune_encoder")
+
+    as_dicts = lambda rows: [{"text": r.text, "label": r.label, "family": r.family} for r in rows]
+    model, tokenizer, device = encoder.fit(as_dicts(train_rows), quiet=True, **options)
+    return encoder.predict(model, tokenizer, as_dicts(test_rows),
+                           options.get("max_len", 128), device)
+
+
+def run(decision, learner="linear", encoder_options=None):
     reviewed = load_extra(decision, "reviewed")
     borrowed = load_extra(decision, "borrowed")
     develop = load(decision, "train") + load(decision, "validation") + reviewed + borrowed
@@ -280,10 +319,16 @@ def run(decision):
 
     pooled = [0.0] * len(develop)
     per_fold = collections.defaultdict(list)
-    for train_idx, test_idx in GroupKFold(n_splits=FOLDS).split(texts, labels, groups=groups):
-        model = fresh_model().fit([texts[i] for i in train_idx], [labels[i] for i in train_idx])
-        probs = model.predict_proba([texts[i] for i in test_idx])[:, 1]
+    for fold, (train_idx, test_idx) in enumerate(
+            GroupKFold(n_splits=FOLDS).split(texts, labels, groups=groups), start=1):
         fold_rows = [develop[i] for i in test_idx]
+        if learner == "encoder":
+            print(f"      fold {fold}/{FOLDS}: fine-tuning on {len(train_idx)} rows...", flush=True)
+            probs = fit_encoder_fold(
+                [develop[i] for i in train_idx], fold_rows, encoder_options or {})
+        else:
+            model = fresh_model().fit([texts[i] for i in train_idx], [labels[i] for i in train_idx])
+            probs = model.predict_proba([texts[i] for i in test_idx])[:, 1]
         for i, prob in zip(test_idx, probs):
             pooled[i] = prob
         for name, decide in variants.items():
@@ -372,8 +417,11 @@ def run(decision):
 
     # ---- the held-out families, once -----------------------------------------------------------
     if holdout and len({r.label for r in holdout}) == 2:
-        model = fresh_model().fit(texts, labels)
-        probs = model.predict_proba([r.text for r in holdout])[:, 1]
+        if learner == "encoder":
+            probs = fit_encoder_fold(develop, holdout, encoder_options or {})
+        else:
+            model = fresh_model().fit(texts, labels)
+            probs = model.predict_proba([r.text for r in holdout])[:, 1]
         print()
         print(f"    held-out families, scored once, on the variant CV chose ({winner}):")
         for name in dict.fromkeys(["incumbent", winner]):
@@ -389,9 +437,37 @@ def main():
     if not CORPUS.exists():
         sys.exit(f"no corpus at {CORPUS} — run: "
                  f"dotnet run --project tools/Companion.Eval -- --only corpus --out training/corpus")
-    wanted = sys.argv[1:] or decisions()
+
+    argv = [a for a in sys.argv[1:]]
+    learner = "linear"
+    if "--encoder" in argv:
+        argv.remove("--encoder")
+        learner = "encoder"
+    base = None
+    if "--base" in argv:
+        i = argv.index("--base")
+        base = argv[i + 1]
+        del argv[i:i + 2]
+    epochs = None
+    if "--epochs" in argv:
+        i = argv.index("--epochs")
+        epochs = float(argv[i + 1])
+        del argv[i:i + 2]
+
+    options = {}
+    if base:
+        options["base"] = base
+    if epochs is not None:
+        options["epochs"] = epochs
+
+    wanted = argv or decisions()
+    if learner == "encoder":
+        print(f"learner: encoder ({options.get('base', 'sentence-transformers/all-MiniLM-L6-v2')}), "
+              f"{FOLDS} folds fine-tuned independently — slow on purpose, because the alternative is")
+        print("a single split, and a single split is what produced the retracted +0.322 headline.")
+        print()
     for decision in wanted:
-        run(decision)
+        run(decision, learner=learner, encoder_options=options)
 
 
 if __name__ == "__main__":

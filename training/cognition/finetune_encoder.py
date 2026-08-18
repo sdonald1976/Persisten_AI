@@ -37,6 +37,15 @@ training loop and the ONNX export are both unverified. Treat the first run as de
 """
 import argparse, collections, json, pathlib, sys
 
+# Windows consoles default to cp1252, and these scripts (and torch's own exporter) print em-dashes
+# and the odd emoji. Encoding is not cosmetic here: on the first real run torch.onnx.export
+# captured the graph successfully and then died with UnicodeEncodeError writing its own success
+# message, which reads exactly like a failed export. Reconfigured rather than left to the caller
+# to set PYTHONIOENCODING, because the failure names the wrong culprit.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus"
 MODELS = pathlib.Path(__file__).resolve().parents[2] / "models"
 
@@ -68,6 +77,100 @@ def load(decision):
             rows.append(row)
             seen[row.get("source", "unknown")] += 1
     return rows, seen
+
+
+def fit(train, base=DEFAULT_BASE, epochs=4, batch=16, lr=2e-5, max_len=128, seed=1, quiet=False):
+    """Fine-tunes `base` on training rows and returns (model, tokenizer, device).
+
+    Lifted out of main() so that crossval.py can fit the same model per fold instead of carrying a
+    second copy of this loop. Two implementations of the thing under test is the failure this repo
+    already removed once, in the other direction: the incumbent's verdict is stamped into the data
+    rather than transcribed into Python, because a baseline that drifts from the code it claims to
+    measure silently stops being a comparison. An encoder scored by a training loop that has drifted
+    from the one that produced the shipped weights is the same mistake wearing different clothes.
+    """
+    import torch
+    from torch.utils.data import DataLoader, Dataset
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+    torch.manual_seed(seed)
+    tokenizer = AutoTokenizer.from_pretrained(base)
+    model = AutoModelForSequenceClassification.from_pretrained(base, num_labels=2)
+
+    class Rows(Dataset):
+        def __init__(self, items): self.items = items
+        def __len__(self): return len(self.items)
+        def __getitem__(self, i):
+            r = self.items[i]
+            # " </s> " is the pair separator the adapters emit for the two-sentence decisions
+            # (supersession, assertion). Split here so a pair is encoded as a pair rather than as
+            # one long sentence with a stray token in the middle.
+            parts = r["text"].split(" </s> ", 1)
+            enc = tokenizer(*parts, truncation=True, max_length=max_len,
+                            padding="max_length", return_tensors="pt")
+            item = {k: v.squeeze(0) for k, v in enc.items()}
+            item["labels"] = torch.tensor(int(r["label"]))
+            return item
+
+    # CPU on purpose. The GPU here is a 6 GB 1660 already thrashing between generative models, and
+    # §3.5 of the design document says specialist inference belongs beside them on the CPU rather
+    # than competing for VRAM with the conversation.
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if not quiet:
+        print(f"training on {device}")
+    model.to(device).train()
+
+    # Weighted, because these corpora are nowhere near balanced and an unweighted loss on a 3 %
+    # positive set learns to say no. The generated corpus is the opposite problem at 68 % positive;
+    # either way the weight is computed rather than assumed.
+    positives = sum(r["label"] for r in train)
+    weight = torch.tensor(
+        [len(train) / (2 * max(1, len(train) - positives)), len(train) / (2 * max(1, positives))],
+        device=device, dtype=torch.float)
+    if not quiet:
+        print(f"class weights {weight.tolist()} from {positives}/{len(train)} positive")
+
+    loader = DataLoader(Rows(train), batch_size=batch, shuffle=True)
+    optimiser = torch.optim.AdamW(model.parameters(), lr=lr)
+    loss_fn = torch.nn.CrossEntropyLoss(weight=weight)
+
+    steps = int(len(loader) * epochs)
+    step = 0
+    while step < steps:
+        for batch_in in loader:
+            if step >= steps:
+                break
+            labels = batch_in.pop("labels").to(device)
+            out = model(**{k: v.to(device) for k, v in batch_in.items()})
+            loss = loss_fn(out.logits, labels)
+            loss.backward()
+            optimiser.step()
+            optimiser.zero_grad()
+            step += 1
+            if step % 25 == 0 and not quiet:
+                print(f"   step {step}/{steps}  loss {loss.item():.4f}")
+    return model, tokenizer, device
+
+
+def predict(model, tokenizer, rows, max_len=128, device=None, chunk_size=64):
+    """P(label=1) for each row, in order. Same encoding as fit, for the same anti-drift reason."""
+    import torch
+
+    device = device or next(model.parameters()).device
+    model.eval()
+    probabilities = []
+    with torch.no_grad():
+        for start in range(0, len(rows), chunk_size):
+            chunk = rows[start:start + chunk_size]
+            pairs = [r["text"].split(" </s> ", 1) for r in chunk]
+            paired = all(len(p) > 1 for p in pairs)
+            enc = tokenizer([p[0] for p in pairs],
+                            [p[1] for p in pairs] if paired else None,
+                            truncation=True, max_length=max_len, padding="max_length",
+                            return_tensors="pt")
+            logits = model(**{k: v.to(device) for k, v in enc.items()}).logits
+            probabilities.extend(logits.softmax(-1)[:, 1].tolist())
+    return probabilities
 
 
 def main():
@@ -115,73 +218,15 @@ def main():
 
     import numpy as np
     import torch
-    from torch.utils.data import DataLoader, Dataset
-    from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(args.base)
-    model = AutoModelForSequenceClassification.from_pretrained(args.base, num_labels=2)
-
-    class Rows(Dataset):
-        def __init__(self, items): self.items = items
-        def __len__(self): return len(self.items)
-        def __getitem__(self, i):
-            r = self.items[i]
-            # " </s> " is the pair separator the adapters emit for the two-sentence decisions
-            # (supersession, assertion). Split here so a pair is encoded as a pair rather than as
-            # one long sentence with a stray token in the middle.
-            parts = r["text"].split(" </s> ", 1)
-            enc = tokenizer(*parts, truncation=True, max_length=args.max_len,
-                            padding="max_length", return_tensors="pt")
-            item = {k: v.squeeze(0) for k, v in enc.items()}
-            item["labels"] = torch.tensor(int(r["label"]))
-            return item
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"training on {device}")
-    model.to(device).train()
-
-    # Weighted, because these corpora are nowhere near balanced and an unweighted loss on a 3 %
-    # positive set learns to say no. The generated corpus is the opposite problem at 68 % positive;
-    # either way the weight is computed rather than assumed.
-    positives = sum(r["label"] for r in train)
-    weight = torch.tensor(
-        [len(train) / (2 * max(1, len(train) - positives)), len(train) / (2 * max(1, positives))],
-        device=device, dtype=torch.float)
-    print(f"class weights {weight.tolist()} from {positives}/{len(train)} positive")
-
-    loader = DataLoader(Rows(train), batch_size=args.batch, shuffle=True)
-    optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    loss_fn = torch.nn.CrossEntropyLoss(weight=weight)
-
-    steps = int(len(loader) * args.epochs)
-    step = 0
-    while step < steps:
-        for batch in loader:
-            if step >= steps:
-                break
-            labels = batch.pop("labels").to(device)
-            out = model(**{k: v.to(device) for k, v in batch.items()})
-            loss = loss_fn(out.logits, labels)
-            loss.backward()
-            optimiser.step()
-            optimiser.zero_grad()
-            step += 1
-            if step % 25 == 0:
-                print(f"   step {step}/{steps}  loss {loss.item():.4f}")
+    model, tokenizer, device = fit(
+        train, base=args.base, epochs=args.epochs, batch=args.batch, lr=args.lr,
+        max_len=args.max_len, seed=args.seed)
 
     # ---- the held-out families, by family, which is the metric everything else here uses --------
-    model.eval()
     by_family = collections.defaultdict(list)
-    with torch.no_grad():
-        for batch_start in range(0, len(test), 64):
-            chunk = test[batch_start:batch_start + 64]
-            pairs = [r["text"].split(" </s> ", 1) for r in chunk]
-            enc = tokenizer([p[0] for p in pairs],
-                            [p[1] if len(p) > 1 else None for p in pairs] if any(len(p) > 1 for p in pairs) else None,
-                            truncation=True, max_length=args.max_len, padding=True, return_tensors="pt")
-            logits = model(**{k: v.to(device) for k, v in enc.items()}).logits
-            for r, p in zip(chunk, logits.softmax(-1)[:, 1].tolist()):
-                by_family[r["family"]].append((r["label"], p >= 0.5))
+    for row, probability in zip(test, predict(model, tokenizer, test, args.max_len, device)):
+        by_family[row["family"]].append((row["label"], probability >= 0.5))
 
     tp = fp = fn = 0
     for calls in by_family.values():
@@ -200,24 +245,74 @@ def main():
           "the retracted +0.322 headline.")
 
     # ---- ONNX, which is what production actually loads ------------------------------------------
+    #
+    # Three things went wrong here on the first real run, and all three produced a file that looked
+    # like a successful export:
+    #
+    #   * the weights went to a 90 MB `.onnx.data` sidecar and the graph came out at 0.8 MB. A
+    #     22M-parameter model is ~90 MB; a 0.8 MB one is a graph with the numbers missing. It would
+    #     have loaded here, beside its sidecar, and failed the moment the .onnx was copied alone.
+    #     external_data=False keeps it in one file, which is what "ships a model" should mean.
+    #   * transformers 5 wrote `<decision>-tokenizer.model` where the C# BertLikeTokenizer reads
+    #     `vocab.txt` beside the model, so the model would have reported itself unavailable at
+    #     startup with the file sitting right there. Written explicitly below, in id order, which is
+    #     the format that side parses.
+    #   * nothing checked that the exported graph answers the same as the model that was trained.
+    #     requirements-encoder.txt lists onnxruntime "for verifying the export before trusting it in
+    #     C#" and nothing verified anything.
     MODELS.mkdir(parents=True, exist_ok=True)
     out = pathlib.Path(args.out) if args.out else MODELS / f"{args.decision}.onnx"
     sample = tokenizer("a sentence", "another", truncation=True, max_length=args.max_len,
                        padding="max_length", return_tensors="pt")
-    inputs = tuple(sample[k].to(device) for k in ("input_ids", "attention_mask", "token_type_ids")
-                   if k in sample)
     names = [k for k in ("input_ids", "attention_mask", "token_type_ids") if k in sample]
+    inputs = tuple(sample[k].to(device) for k in names)
     torch.onnx.export(
         model, inputs, str(out),
         input_names=names, output_names=["logits"],
         dynamic_axes={n: {0: "batch", 1: "sequence"} for n in names} | {"logits": {0: "batch"}},
-        opset_version=14)
+        opset_version=14, external_data=False)
 
-    # The vocabulary travels with the model. The C# tokenizers (BertLikeTokenizer,
-    # RobertaLikeTokenizer) read it, and a model whose vocab is a different file's is a model that
-    # scores plausible nonsense rather than failing.
-    tokenizer.save_vocabulary(str(out.parent), filename_prefix=args.decision)
-    print(f"exported {out} ({out.stat().st_size / 1e6:.1f} MB) and its vocabulary")
+    # The vocabulary travels with the model, under the name the loader looks for. One token per
+    # line, line number is the id — a model whose vocabulary is a different file's scores plausible
+    # nonsense rather than failing, so this is written from the tokenizer that just trained.
+    vocab = tokenizer.get_vocab()
+    vocab_path = out.with_name("vocab.txt")
+    with vocab_path.open("w", encoding="utf-8") as handle:
+        for token, _ in sorted(vocab.items(), key=lambda pair: pair[1]):
+            print(token, file=handle)
+
+    print(f"exported {out} ({out.stat().st_size / 1e6:.1f} MB) and {vocab_path.name} "
+          f"({len(vocab)} tokens)")
+
+    # ---- does the exported graph agree with the model that was trained? -------------------------
+    #
+    # Compared on real held-out rows rather than on the dummy sample, because a graph can be right
+    # about one input and wrong about padding, token types or sequence length. Any disagreement is
+    # fatal: the whole point of ONNX here is that C# gets the same answers Python measured, and a
+    # model that quietly disagrees would be adopted on a score it does not reproduce.
+    import onnxruntime
+
+    session = onnxruntime.InferenceSession(str(out), providers=["CPUExecutionProvider"])
+    probe = [r["text"] for r in (test or train)[:32]]
+    pairs = [t.split(" </s> ", 1) for t in probe]
+    enc = tokenizer([p[0] for p in pairs],
+                    [p[1] for p in pairs] if all(len(p) > 1 for p in pairs) else None,
+                    truncation=True, max_length=args.max_len, padding="max_length",
+                    return_tensors="pt")
+    with torch.no_grad():
+        expected = model(**{k: v.to(device) for k, v in enc.items()}).logits.cpu().numpy()
+    actual = session.run(["logits"], {n: enc[n].cpu().numpy() for n in names})[0]
+
+    drift = float(np.abs(expected - actual).max())
+    agree = int((expected.argmax(-1) == actual.argmax(-1)).sum())
+    print(f"onnxruntime vs torch on {len(probe)} held-out rows: "
+          f"max logit difference {drift:.2e}, same answer on {agree}/{len(probe)}")
+    if agree != len(probe) or drift > 1e-3:
+        sys.exit(
+            "THE EXPORT DOES NOT REPRODUCE THE MODEL. The scores measured above are not the scores "
+            "C# would get, so this file must not be enabled. Check the input names, the padding and "
+            "the opset before trusting anything downstream.")
+
     print()
     print("Enable it in appsettings.json under CognitiveModels:Classifier, and leave ShadowMode on "
           "until the disagreements have been read. A model that is present is not a model that has "
