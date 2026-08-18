@@ -371,9 +371,12 @@ bought was knowing that the most confident recommendation in this document was w
 wired into the path that retires memories. That is the entire purpose of building the harness first.
 
 **What would change the verdict:** a fine-tune on supersession-framed pairs rather than MNLI —
-"can both of these be true of this person?" instead of "do these describe the same scene?". The
-brief anticipated this. It needs labelled data, which needs shadow mode running on real
-conversations, which is the next thing to do rather than the next model to add.
+and framed on the *actual* decision, which the DialogueNLI audit later showed is not any question
+an existing NLI corpus asks. The task is now designed from first principles in
+[`SUPERSESSION_TASK.md`](SUPERSESSION_TASK.md): its own input schema, a six-way label taxonomy,
+purpose-built data, calibration against the cost of a false supersede. Read this section's verdict
+accordingly — it rejected an off-the-shelf model answering the wrong question, and says nothing
+about the ceiling of a model trained on the right one.
 
 ### Phase 5: the cognitive classifier, and the second claim this document has had to withdraw
 
@@ -617,6 +620,16 @@ model's named failures dropped out of the top of the list, but the listing trunc
 by one person, the fold spread is ±0.23 to ±0.30 against gaps of that size, and the precision figure
 that blocks adoption is computed from an *assumed* 3 % base rate that nothing has measured. That
 number comes from capture, which is now the only thing on the critical path.
+
+And a correction to how every verdict in this file is allowed to be read, because the framing had
+started to drift: **"not adopted" is a verdict on an experiment, never evidence that a decision
+should remain heuristic.** The architectural hypothesis is that semantic judgements are ultimately
+made by specialised models where practical, with code disposing. What has been tested so far is
+whether proxy corpora and lightly fine-tuned encoders clear the bar — not whether purpose-built
+models trained on the actual decision boundaries do. The first decision to get that treatment is
+supersession: [`SUPERSESSION_TASK.md`](SUPERSESSION_TASK.md) designs the task, taxonomy, data and
+migration criteria from first principles. A heuristic is not preserved because round one failed,
+and not removed because a model wins an aggregate metric.
 
 #### The export was wrong four ways, and each one looked like success
 
@@ -980,6 +993,13 @@ deliberately avoids, so it is bounded three ways:
   twelve characters so that forgetting something evidenced by "the roof" cannot sweep out every
   sentence mentioning a roof. Deleting more than was asked is the worse error: a removed row cannot
   be recovered, and the only cost of keeping one is that a human sees it again.
+- **Pair capture rides the same machinery.** Subject `memory.supersession.pair` records the
+  (incoming, existing) pair at the moment the supersession decision is made — every exit,
+  including the decision NOT to supersede — as structured JSON with provenance, under the same
+  gate, the same redaction, and a /forget purge that matches on the stored memory's id as well as
+  its excerpts. It exists because the specialised supersession model
+  ([`SUPERSESSION_TASK.md`](SUPERSESSION_TASK.md)) trains on pairs, and message capture cannot
+  know which existing memory was in play.
 - **Nothing prunes the table.** There is no retention policy, so captured text stays until it is
   deleted by hand. At four rows a turn the size is irrelevant; the point is that it is a verbatim
   second copy of one side of the conversation with no expiry.

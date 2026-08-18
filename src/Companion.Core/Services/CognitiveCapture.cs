@@ -73,6 +73,75 @@ public sealed class CognitiveCapture : ICognitiveCapture
             _shadow, "companion.commitment", CommitmentDetector.Detect(reply) is not null, Trim(reply), ct);
     }
 
+    /// <summary>
+    /// One supersession pair, as JSON in the capture row's input column.
+    ///
+    /// JSON rather than the bare sentence because this subject's row IS structured — the model
+    /// trains on the pair plus its provenance, and flattening it here would mean re-deriving slot
+    /// and cardinality downstream from text that no longer states them. The verdict goes in
+    /// Legacy like every other capture; the input carries only what training and adjudication
+    /// need, per the rule that telemetry does not duplicate raw text it has no use for.
+    ///
+    /// Redaction is the same as everywhere else: if any free-text field looks like a credential
+    /// the whole input is dropped and the verdict kept, because the RATE is the number capture is
+    /// best placed to produce and it survives the redaction.
+    /// </summary>
+    public async Task CapturePairAsync(SupersessionPairCapture pair, CancellationToken ct = default)
+    {
+        if (!IsCapturing)
+            return;
+
+        var leaks = SecretDetector.LooksLikeSecret(pair.Utterance)
+            || SecretDetector.LooksLikeSecret(pair.IncomingFact)
+            || SecretDetector.LooksLikeSecret(pair.ExistingFact);
+
+        var json = leaks ? null : System.Text.Json.JsonSerializer.Serialize(new
+        {
+            v = 1,
+            incoming = new
+            {
+                fact = Trim(pair.IncomingFact),
+                value = pair.IncomingValue,
+                predicate = pair.Predicate,
+                utterance = Trim(pair.Utterance),
+            },
+            existing = new
+            {
+                id = pair.ExistingId,
+                fact = Trim(pair.ExistingFact),
+                value = pair.ExistingValue,
+                predicate = pair.ExistingPredicate,
+                age_days = pair.ExistingAgeDays,
+                confirmed_days = pair.ExistingConfirmedDays,
+            },
+            pair = new
+            {
+                same_slot = pair.SameSlot,
+                single_valued = pair.SingleValued,
+                similarity = Math.Round(pair.Similarity, 3),
+            },
+        });
+
+        await _shadow.RecordAsync(new Domain.ShadowComparison
+        {
+            Id = Guid.NewGuid(),
+            Subject = PairSubject,
+            Legacy = pair.IncumbentOutcome,
+            Model = null,          // null = capture; a model's verdict arrives via Shadow.CompareAsync
+            Confidence = 0,
+            Agreed = true,
+            Applied = "legacy",
+            Input = json,
+        }, ct);
+    }
+
+    /// <summary>
+    /// The corpus decision key for pair rows — asserted in a test like the four message-level
+    /// subjects, because "supersession.pair" and "memory.supersession.pair" would each look right
+    /// and silently produce two datasets.
+    /// </summary>
+    public const string PairSubject = "memory.supersession.pair";
+
     private static string Trim(string text)
     {
         var trimmed = text.Trim();
@@ -88,4 +157,6 @@ public sealed class NoCognitiveCapture : ICognitiveCapture
     public Task CaptureUserMessageAsync(string message, CancellationToken ct = default) => Task.CompletedTask;
 
     public Task CaptureReplyAsync(string reply, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task CapturePairAsync(SupersessionPairCapture pair, CancellationToken ct = default) => Task.CompletedTask;
 }

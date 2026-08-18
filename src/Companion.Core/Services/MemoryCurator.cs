@@ -106,9 +106,19 @@ public sealed class MemoryCurator : IMemoryCurator
     {
         // The excerpts are read BEFORE the status changes, because they are the only handle on the
         // sentences this memory came from and nothing guarantees they stay reachable afterwards.
-        var excerpts = _shadow is { IsRecording: true }
-            ? (await _memories.GetEvidenceAsync(userId, memoryId, ct)).Select(e => e.Excerpt).ToList()
-            : [];
+        List<string> excerpts = [];
+        if (_shadow is { IsRecording: true })
+        {
+            excerpts = (await _memories.GetEvidenceAsync(userId, memoryId, ct))
+                .Select(e => e.Excerpt).ToList();
+
+            // The id too: pair-capture rows (memory.supersession.pair) reference the stored memory
+            // by id rather than by its evidence — the excerpts in a pair row are the user's words
+            // for the INCOMING fact, so forgetting the stored one would never match them. A guid
+            // string is 36 characters, comfortably over the minimum-excerpt bar, and cannot
+            // collide with conversational text.
+            excerpts.Add(memoryId.ToString());
+        }
 
         var forgotten = await SetStatusAsync(
             userId, memoryId, MemoryStatus.Deleted, RevisionKind.Deleted, reason,
