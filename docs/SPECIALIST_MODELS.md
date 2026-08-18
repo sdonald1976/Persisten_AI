@@ -414,7 +414,29 @@ harness reported three decimal places either way. So the harness changed:
 - **The incumbent's answer is written into the corpus** by the C# generator, so the trainer scores
   the shipped rule rather than a Python transcription of it that can drift.
 
-What that apparatus says, as a 95 % interval on family-macro F1 against the shipped rule:
+#### Read the table with the model in it
+
+Before the numbers: **the "model" here is 1,113 parameters.** `TfidfVectorizer(analyzer="char_wb",
+ngram_range=(3,5))` plus `LogisticRegression`, fitted on 550 synthetic rows. No neural network, no
+pretraining, no knowledge of English beyond those rows — a bag of character substrings and a linear
+boundary, which is roughly 1970s technology.
+
+It is also structurally blind to the thing these judgements turn on. Measured, not asserted:
+
+```
+cosine("I have to do the roof", "the roof I have to do") = 1.000
+```
+
+Word order is not weighted lightly, it is **not represented at all** — both sentences are the same
+point in feature space. Negation is a fact about structure, so "but I didn't" cannot reach the
+classifier as anything except three more character trigrams.
+
+The reason it is this and not a MiniLM is mechanical: the session that ran it had no route to
+Hugging Face, so no encoder could be fetched to fine-tune. Phases 3 and 4 used real ones —
+`ms-marco-MiniLM-L6-v2` (22M) and `nli-MiniLM2-L6-H768` — and those verdicts stand on real models.
+This one does not.
+
+So the table below says what 1,113 linear weights did. Read the losses accordingly.
 
 | decision | union (regex OR model) | model alone |
 |---|---|---|
@@ -427,12 +449,22 @@ What that apparatus says, as a 95 % interval on family-macro F1 against the ship
 model alone is indistinguishable from the regex and the union beats it. The retracted headline
 measured a swap and claimed a win the swap does not have. §3.3 and §3.4 both argued for composition
 over replacement on other grounds; this is the first time it has been measured, and it is the same
-answer.
+answer. That a linear model over character n-grams beats a hand-tuned regex at all is a statement
+about how weak the incumbent is, and it survives whatever replaces the classifier.
 
-**And it is one decision out of three.** The identical model class makes `memory.decision` and
-`tool.capability` measurably worse. The brief's instinct — one multi-label model replacing the
-detectors — is right about the *shape* and wrong about the *scope* on today's evidence: some of
-these judgements are learnable from this data and some are not.
+**The two losses say much less.** They are evidence that *this* model cannot do those judgements,
+and close to no evidence about learned models generally. Every error is the same error — word order
+and negation:
+
+```
+said yes - closed:I thought I'd have to do {t} but I didn't
+said yes - closed:we cancelled {t}
+said yes - closed:would I need to do {t} first
+```
+
+which is precisely what a bag of character n-grams cannot represent. An earlier draft of this
+section put those losses in a table and the caveat in prose underneath, which reads as a verdict on
+the idea rather than on the model. It is not one.
 
 **Winning the metric is still not permission to ship.** At a 3 % conversational base rate, which is
 roughly what real traffic looks like, precision on `memory.unfinished` is `incumbent 0.103` against
