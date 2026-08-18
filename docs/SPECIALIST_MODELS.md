@@ -111,7 +111,9 @@ reranking to prove itself only once the store is large. Seed a few hundred memor
 
 ### 3.2 NLI for supersession is the strongest-evidenced item in the brief and should move up
 
-> **This was wrong, and Phase 4 measured it wrong.** The argument below is sound about the *problem*
+> **This was wrong, and Phase 4 measured it wrong.** (It is not the only one — Phase 5 retracted a
+> claim too. Both retractions are left standing where they were written.) The argument below is
+> sound about the *problem*
 > — similarity genuinely cannot separate these cases — and wrong about the *fix*. An off-the-shelf
 > MNLI model scores 0.462 against the heuristic's 0.667, because it asks whether two sentences
 > describe the same scene, not whether both can be true of one person over time. Left in place
@@ -220,7 +222,7 @@ and evaluation at §16, after several models are in. Building the measurement fi
 | 2 — shadow + evaluation | **built** — `IShadowRecorder`, `/diagnostics/shadow`, `tools/Companion.Eval` |
 | 3 — cross-encoder | **built, measured, NOT adopted** — see below |
 | 4 — NLI | **built, measured, REJECTED for now** — and it disproved §3.2. See below |
-| 5 — cognitive classifier | not started |
+| 5 — cognitive classifier | **corpus built, cross-validated, NOT adopted** — and it retracted a claim. See below |
 | 6 — emotion | not started |
 | 7 — roaming seam | not started |
 | 8 — retirement | not started |
@@ -370,6 +372,97 @@ wired into the path that retires memories. That is the entire purpose of buildin
 "can both of these be true of this person?" instead of "do these describe the same scene?". The
 brief anticipated this. It needs labelled data, which needs shadow mode running on real
 conversations, which is the next thing to do rather than the next model to add.
+
+### Phase 5: the cognitive classifier, and the second claim this document has had to withdraw
+
+A corpus generator (`CognitiveCorpus`) produces labelled rows for four of the classifier-shaped
+decisions — `memory.decision`, `memory.unfinished`, `companion.commitment`, `tool.capability` —
+as templates crossed with fillers, with hard negatives written so the tempting answer is the wrong
+one. Splits are drawn on the template **family**, never the row, because rows are the same sentence
+several times and a row split scores memorisation.
+
+The first run reported that `memory.unfinished` was **the first heuristic worth replacing**:
+
+```
+regex (incumbent)      P=1.000 R=0.438 F1=0.609
+tf-idf + logreg        P=0.937 R=0.925 F1=0.931     (+0.322)
+```
+
+It is not, and the number is not reproducible in the sense that matters. The same code and seed,
+scored on the ten *validation* families instead of the ten *test* families:
+
+```
+regex (incumbent)      F1 0.000
+tf-idf + logreg        F1 0.595
+```
+
+The incumbent fires on nothing at all in one draw of ten families and on 44 % of rows in another.
+Both numbers are correct; neither is about the method. **Ten families is not a sample**, and the
+whole result was a property of which families the shuffle happened to put on which side.
+
+This is the same failure the split rule was written to prevent, one level up. Splitting by family
+instead of by row fixed leakage and left the sample-size problem completely untouched, and the
+harness reported three decimal places either way. So the harness changed:
+
+- **Grouped cross-validation** over every development family, each predicted exactly once by a
+  model that never saw it — forty families of evidence rather than ten.
+- **A paired bootstrap over families** on every difference, because "A scored higher than B" is not
+  a finding and an interval that straddles zero is.
+- **Family-macro as the primary metric**, in the Python trainer *and* in the shipped C# harness. A
+  template carrying a `{when}` filler renders sixty rows where a bare one renders ten, so a
+  row-weighted average was silently weighting phrasings by how many fillers somebody wrote.
+- **The incumbent's answer is written into the corpus** by the C# generator, so the trainer scores
+  the shipped rule rather than a Python transcription of it that can drift.
+
+What that apparatus says, as a 95 % interval on family-macro F1 against the shipped rule:
+
+| decision | union (regex OR model) | model alone |
+|---|---|---|
+| `memory.decision` | **−0.247** [−0.492, −0.073] — loses | −0.552 — loses |
+| `memory.unfinished` | **+0.317** [+0.068, +0.558] — **beats** | +0.290 [−0.016, +0.565] — indistinguishable |
+| `tool.capability` | −0.143 [−0.333, +0.000] — indistinguishable | −0.596 — loses |
+| `companion.commitment` | 9 families — too few to cross-validate at all | |
+
+**The swap is not supported. The composition is.** On the only decision where anything wins, the
+model alone is indistinguishable from the regex and the union beats it. The retracted headline
+measured a swap and claimed a win the swap does not have. §3.3 and §3.4 both argued for composition
+over replacement on other grounds; this is the first time it has been measured, and it is the same
+answer.
+
+**And it is one decision out of three.** The identical model class makes `memory.decision` and
+`tool.capability` measurably worse. The brief's instinct — one multi-label model replacing the
+detectors — is right about the *shape* and wrong about the *scope* on today's evidence: some of
+these judgements are learnable from this data and some are not.
+
+**Winning the metric is still not permission to ship.** At a 3 % conversational base rate, which is
+roughly what real traffic looks like, precision on `memory.unfinished` is `incumbent 0.103` against
+`union 0.025`. Family-macro F1 treats a wrongly-fired negative family and a missed positive one as
+equal; production does not. Open loops are surfaced unprompted, so a false positive is her asking
+how work that does not exist is going, and a false negative is only silence. The union wins the
+metric and would fabricate roughly four times as often.
+
+**What would change the verdict.** Every error the model makes is one error — it cannot read tense,
+negation or mood:
+
+```
+said yes - closed:I thought I'd have to do {t} but I didn't
+said yes - closed:we cancelled {t}
+said yes - closed:would I need to do {t} first
+said yes - closed:{t} is finally sorted
+```
+
+Character n-grams over 750 rows cannot see any of that, and no threshold fixes it. That is a fact
+about the model class, not about the idea: a sentence encoder is the thing that reads tense, which
+makes MiniLM-or-similar the next experiment rather than the next regex. Alongside it, more
+*families* — fold spread runs ±0.14 to ±0.31, wider than every gap being measured, and rows are not
+the currency.
+
+**Two incumbent defects found on the way**, neither of which needs a model: `DecisionDetector`
+misses "I've chosen X" and fires on "everyone assumes we're going with X"; `ToolNudge` fires on
+"are you able to come tomorrow" and misses "do you have access to the internet". Deliberately not
+patched — adding four phrases to a regex so it scores better on a corpus written in this repo is
+the treadmill the whole effort exists to leave, and it would quietly lower the bar a model has to
+clear. Recorded so that fixing them stays a decision.
 
 ### Shadow mode
 
