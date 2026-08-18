@@ -107,8 +107,29 @@ def load_extra(decision, suffix):
     return [r for r in rows if r.label is not None]
 
 
+SUFFIXES = ("train", "validation", "test", "borrowed", "reviewed")
+
+
 def decisions():
-    return sorted({p.name.split(".train.jsonl")[0] for p in CORPUS.glob("*.train.jsonl")})
+    """Every decision with a corpus of any kind, not only the ones the C# generator writes.
+
+    This used to glob *.train.jsonl alone, which meant a decision whose only rows are BORROWED was
+    invisible: `fetch.py dialogue-nli` wrote 310,110 supersession pairs and a bare `crossval.py`
+    scored four generated decisions and never mentioned them. The corpora with the most evidence
+    behind them were the ones silently skipped, and nothing said so.
+    """
+    found = set()
+    for suffix in SUFFIXES:
+        for path in CORPUS.glob(f"*.{suffix}.jsonl"):
+            found.add(path.name[: -len(f".{suffix}.jsonl")])
+    return sorted(found)
+
+
+# Families, not rows, are the unit of evidence — and a borrowed corpus brings tens of thousands of
+# them, far past the point where another one changes an interval. Capping keeps a run finishable;
+# capping SILENTLY would be the same sin as reporting a ten-family draw to three decimals, so the
+# sample is seeded and what it dropped is printed.
+MAX_FAMILIES = 4000
 
 
 def fresh_model():
@@ -205,13 +226,29 @@ def run(decision):
     families = {r.family for r in develop}
 
     print(f"=== {decision} ===")
+    if len(families) > MAX_FAMILIES:
+        keep = sorted(families)
+        random.Random(11).shuffle(keep)
+        keep = set(keep[:MAX_FAMILIES])
+        dropped_rows = len(develop) - sum(1 for r in develop if r.family in keep)
+        develop = [r for r in develop if r.family in keep]
+        borrowed = [r for r in borrowed if r.family in keep]
+        reviewed = [r for r in reviewed if r.family in keep]
+        print(f"    CAPPED at {MAX_FAMILIES} families of {len(families)} "
+              f"({dropped_rows} rows dropped, seeded sample). Every number below is over the "
+              f"sample, not the corpus.")
+        families = keep
     if not develop or len(families) < FOLDS * 2 or len({r.label for r in develop}) < 2:
         print(f"    {len(develop)} rows / {len(families)} families — too few to cross-validate; skipped")
         print()
         return
     unstamped = sum(1 for r in develop if r.heuristic is None)
-    if unstamped == len(develop):
-        print("    no incumbent verdict on any row — nothing to compare against")
+    judged = unstamped < len(develop)
+    if not judged:
+        print("    NO INCUMBENT VERDICT ON ANY ROW. Every comparison against it is withheld below:")
+        print("    an incumbent scored as declining on rows it was never run over is not a")
+        print("    baseline, it is a zero, and beating a zero is not evidence of anything. The")
+        print("    model's own numbers are reported and nothing is called a win.")
     elif unstamped:
         # Counting an absent verdict as "said no" would credit the incumbent with perfect precision
         # on rows it was never run over, which flatters exactly the thing under test.
@@ -237,6 +274,10 @@ def run(decision):
     labels = [r.label for r in develop]
     groups = [r.family for r in develop]
 
+    variants = VARIANTS if judged else {
+        name: decide for name, decide in VARIANTS.items()
+        if name in ("model @.50", "model + settled veto")}
+
     pooled = [0.0] * len(develop)
     per_fold = collections.defaultdict(list)
     for train_idx, test_idx in GroupKFold(n_splits=FOLDS).split(texts, labels, groups=groups):
@@ -245,7 +286,7 @@ def run(decision):
         fold_rows = [develop[i] for i in test_idx]
         for i, prob in zip(test_idx, probs):
             pooled[i] = prob
-        for name, decide in VARIANTS.items():
+        for name, decide in variants.items():
             pred = [decide(prob, row) for prob, row in zip(probs, fold_rows)]
             per_fold[name].append(prf(*by_family(fold_rows, pred))[2])
 
@@ -253,14 +294,14 @@ def run(decision):
     print(f"    {FOLDS} folds, family-macro F1:")
     print(f"      {'variant':<22} {'mean':>6} {'spread':>8}   per fold")
     means = {}
-    for name in VARIANTS:
+    for name in variants:
         fold_f1 = per_fold[name]
         means[name] = statistics.mean(fold_f1)
         print(f"      {name:<22} {means[name]:>6.3f} {statistics.stdev(fold_f1):>+8.3f}   "
               + " ".join(f"{v:.2f}" for v in fold_f1))
 
     ordered = sorted(means, key=means.get, reverse=True)
-    winner, runner = ordered[0], ordered[1]
+    winner, runner = ordered[0], ordered[1 if len(ordered) > 1 else 0]
     gap = means[winner] - means[runner]
     spread = max(statistics.stdev(per_fold[winner]), statistics.stdev(per_fold[runner]))
     print()
@@ -276,7 +317,7 @@ def run(decision):
     print(f"      {'variant':<22} {'row F1':>7} {'fam P':>6} {'fam R':>6} {'fam F1':>7} "
           f"{'P @' + format(CONVERSATIONAL_PRIOR, '.0%'):>9}")
     pooled_pred = {}
-    for name, decide in VARIANTS.items():
+    for name, decide in variants.items():
         pred = [decide(p, r) for p, r in zip(pooled, develop)]
         pooled_pred[name] = pred
         ftruth, fcalls = by_family(develop, pred)
@@ -286,6 +327,12 @@ def run(decision):
 
     # ---- is the difference real? -----------------------------------------------------------
     print()
+    if not judged:
+        print("    no paired bootstrap: there is no incumbent verdict on these rows to pair with.")
+        print("    Run the shipped detector over them (tools/Companion.Eval) if a comparison is")
+        print("    wanted; until then this is a measurement of the model alone.")
+        print()
+        return
     print(f"    paired bootstrap over families, 95 % interval on the difference in family-macro F1:")
     for name in dict.fromkeys([winner, "union", "model @.50"]):
         if name == "incumbent":

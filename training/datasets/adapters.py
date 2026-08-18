@@ -49,6 +49,13 @@ def _row(text, label, decision, family, source, generator, difficulty=0):
     }
 
 
+# The three classes, and the markers DialogueNLI uses for a pair nobody labelled. Unrecognised is
+# not the same as unlabelled: one is a row to skip, the other is a mapping bug, and conflating them
+# is how an all-neutral corpus gets written and believed.
+NLI_CLASSES = ("entailment", "neutral", "contradiction")
+UNLABELLED = ("", "-", "none", "null", "nan")
+
+
 def require(columns, needed, name):
     """Fails loudly when a dataset's schema is not what an adapter was written against.
 
@@ -83,7 +90,7 @@ def require(columns, needed, name):
 # question — "does this thing someone said follow from their profile" — which is closer to
 # extraction than to supersession.
 # --------------------------------------------------------------------------------------------
-def dialogue_nli(rows, label_names=None):
+def dialogue_nli(rows, label_names=None, label_map=None):
     """Accepts either column naming, because the distributions disagree and both are in use.
 
     The canonical release from the author's site uses `sentence1`/`sentence2`; the Hub mirrors
@@ -127,8 +134,29 @@ def dialogue_nli(rows, label_names=None):
                 f"file documents. It is not guessed — a mirror that orders them differently would "
                 f"silently invert entailment and contradiction.")
 
-        if label not in ("entailment", "neutral", "contradiction"):
-            continue
+        # A label this adapter does not recognise is an ERROR, not a row to skip. The first run
+        # against a real mirror proved why: pietrolesci/dialogue_nli spells the classes
+        # positive/neutral/negative, the three canonical names matched only "neutral", and every
+        # other row was silently dropped — producing a tidy 100,000-row corpus in which nothing was
+        # positive. Only fetch.py's all-negative guard caught it, and it would not have caught a
+        # mirror that spelled two of the three the canonical way.
+        #
+        # `label_map` comes from the caller, which derives it from the corpus's own construction
+        # (fetch.derive_label_names) rather than from how the strings happen to be spelled. It is
+        # not guessed here for the same reason the integer ids are not: a mirror that ordered or
+        # named its classes differently would silently invert entailment and contradiction.
+        canonical = label if label in NLI_CLASSES else (label_map or {}).get(label)
+        if canonical is None:
+            if label in UNLABELLED:
+                continue
+            raise ValueError(
+                f"dialogue_nli: label {label!r} is not one of {sorted(NLI_CLASSES)}, is not a "
+                f"marker for an unlabelled row {sorted(UNLABELLED)}, and no label_map entry "
+                f"covers it. Pass label_map={{'<this mirror's word>': '<canonical class>'}} — "
+                f"fetch.py derives one from the corpus's own triples. It is not inferred from the "
+                f"word itself: 'negative' and 'contradiction' are the same class under two "
+                f"spellings, and 'positive' against 'entailment' is the pair that decides polarity.")
+        label = canonical
 
         # A contradiction is a supersession CANDIDATE; entailment and neutral are not. Collapsed to
         # binary because that is the decision the memory pipeline makes — and it makes it
@@ -218,8 +246,18 @@ CAPABILITY_INTENTS = frozenset({
     "are_you_a_bot", "meaning_of_life", "do_you_have_pets", "fun_fact",
 })
 
-# The ones that matter most: asking what she can do, rather than asking her to do it.
-CAPABILITY_CORE = frozenset({"what_can_i_ask_you", "are_you_a_bot", "who_made_you", "what_is_your_name"})
+# Asking what she can DO. The set used to say that and then list three intents that do not ask it:
+# `are_you_a_bot`, `who_made_you` and `what_is_your_name` are questions about identity and origin,
+# and the shipped rule rightly stays silent on all three — it looks for "what can you do", "are you
+# able to", "what are your capabilities". Counting those 300 utterances as missed capability
+# questions charged the incumbent for answering the question it was actually asked.
+#
+# Narrowed on that argument, not on the resulting number, and both numbers are recorded so the
+# change can be checked rather than taken: over all four intents the shipped nudge scored
+# P=0.122 R=0.025 F1=0.041, and over this one it scores what it scores. It is still bad — 7 of 100
+# on "what can you help me with" and its paraphrases — which is the finding the borrowed corpus
+# was fetched to produce.
+CAPABILITY_CORE = frozenset({"what_can_i_ask_you"})
 
 
 def clinc_capability(rows, capability_intents=CAPABILITY_CORE, label_names=None):
