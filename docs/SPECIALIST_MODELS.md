@@ -510,8 +510,12 @@ deliberately avoids, so it is bounded three ways:
   to forget is not training data either, and "we won't remember this, except in the telemetry
   table" is not a promise anyone would accept written down that way.
 - `SecretDetector` runs on every captured sentence, and a hit **drops the text and keeps the
-  verdict**. Skipping the row would have been easier and wrong: it would bias the one number this
-  is best placed to produce.
+  verdict** — the verdict rather than nothing, because skipping the row would bias the one number
+  this is best placed to produce. Running it live showed where that check actually matters, which
+  is not where it was written for: `RuleBasedPrivacyClassifier` already calls the same
+  `SecretDetector`, so a *user message* containing a key makes the whole turn non-rememberable and
+  never reaches capture. On *her reply* nothing else looks, and a key quoted back out of a tool
+  result is caught here or not at all.
 - It is **off unless switched on**, and switching on `ShadowMode` does not switch it on. Different
   costs, different decisions.
 
@@ -521,6 +525,28 @@ because nothing measured one, and precision is the metric that moves when the ba
 3 %, `memory.unfinished` scores 0.103 for the incumbent and 0.025 for the union that beats it on
 F1. `harvest.py` prints that column. If it says something other than 3 %, several conclusions above
 are wrong by a factor nobody has calculated yet.
+
+**Read that rate with its denominator, which is not "all turns".** Capture runs inside the
+extraction gate, so the population is *turns allowed to produce durable memory*. For
+`memory.unfinished`, `memory.decision` and `companion.commitment` that is exactly right — those
+detectors only run on such turns anyway, so the captured rate is the rate that matters. For
+`tool.capability` it is not: `ToolNudge` runs in the tool loop on **every** turn, private ones
+included, so its captured rate is measured over a narrower population than it actually sees. The
+alternative is capturing verdicts about private messages, which is a bigger change to what this
+promises than a more accurate denominator is worth. Recorded rather than fixed.
+
+**End-to-end, on a live instance** (`Models:Provider=Mock`, `CognitiveModels:Capture=true`), four
+ordinary turns produced exactly the verdicts they should:
+
+```
+memory.unfinished   true   "I still need to finish the shed roof."
+memory.decision     true   "We have decided to use SQLite in the end."
+tool.capability     true   "What can you actually do?"
+                    false  "The weather is lovely today."   (all three)
+```
+
+and a fifth turn containing an `sk-…` key produced **no capture rows at all** — the privacy gate,
+not the redaction, which is how the scoping above came to be written down.
 
 ### Shadow mode
 

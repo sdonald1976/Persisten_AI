@@ -126,10 +126,17 @@ public static class Shadow
     /// shape and can be trained on together.
     ///
     /// <paramref name="input"/> is dropped, and only the verdict kept, when the text looks like it
-    /// contains a credential. That is a deliberate asymmetry rather than skipping the row: the
-    /// RATE the heuristic fires at is the thing this corpus most badly needs — every precision
-    /// figure computed so far has had to assume a conversational base rate rather than measure one
-    /// — and the rate is knowable without keeping the sentence.
+    /// contains a credential — the verdict is kept rather than the row skipped because the RATE a
+    /// heuristic fires at is what this corpus most badly needs, and the rate is knowable without
+    /// keeping the sentence.
+    ///
+    /// Where that check earns its place is <em>her reply</em>, and it was not obvious until the
+    /// capture was run against a live instance. On the user's side it is defence in depth and
+    /// nothing more: <c>RuleBasedPrivacyClassifier</c> already calls the same
+    /// <c>SecretDetector</c>, so a message containing a key makes the whole turn non-rememberable
+    /// and it never reaches capture at all — verified, and the reason the claim above is scoped
+    /// rather than general. On her side nothing else looks. A key that arrives in a tool result and
+    /// is quoted back is checked here or nowhere.
     /// </summary>
     public static async Task CaptureAsync(
         IShadowRecorder recorder,
