@@ -219,7 +219,7 @@ and evaluation at §16, after several models are in. Building the measurement fi
 | Phase | Status |
 |---|---|
 | 1 — runtime seam | **built** — see `src/Companion.Core/Abstractions/ICognitiveModel.cs`, `Companion.Infrastructure/Cognition/` |
-| 2 — shadow + evaluation | **built** — `IShadowRecorder`, `/diagnostics/shadow`, `tools/Companion.Eval` |
+| 2 — shadow + evaluation | **built** — `IShadowRecorder`, `/diagnostics/shadow`, `tools/Companion.Eval`; **corpus capture** added, see §Capture |
 | 3 — cross-encoder | **built, measured, NOT adopted** — see below |
 | 4 — NLI | **built, measured, REJECTED for now** — and it disproved §3.2. See below |
 | 5 — cognitive classifier | **corpus built, cross-validated, NOT adopted** — and it retracted a claim. See below |
@@ -463,6 +463,64 @@ misses "I've chosen X" and fires on "everyone assumes we're going with X"; `Tool
 patched — adding four phrases to a regex so it scores better on a corpus written in this repo is
 the treadmill the whole effort exists to leave, and it would quietly lower the bar a model has to
 clear. Recorded so that fixing them stays a decision.
+
+### Capture: the way out of the deadlock
+
+Every verdict above ends in the same place. The reranker needs "a resolution set an order of
+magnitude larger, harvested from real conversations rather than invented". NLI needs "a fine-tune on
+supersession-framed pairs, which needs labelled data, which needs shadow mode running on real
+conversations". The classifier needs families that were not all written by one person. Three
+different models, one blocker.
+
+And shadow mode cannot collect it, because shadow mode needs a model to compare against. That is
+the deadlock: no data, so no model; no model, so nothing to shadow; nothing to shadow, so no data.
+
+**Capture breaks it by recording the half that already exists.** `CognitiveModels:Capture` writes
+down what each heuristic said about each real sentence — every message, including the ones where
+the answer is no. No model runs. Nothing about the turn changes.
+
+```jsonc
+"CognitiveModels": { "Capture": true }     // off by default; separate flag from ShadowMode
+```
+
+- `GET /diagnostics/shadow/captures?subject=&count=` — the rows.
+- `python training/cognition/harvest.py --url http://localhost:5000` — writes a review queue per
+  decision under `training/corpus/<decision>.captured.jsonl`, with `label: null`.
+- Label them, save as `<decision>.reviewed.jsonl`, and `crossval.py` folds them into the
+  development set and reports what fraction of the corpus is finally real.
+
+Four decisions are captured, and the subjects are deliberately **the same strings the generated
+corpus uses** — `memory.decision`, `memory.unfinished`, `tool.capability`, `companion.commitment`
+— so a captured row and a generated row are the same row about the same judgement and can be
+trained on together. A near-miss like `unfinished` against `memory.unfinished` would look correct
+in both files and silently produce two datasets, so it is asserted in a test rather than left to
+care.
+
+**The heuristic's verdict is a weak label, not a label.** Training on it directly teaches a model
+to imitate the regex including its misses, which for `memory.unfinished` means learning to miss
+five cases in six. Its value is that it sorts the queue. `label` comes out null and a human fills
+it in; there is no way round that, because a corpus labelled by the rule it is meant to judge can
+only ever conclude that the rule was right.
+
+**What it is allowed to write.** Capture stores user text, which the rest of the telemetry
+deliberately avoids, so it is bounded three ways:
+
+- It runs **inside the same gate as memory extraction** — not a private conversation, not an
+  in-character one, not one marked "don't remember", extraction enabled. A sentence she was asked
+  to forget is not training data either, and "we won't remember this, except in the telemetry
+  table" is not a promise anyone would accept written down that way.
+- `SecretDetector` runs on every captured sentence, and a hit **drops the text and keeps the
+  verdict**. Skipping the row would have been easier and wrong: it would bias the one number this
+  is best placed to produce.
+- It is **off unless switched on**, and switching on `ShadowMode` does not switch it on. Different
+  costs, different decisions.
+
+**The number worth having first** is not a model at all. It is the rate each heuristic fires at on
+real traffic. Every precision figure in this document assumes a 3 % conversational base rate
+because nothing measured one, and precision is the metric that moves when the base rate does — at
+3 %, `memory.unfinished` scores 0.103 for the incumbent and 0.025 for the union that beats it on
+F1. `harvest.py` prints that column. If it says something other than 3 %, several conclusions above
+are wrong by a factor nobody has calculated yet.
 
 ### Shadow mode
 

@@ -29,6 +29,10 @@ internal sealed class NullShadowRecorder : IShadowRecorder
     public Task<IReadOnlyList<ShadowComparison>> GetDisagreementsAsync(
         string? subject, int count, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<ShadowComparison>>(Array.Empty<ShadowComparison>());
+
+    public Task<IReadOnlyList<ShadowComparison>> GetCapturesAsync(
+        string? subject, int count, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<ShadowComparison>>(Array.Empty<ShadowComparison>());
 }
 
 /// <summary>
@@ -81,6 +85,10 @@ internal sealed class ShadowRecorder : IShadowRecorder
         var rows = await db.ShadowComparisons
             .AsNoTracking()
             .Where(c => c.Timestamp >= since)
+
+            // Captures carry no model answer, so they cannot have agreed with one. Counting them
+            // would report a rising agreement rate for a model that was never asked.
+            .Where(c => c.Model != null)
             .GroupBy(c => c.Subject)
             .Select(g => new
             {
@@ -110,13 +118,30 @@ internal sealed class ShadowRecorder : IShadowRecorder
     {
         using var scope = _scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
-        var query = db.ShadowComparisons.AsNoTracking().Where(c => !c.Agreed);
+        var query = db.ShadowComparisons.AsNoTracking().Where(c => c.Model != null && !c.Agreed);
         if (!string.IsNullOrWhiteSpace(subject))
             query = query.Where(c => c.Subject == subject);
 
         return await query
             .OrderByDescending(c => c.Timestamp)
             .Take(Math.Clamp(count, 1, 500))
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<ShadowComparison>> GetCapturesAsync(
+        string? subject, int count, CancellationToken ct = default)
+    {
+        using var scope = _scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
+        var query = db.ShadowComparisons.AsNoTracking().Where(c => c.Model == null);
+        if (!string.IsNullOrWhiteSpace(subject))
+            query = query.Where(c => c.Subject == subject);
+
+        // A larger cap than the disagreement queue, because this one is read to be exported rather
+        // than to be looked at: a review queue is a page of rows, a corpus is all of them.
+        return await query
+            .OrderByDescending(c => c.Timestamp)
+            .Take(Math.Clamp(count, 1, 5000))
             .ToListAsync(ct);
     }
 }
