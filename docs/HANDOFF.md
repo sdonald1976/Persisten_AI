@@ -40,7 +40,7 @@ actually happened, and every derived thing must be able to say where it came fro
   - `src/Companion.Core` — domain + interfaces + all logic. Pure, no I/O deps.
   - `src/Companion.Infrastructure` — EF, model provider adapters, world link, DI composition root.
   - `src/Companion.Api` — headless HTTP + SSE + WebSocket face (+ `wwwroot` reference client).
-  - `tests/Companion.Tests` — full suite, **932 passing** at last handoff.
+  - `tests/Companion.Tests` — full suite, **945 passing** at last handoff.
   - `tools/Companion.Soak` — drives real conversations against a running companion over HTTP and
     reports what is wrong with the replies *and with the store afterwards*. Run it before believing
     a memory change works: `dotnet test` has never caught one of these failures, because they all
@@ -224,9 +224,19 @@ and had no real conversation data. Everything blocked on those three things was 
 far as it could be, and left with the untested part labelled. **This machine is where those come
 unblocked**, which is the whole reason to move the work here.
 
-Branch: `claude/continue-previous-prompt-w8dksm`, pushed. 941 tests green from a clean clone.
+Branch: `claude/continue-previous-prompt-w8dksm`, pushed. 945 tests green.
 Decide whether it merges into the main working branch before or after the model experiments — it
 touches `Companion.Core`, `Companion.Infrastructure` and `Companion.Api`, all additively.
+
+**All three have now been done on this machine.** What follows is kept as the record of what the
+queue was; what it found is in `SPECIALIST_MODELS.md` §"The audit, and three ways it was wrong",
+§"Phase 5b: the encoder", and §"What a real corpus did to an incumbent". In short: DialogueNLI
+answers the supersession question and does it by encoding relation cardinality rather than by
+case-by-case annotation; the 22M MiniLM is the first model here to beat a heuristic alone and is
+still short on precision at the assumed base rate; `ToolNudge` scores F1 0.087 on real utterances
+against 0.778 on the corpus written here. The remaining blocker is the same one, and it is now the
+only one: **capture has not run**, so the 3 % base rate every precision figure depends on is still
+assumed.
 
 Three things only this machine can do, in the order they unblock each other:
 
@@ -244,7 +254,9 @@ Three things only this machine can do, in the order they unblock each other:
    conversational base rate is the number several precision figures currently assume rather than
    measure.
 
-`pip install -r training/requirements-encoder.txt` covers 1 and 2.
+`pip install -r training/requirements-encoder.txt` covers 1 and 2, and needs `onnxscript` with it —
+torch imports that lazily, so without it a fine-tune completes and *then* fails on the export.
+The virtualenv lives at `.venv/` in the repo root and is gitignored.
 
 ## Where to start
 

@@ -149,7 +149,40 @@ work that does not exist is going, and a false negative is only silence. The uni
 and would fabricate about four times as often. (Both numbers are worst-case — the corpus negatives
 are adversarial by construction, not sampled from conversation.)
 
-### Two things that change this, both now buildable
+### Both of those have now been run
+
+`pip install -r training/requirements-encoder.txt`, then the queue in order. What it found:
+
+**The encoder beats the regex on `memory.unfinished`, alone, which nothing had done before.**
+Same folds, same family-macro metric, same paired bootstrap — `crossval.py --encoder` imports the
+training loop from `finetune_encoder.py` rather than carrying a second copy of it.
+
+| variant | fam F1 | against the incumbent | precision @ 3 % |
+|---|---|---|---|
+| incumbent | 0.182 | — | **0.103** |
+| tf-idf union | 0.513 | +0.329 [+0.079, +0.571] | 0.027 |
+| **MiniLM alone** | 0.541 | **+0.357 [+0.050, +0.631]** | 0.044 |
+| **MiniLM union** | 0.579 | **+0.396 [+0.141, +0.634]** | 0.045 |
+
+The linear model's verdicts replicated on the way (+0.317 → +0.329, +0.290 → +0.303), on a
+different machine and a fresh install, so the harness is measuring the model rather than the run.
+On `memory.decision` the encoder stops losing (−0.128 [−0.429, +0.164]) without starting to win.
+
+**It is still not adopted**, and precision at the base rate is why: 0.045 against 0.103. Nor is the
+stated hypothesis fully borne out — missed families went 19 → 17 and the residue is still the
+*closed* ones ("{t} is done, thankfully", "someone else is doing {t}"), which is the category the
+encoder was supposed to read.
+
+**The borrowed corpora resolved**, three of four. DialogueNLI answers the supersession question —
+see §"The audit, and three ways it was wrong" in `docs/SPECIALIST_MODELS.md`, because the answer is
+neither of the two that were anticipated. DailyDialog is confirmed dead on all four candidate ids.
+
+**And a real corpus took a heuristic apart.** `ToolNudge`'s capability rule scores F1 0.087 on
+15,250 CLINC150 utterances against 0.778 on the nineteen rows written in this repo. It fires on 7
+of 100 ways of asking "what can you help me with". That is what "the corpus is synthetic and one
+person wrote it" was shorthand for, with a number attached.
+
+### The two things that changed this
 
 **A real model.** `python training/cognition/finetune_encoder.py memory.unfinished` fine-tunes a
 22M MiniLM and exports ONNX straight into `models/`, which is what the C# side already loads. Run

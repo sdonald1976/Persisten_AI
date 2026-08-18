@@ -223,7 +223,9 @@ and evaluation at §16, after several models are in. Building the measurement fi
 | 3 — cross-encoder | **built, measured, NOT adopted** — see below |
 | 4 — NLI | **built, measured, REJECTED for now** — and it disproved §3.2. See below |
 | 5 — cognitive classifier | **corpus built, cross-validated, NOT adopted** — and it retracted a claim. See below |
+| 5b — real encoder | **fine-tuned, exported, verified, cross-validated, NOT adopted** — first model to beat a heuristic alone, and still short on precision. §Phase 5b |
 | 6 — emotion | not started — GoEmotions (Apache-2.0) is the obvious start; see §The corpora that already exist |
+| borrowed corpora | **fetched and mapped** — DialogueNLI 310,110 pairs, CommitmentBank 250, CLINC150 15,250. DailyDialog confirmed dead on all four ids |
 | 7 — roaming seam | **built** — `IRoamingPolicy`, structured observation, ranked deliberation. No policy trained, and §Phase 7 says what actually blocks one |
 | 8 — retirement | not started |
 
@@ -496,6 +498,149 @@ patched — adding four phrases to a regex so it scores better on a corpus writt
 the treadmill the whole effort exists to leave, and it would quietly lower the bar a model has to
 clear. Recorded so that fixing them stays a decision.
 
+### What a real corpus did to an incumbent, which is the point of borrowing one
+
+The two incumbent defects recorded above were found on a corpus written in this repo, and both were
+left unpatched deliberately. CLINC150 says something larger, and it is the first measurement here
+where a heuristic is scored on fifteen thousand sentences nobody in this project wrote.
+
+Two harness defects had to go first, because the initial number was partly an artefact:
+
+- **The eval scored "any `ToolNudge` fired" as `tool.capability`.** `ToolNudge` dispatches seven
+  different lookups, so the *preferences* nudge answering "what are your hobbies" — its job,
+  correctly done — was counted as a capability false positive. Twenty-two of seventy-two.
+- **`CAPABILITY_CORE` contradicted its own comment.** It said "asking what she can do" and then
+  listed `are_you_a_bot`, `who_made_you` and `what_is_your_name`, which ask nothing of the kind. The
+  shipped rule stays silent on all three, correctly, and was charged 300 misses for it.
+
+Both fixed on the argument rather than on the resulting number, and both numbers recorded so the
+change can be checked: over all four intents the nudge scored P=0.122 R=0.025 F1=0.041, over the one
+intent that asks the question it scores
+
+```
+tool.capability   n=15250   P=0.115  R=0.070  F1=0.087   FP=54  FN=93
+        ...the same rule on the 19 rows written in this repo:  F1=0.778
+```
+
+**It fires on 7 of 100 ways of asking "what can you help me with."** It misses "what kinds of
+questions can you answer", "tell me what you are capable of answering", "what sorts of things can i
+ask you about". The corpus written here scored it nine times higher, because the person who wrote
+the corpus and the person who wrote the regex had the same phrasings in mind — which is the exact
+failure "the corpus is synthetic and one person wrote it" was shorthand for, now with a number on it.
+
+Note what this does **not** say. It is not evidence that a model should replace `ToolNudge`: on the
+same 164 families the linear model is worse (−0.327 [−0.750, +0.071]) and the union is
+indistinguishable (−0.046 [−0.167, +0.000]). Both are bad at this. The finding is about the *bar*,
+not about the winner — the incumbent was never as good as the in-repo corpus said, and every
+comparison drawn against that number was drawn against something too generous.
+
+### Phase 5b: the encoder, which is the first model to beat a heuristic alone
+
+Everything above about the cognitive classifier is qualified by one sentence: *the model in that
+table is 1,113 parameters of character n-grams, and the session that ran it had no route to Hugging
+Face.* That is no longer true. `finetune_encoder.py` has run, on this machine, and the 22M MiniLM it
+produces has been put through the **same grouped cross-validation, the same family-macro metric and
+the same paired bootstrap** the linear model was held to.
+
+That last part took work, and it is the part worth insisting on. `crossval.py` could only fit
+tf-idf, so a fine-tune "compared" against it would have been a different measurement wearing the
+same words — a single held-out draw against a five-fold interval. The training loop is now factored
+out of `finetune_encoder.py` and *imported* by `crossval.py --encoder` rather than reimplemented,
+for the same reason the incumbent's verdict is stamped into the data rather than transcribed into
+Python: two copies of the thing under test drift, and the day they drift the comparison stops being
+one.
+
+```bash
+python training/cognition/finetune_encoder.py memory.unfinished   # fit + export + verify
+python training/cognition/crossval.py --encoder memory.unfinished # the same bar as the linear model
+```
+
+#### `memory.unfinished` — 40 families, 95 % interval on family-macro F1 against the shipped rule
+
+| variant | fam F1 | against the incumbent | precision @ 3 % |
+|---|---|---|---|
+| incumbent (regex) | 0.182 | — | **0.103** |
+| tf-idf alone | 0.486 | +0.303 [−0.007, +0.579] — indistinguishable | 0.027 |
+| tf-idf union | 0.513 | +0.329 [+0.079, +0.571] — beats | 0.027 |
+| **MiniLM alone** | 0.541 | **+0.357 [+0.050, +0.631] — beats** | 0.044 |
+| **MiniLM union** | 0.579 | **+0.396 [+0.141, +0.634] — beats** | 0.045 |
+
+**The linear model's verdicts replicated first**, which is worth as much as the new row: +0.317
+became +0.329 and +0.290 became +0.303, on a different machine, a regenerated corpus and a fresh
+install. The harness is stable, so the numbers below are about the model rather than about the run.
+
+**This is the first model that beats a heuristic on its own.** Every prior verdict here was either
+a loss or a composition — the linear model alone was indistinguishable from the regex, and only the
+union beat it. The encoder alone clears the interval.
+
+#### `memory.decision` — where the encoder stops losing without starting to win
+
+| variant | fam F1 | against the incumbent | precision @ 3 % |
+|---|---|---|---|
+| incumbent | 0.833 | — | **0.188** |
+| tf-idf union | — | −0.247 [−0.492, −0.073] — **loses** | — |
+| MiniLM alone | 0.706 | −0.128 [−0.429, +0.164] — indistinguishable | 0.041 |
+| MiniLM union | 0.706 | −0.128 [−0.429, +0.164] — indistinguishable | 0.045 |
+
+The linear model **lost** this decision; the encoder does not. That is the model class improving
+exactly where §Phase 5 predicted it would and still not being good enough to adopt. Fifteen families
+is also not a sample, and the interval says so by spanning ±0.3.
+
+#### It is still not adopted, and the two reasons are not the old ones
+
+**Precision at the base rate has not caught up.** 0.045 against the incumbent's 0.103 on
+`memory.unfinished`, 0.041 against 0.188 on `memory.decision`. Better than tf-idf's 0.027 and still
+less than half the rule it would replace, so on the numbers this document already uses the encoder
+would fabricate roughly twice as often. Family-macro treats a wrongly-fired negative family and a
+missed positive one as equal; production does not, because an open loop is surfaced unprompted. The
+union keeps every case the incumbent gets and the model alone loses ten, which is the same shape as
+every other composition result here.
+
+**And the stated hypothesis is only half borne out.** `finetune_encoder.py` says every error the
+linear model makes is one error — it cannot read tense, negation or mood — and that "an encoder
+reads those. That is the entire hypothesis." Measured: missed families went from 19 to 17, and what
+remains is still dominated by the *closed* families —
+
+```
+said yes - closed:{t} is done, thankfully
+said yes - closed:I've stopped worrying about {t}
+said yes - closed:someone else is doing {t}
+said yes - closed:{t} is off my list
+```
+
+— sentences that say the work is finished, which is precisely the category the encoder was supposed
+to fix. It is better and it is better in the same places, not in different ones. Two of the linear
+model's named failures dropped out of the top of the list, but the listing truncates at eight, so
+"it fixed the tense cases" is not something this run establishes.
+
+**What would change the verdict.** Not a bigger encoder. The corpus is still forty families written
+by one person, the fold spread is ±0.23 to ±0.30 against gaps of that size, and the precision figure
+that blocks adoption is computed from an *assumed* 3 % base rate that nothing has measured. That
+number comes from capture, which is now the only thing on the critical path.
+
+#### The export was wrong four ways, and each one looked like success
+
+`finetune_encoder.py` had never executed. The training loop worked on the first attempt; the export
+did not, and none of its failures announced themselves:
+
+- **`onnxscript` missing.** torch ≥ 2.6 routes `torch.onnx.export` through the dynamo exporter and
+  imports it lazily, so a full fine-tune completed and *then* died on an import. Now in
+  `requirements-encoder.txt` with the reason attached.
+- **A Windows console killed a successful export.** torch printed `✅` to cp1252 and raised
+  `UnicodeEncodeError` *after* capturing the graph, which reads exactly like a failed export. All
+  four training scripts now reconfigure stdout, because the traceback named the wrong culprit.
+- **90 MB of weights went to an `.onnx.data` sidecar**, leaving a 0.8 MB graph. A 22M model is
+  ~90 MB; 0.8 MB is a graph with the numbers missing. It would have loaded here, beside its sidecar,
+  and failed the first time the `.onnx` was copied on its own. `external_data=False`.
+- **The vocabulary was written as `<decision>-tokenizer.model`**, and `BertLikeTokenizer` reads
+  `vocab.txt` beside the model. The model would have reported itself unavailable at startup with the
+  file sitting right there. Now written explicitly, in id order, from the tokenizer that trained.
+
+And the one that was missing rather than wrong: **nothing checked the export reproduced the model.**
+`requirements-encoder.txt` lists onnxruntime "for verifying the export before trusting it in C#" and
+nothing verified anything. The script now runs both on held-out rows and refuses to finish if they
+disagree — currently max logit difference **5.5e-06**, same answer on 32 of 32.
+
 ### Phase 7: the roaming seam, and the thing that actually blocks a learned policy
 
 The brief asked for the seam and not the model: make `RoamingPolicy` replaceable, create structured
@@ -635,10 +780,14 @@ python training/cognition/crossval.py             # same metric, now on real dat
 | `dialogue-nli` | `pietrolesci/dialogue_nli` | `dtype, id, label, original_label, sentence1, sentence2, triple1, triple2` |
 | `commitment-bank` | `aps/super_glue/cb` | `premise, hypothesis, label, idx` |
 | `clinc150` | `clinc/clinc_oos/plus` | `text, intent` |
-| `daily-dialog` | **none** | both known ids are script-based and fail on `datasets` ≥ 4.5 |
+| `daily-dialog` | **none** | all FOUR candidate ids are script-based and fail on `datasets` ≥ 4.5 |
 
-DailyDialog is the one to go without if it stays broken — it is also the one with the awkward
-licence, and it feeds only the *detection* half of a judgement whose gate stays code regardless.
+DailyDialog is now confirmed gone rather than probably gone: the two untried alternatives were
+tried, and `roskoN/dailydialog`, `Akhil391/daily_dialog`, `li2017dailydialog/daily_dialog` and
+`daily_dialog` all fail identically with *"Dataset scripts are no longer supported"*. It is also the
+one with the awkward licence, and it feeds only the *detection* half of a judgement whose gate stays
+code regardless, so it is the least costly of the four to go without. A hand download remains the
+only route.
 
 The DialogueNLI mirror carries `original_label` beside an int64 `label` that has **no ClassLabel
 metadata**, so nothing can be read off the schema and the string column is the only thing that
@@ -646,57 +795,123 @@ states what an id means. The adapter prefers it, and still refuses to decode a b
 names — a mirror that ordered its classes differently would silently swap entailment and
 contradiction.
 
-#### The audit, and two ways it was wrong before it worked
+#### The audit, and three ways it was wrong before it answered
 
 `fetch.py dialogue-nli --audit` was built to settle whether the corpus treats *same relation,
-different value* — "I have a corgi" against "I have a cat" — as neutral or as contradiction. Its
-first run on real data produced a confident verdict that was worth nothing, twice over:
+different value* — "I have a corgi" against "I have a cat" — as neutral or as contradiction. It has
+now been run against the real file, twice, and it was wrong the first two times in ways already
+recorded here and **wrong a third time in the same shape**:
 
 1. It compared labels against the string `"neutral"` while the mirror stores integers, so the count
-   was always zero and it printed "mostly NOT neutral" **whatever the data said**. A verdict that
-   cannot come out the other way is not a measurement.
-2. It bucketed on the **relation alone**, which conflates two unrelated cases. A pair sharing the
-   *same triple* is an entailment by construction — that is how the corpus makes its positives —
-   and it landed in the same bucket as the case in question. Of the 192,337 same-relation pairs,
-   52 % are entailment and 46 % contradiction, and that split is almost certainly same-value against
-   everything else rather than the answer to anything.
+   was always zero and it printed "mostly NOT neutral" **whatever the data said**.
+2. It bucketed on the **relation alone**, which put same-triple pairs — entailments by construction
+   — in the same bucket as the case in question.
+3. Fixed for (1) by decoding through `original_label`, it then compared the decoded string against
+   `"contradiction"` — and `pietrolesci/dialogue_nli` spells its classes **positive / neutral /
+   negative**. The count was structurally zero again, and it announced *"the corpus is inconsistent
+   on exactly the case we need… the third answer and the worst one"* about a corpus that gives the
+   best one.
 
-It now buckets on same-value / different-value / different-relation, decodes through
-`original_label`, withholds the verdict entirely when labels cannot be decoded, and carries the
-different-relation bucket as a **control**: the paper labels relation swaps neutral by construction,
-so if that bucket is not overwhelmingly neutral the triples are being misread and nothing else in
-the output should be believed. All four branches are tested against fixtures.
+All three shipped believing they had measured something, and what they had in common is one
+sentence: **a number that could only come out one way.** That is the thing to check first in
+anything written here.
 
-One thing the first run did establish, because it can be derived rather than assumed: different-
-relation pairs came out `1` at 81 %, and the paper labels those neutral by rule, so **`1` = neutral**
-— which agrees with HF's conventional NLI ordering `[entailment, neutral, contradiction]`.
+Labels are no longer named. They are **derived** from two anchors the paper states and the file can
+check — a pair sharing a triple is entailment by construction, a pair across two unrelated relations
+is neutral by rule — with the third class following by elimination. Both anchors must be
+overwhelming, they must disagree, a mirror already using the canonical names must *agree* with the
+derivation, and a class that never appears cannot be named. Any of those failing withholds the
+verdict instead of guessing.
 
-**So the question is still open**, and re-running `--audit` after a pull answers it. That is a
-better position than the previous one, which was an answer nobody should have trusted.
+Two further readings were hiding the answer rather than corrupting it, and both had to be fixed
+before it came out:
 
-Three things were worth being careful about, and two of them are lessons this project already paid
-for:
+- **`<none>` triples.** An unannotated sentence arrives looking like a relation called `<none>`, so
+  every one of them counted as a relation swap and diluted the control. Excluded, the control is
+  **99 % neutral over 45,500 pairs** — the trust test passing cleanly, rather than the 81 % that
+  read like a warning.
+- **Counts are not kinds.** DialogueNLI writes quantities into the value, so "2 dog" against "5 dog"
+  is a same-relation/different-value pair exactly like "dog" against "cat", and it is a different
+  question. Arithmetic is an eighth of the decisive bucket at 96 % contradiction.
 
-- **The group key.** Real corpora bring an invisible version of the leakage trap: the same persona
-  sentence appears in hundreds of DialogueNLI pairs, and one CLINC intent has a hundred paraphrases.
-  Splitting either by row measures memorisation, exactly as the template-filler split did. Every
-  adapter declares a `family` explicitly, and it means "what must not appear on both sides".
-- **The incumbent has no verdict on borrowed rows**, and counting an absent verdict as "said no"
-  would credit the regex with perfect precision on rows it was never run over — flattering precisely
-  the thing under test. `crossval.py` now says how many rows are in that state.
-- **Schema drift fails loudly.** These adapters were written from published descriptions, not
-  against the files. A renamed column would otherwise produce an all-negative corpus, which trains a
-  model that says no to everything, scores 97 % accuracy, and is discovered weeks later.
+#### The answer: it is not one of the two worlds this document anticipated
 
-`training/datasets/test_adapters.py` runs offline with no network and no `datasets` install, and it
-earned that separation immediately: it caught an inverted label in the CommitmentBank adapter, where
-inferring the encoding from the value read SuperGLUE's `0` (**entailment** — fully committed) as a
-Likert `0.0` (**undecided**). A bare number cannot be disambiguated, so it is no longer guessed —
-the caller is asked.
+Over 81,486 same-relation/different-**kind** pairs, split by relation:
 
-**The downloads themselves are unverified**, because the session that wrote this had no route to
-Hugging Face. The mapping is tested; the fetching is not. Expect the first run to need a fix, and to
-tell you which one.
+```
+has_profession            43572   contradiction 100%      have_pet         1116   neutral 100%
+employed_by_general        8717   contradiction 100%      have              360   neutral 100%
+physical_attribute         4939   contradiction  98%      not_have          318   neutral 100%
+want_job                   3269   contradiction 100%      have_sibling      312   neutral 100%
+live_in_citystatecountry   3026   contradiction 100%      like_activity     279   neutral 100%
+marital_status             1695   contradiction 100%      have_chidren      209   neutral 100%
+favorite_food              1376   contradiction 100%      like_general      125   neutral 100%
+attend_school              1578   contradiction  99%
+misc_attribute              720   contradiction  85%
+```
+
+**Nineteen relations at 0–2 % neutral, seven at 100 %, and nothing in between.** That is not an
+inconsistent corpus. It is a corpus encoding **relation cardinality** — which is the axis
+`PredicateVocabulary` already encodes, and the axis MNLI was measured getting wrong.
+
+Inside the many-valued relations, the contradictions are all arithmetic:
+
+```
+have_pet     / contradiction   2 dog vs 5 dog · 10 dog vs 2 dog · 2 dog vs 4 dog
+have_pet     / neutral         cat vs dog (277) · 2 dog vs cat · 4 cat vs dog
+have_sibling / contradiction   2 brother vs 3 brother
+have_sibling / neutral         brother vs sister · sibling vs twin sister
+like_drink   / contradiction   4 mountain dew vs 5 mountain dew   (every single one)
+dislike      / neutral         100 % of them
+```
+
+So all three failures §Phase 4 recorded against MNLI come out right:
+
+| pair | needs | MNLI said | DialogueNLI says |
+|---|---|---|---|
+| corgi called Kanga / cat called Mim | coexist | contradiction 1.00 | **neutral** |
+| dislikes coriander / dislikes olives | coexist | contradiction 0.92 | **neutral** |
+| plays cello / plays piano | coexist | contradiction 1.00 | **entailment** — one `has_ability` value |
+
+**The claim that DialogueNLI asks the right question holds, and the reason given for it was wrong.**
+This document said the corpus was annotated for person-level coexistence case by case. It is not
+annotated case by case at all: it applies cardinality plus value compatibility as a rule. The corpus
+agrees with the design already shipped here rather than replacing it, which is a better result than
+the one claimed and a different one.
+
+**The aggregate says 4 % neutral and means nothing.** `has_profession` alone is 53 % of the decisive
+bucket, so the pooled number reports whichever relation happens to be biggest. An aggregate over a
+bimodal population is the ten-family draw again, one level down — and it is what the audit printed
+for two runs.
+
+#### One disagreement with `PredicateVocabulary`, which is worth a decision
+
+The audit prints the cardinality the corpus implies so it can be diffed against ours. It mostly
+agrees — `has_profession`/`occupation`, `employed_by_*`/`employer`, `live_in_*`/`lives_in`,
+`gender`, `marital_status`/`relationship_status`, `place_origin`/`hometown` single-valued on both
+sides; `have_pet`/`has_pet`, `have_sibling`/`relationship`, `have`/`owns`, `like_*`/`likes`
+many-valued on both. One conflict:
+
+**Favourites.** DialogueNLI treats `favorite_food`, `favorite_color`, `favorite_music` and
+`favorite_music_artist` as **single-valued** — 100 % contradiction across 2,857 pairs. This
+vocabulary has no `favourite` entry at all, so "my favourite food is pizza" and later "my favourite
+food is sushi" both land in `likes`, which is many-valued, and both stay current.
+
+Not patched. Adding a single-valued predicate changes what displaces what in the store, which is the
+one direction where being wrong destroys something the user said, and §4 is explicit that
+single-valued entries are added sparingly. Recorded so that adding one stays a decision.
+
+**The half this corpus cannot teach.** DialogueNLI never asks whether one fact *replaced* another.
+"Coffee black → oat milk lattes now" is two values of a many-valued preference and every `like_drink`
+contradiction in the corpus is a count conflict, so it would be labelled **neutral** where
+supersession needs *replace*. A model fine-tuned on this learns the coexist half well and learns
+nothing about change over time — which is the half the wording signal currently carries at
+P=1.000 R=0.500.
+
+That is compatible with the architecture (cardinality and the user's own words decide replacement;
+a model catches conflicts) but it means the fine-tune **must not be benchmarked as a swap for the
+supersession heuristic**. Scored against the current `supersession` suite it will look bad, for a
+different reason than MNLI did, and reading that as the same failure would be Phase 4 in reverse.
 
 ### Capture: the way out of the deadlock
 
@@ -751,7 +966,23 @@ deliberately avoids, so it is bounded three ways:
   never reaches capture. On *her reply* nothing else looks, and a key quoted back out of a tool
   result is caught here or not at all.
 - It is **off unless switched on**, and switching on `ShadowMode` does not switch it on. Different
-  costs, different decisions.
+  costs, different decisions. **That was half true when written**: both flags resolved to one
+  recorder whose `IsRecording` was hard-coded `true`, and `Shadow.CompareAsync` gated the expensive
+  half on exactly that — so capture, which is meant to run nothing, would have begun paying an NLI
+  inference on every turn the moment a model file appeared. Inert only because no model was enabled,
+  which is a safety that expires the first time one is. `IsShadowing` is now its own question, and
+  both directions are pinned by a test.
+- **Forgetting removes it.** The gate above is evaluated at turn time, which covers every way of
+  declining except the one people actually use: changing their mind afterwards. `/forget` marked the
+  memory deleted and purged its embedding while the sentence stayed in telemetry as training data.
+  `MemoryCurator.ForgetAsync` now removes captured rows containing that memory's own evidence
+  excerpts, matched on text because a capture row carries no message id, and ignoring excerpts under
+  twelve characters so that forgetting something evidenced by "the roof" cannot sweep out every
+  sentence mentioning a roof. Deleting more than was asked is the worse error: a removed row cannot
+  be recovered, and the only cost of keeping one is that a human sees it again.
+- **Nothing prunes the table.** There is no retention policy, so captured text stays until it is
+  deleted by hand. At four rows a turn the size is irrelevant; the point is that it is a verbatim
+  second copy of one side of the conversation with no expiry.
 
 **The number worth having first** is not a model at all. It is the rate each heuristic fires at on
 real traffic. Every precision figure in this document assumes a 3 % conversational base rate
