@@ -1,6 +1,39 @@
 # The supersession task, designed from the decision rather than from the datasets
 
-**Status: PROPOSAL — nothing below is implemented. Review before anything is built.**
+**Status: APPROVED 2026-08-18, with amendments recorded below. Implementation underway; §Built
+says what exists.**
+
+## The decisions, as made
+
+1. **Taxonomy: seven labels, richer than proposed.** `COEXIST`, `SUPERSEDES` (was valid, the
+   user's state changed), `CORRECTS` (was erroneous, the record is being fixed), `REFINES` (adds
+   specificity without invalidating), `DUPLICATE`, `CONTRADICTS` (incompatible and the turn does
+   not resolve which way), `UNCERTAIN`. UNCERTAIN is load-bearing: genuinely ambiguous examples
+   are labelled as such, never forced into a class to obtain a label. The proposal's `unrelated`
+   folds into COEXIST (the action is the same: store alongside); its `replaces_change` and
+   `replaces_correction` became SUPERSEDES and CORRECTS.
+2. **Pair capture: approved** under the existing capture gates, redaction and `/forget` purge,
+   with provenance — stable ids, timestamps, predicate, source, incumbent verdict, and the
+   specialised model's verdict/version/confidence once one runs — and no raw text beyond what
+   training and evaluation need.
+3. **MSC: excluded from production training until its licence is positively verified and
+   compatible.** It may be evaluated experimentally in isolation; if its licence carries
+   non-commercial/ShareAlike obligations, it is out. Dataset provenance and licensing metadata
+   are maintained so it is always known which sources contributed to a trained artifact — the
+   manifest in §Built is that mechanism.
+4. **False-supersede budget: for full replacement the model's rate must be statistically LOWER
+   than the incumbent's, not merely equal.** And full replacement is not the only useful outcome:
+   the design target is confidence-calibrated progressive adoption — high-confidence predictions
+   may own the decision, low-confidence falls back to the incumbent, disagreements feed
+   adjudication. Both error rate and SAFE COVERAGE (how much of the surface the model owns while
+   inside the budget) are measured.
+5. **Order: pair capture first** — the production base rate is measured, not assumed — and the
+   training/evaluation pipeline is built in parallel on verified data, synthetic and adversarial
+   cases, regression cases and weak labels, folding captured disagreements in as they accumulate.
+
+The architectural objective is unchanged: determine whether a purpose-built specialised model can
+progressively take over this semantic decision. The incumbent is a baseline, fallback and
+potential weak labeler — not the presumed permanent architecture.
 
 This exists because of a correction worth writing at the top. Two model experiments failed against
 the supersession and unfinished-work heuristics, and the document of record let those verdicts read
@@ -78,38 +111,33 @@ Encoding for a cross-encoder is a rendering question, not a schema question:
 (`slot=likes single_valued=no age=412d`). Small encoders read tags like these fine, and it keeps
 one input pipeline for train and inference.
 
-## 3. The label taxonomy
+## 3. The label taxonomy (as approved)
 
-Six labels. Binary "replaces?" — what the shadow subject records today — collapses distinctions
-the pipeline already acts differently on, and a taxonomy that is finer than the actions it feeds
-is decoration. Each label maps to exactly one action the code already knows how to take:
+Seven labels, each mapped to an action the curator already knows how to take:
 
 | label | meaning | action (code disposes) |
 |---|---|---|
-| `unrelated` | the pair does not interact | store the new fact normally |
-| `duplicate` | same fact, restated | `Confirmed` — refresh recency/confidence, no new memory |
-| `coexist` | both true of this person at once | store alongside (`works_on` #2, a second dislike) |
-| `refines` | same fact, more specific or corrected in detail — "Scott" → "Scott Donald", "a dog" → "a corgi named Kanga" | `Updated`/merge — value improves in place, no displacement |
-| `replaces_change` | was true, no longer is — life moved on | `Superseded` — old kept as history with a revision record |
-| `replaces_correction` | was never true — mis-extraction or misstatement | `Superseded`/`Disputed` — old marked wrong, not outgrown |
+| `COEXIST` | both true of this person at once (covers unrelated: same action) | store alongside |
+| `SUPERSEDES` | was true, no longer is — the user's state or preference changed | `Superseded` — old kept as history, "true until…" |
+| `CORRECTS` | was never true — the record was wrong and is being fixed | `Superseded`/`Disputed` — old marked erroneous, must not resurface in "you used to…" |
+| `REFINES` | adds specificity without invalidating — "Scott" → "Scott Donald" | `Updated`/merge — value improves in place |
+| `DUPLICATE` | same fact restated | `Confirmed` — refresh recency, no new memory |
+| `CONTRADICTS` | cannot both hold, and the turn does not say which way to resolve | review queue — a human decides |
+| `UNCERTAIN` | genuinely ambiguous | review queue; **never forced into another class to obtain a label** |
 
-Why the last two are separate labels and not one: they carry different provenance (history reads
-"true until 2026-08" versus "recorded in error"), different downstream behaviour (a corrected fact
-should not resurface in "you used to…" reflections; an outgrown one legitimately can), and
-different training signal (corrections cluster around short time gaps and explicit markers —
-"I meant", "that's wrong"; changes cluster around long gaps and change markers — "these days",
-"switched to"). Collapsing them was tolerable for a regex; a model can learn the difference, and
-the difference is real product behaviour.
+`CONTRADICTS` and `UNCERTAIN` both route to review and differ in what they claim: CONTRADICTS
+asserts a real conflict with an unresolved direction ("had penicillin last week, no problem"
+against a recorded allergy); UNCERTAIN declines to assert ("we might move to Leeds"). A model that
+can say either is a model that does not have to bluff, and the training data treats them as first-
+class answers rather than failures to answer.
 
-`refines` earns its place from the regression suite: "Scott" → "Scott Donald" and "allergic to
-penicillin" → "allergic to amoxicillin" are the recorded cases where the duplicate check confirmed
-the very fact being corrected. One is a refinement, the other a correction, and both are today
-squeezed through duplicate-or-replace.
+The incumbent's vocabulary is a strict subset — it can express DUPLICATE, SUPERSEDES and COEXIST
+and nothing else. The four labels it cannot say are the part of the decision currently not being
+made at all. Scoring is therefore at the ACTION level, where both vocabularies are complete.
 
-**The hard constraint is unchanged and is the reason the taxonomy can be this expressive: the
-model proposes a label; `MemoryCurator` disposes.** No label deletes anything. `Superseded` keeps
-the old fact linked with a revision record; everything is reversible; a low-confidence
-`replaces_*` degrades to the review queue, never to a silent write.
+**The hard constraint is unchanged: the model proposes a label; `MemoryCurator` disposes.** No
+label deletes anything; everything is reversible; low confidence degrades to review, never to a
+silent write.
 
 ## 4. What the existing corpora actually contain — and do not
 
@@ -251,7 +279,57 @@ clearing an aggregate F1 bar does **not** migrate if it fails a per-label gate, 
 **not** retained because round one went badly — round one used a proxy corpus and a binary label,
 and this document exists because that was the wrong experiment to conclude anything from.
 
-## Order of work, once this is signed off
+## Built, and the first run's numbers
+
+Everything below exists, is tested, and ran on 2026-08-18. 951 tests green.
+
+**Pair capture** (`SupersessionPairCapture`, `ICognitiveCapture.CapturePairAsync`,
+`MemoryPipeline`): every semantic decision exit records the pair it judged under subject
+`memory.supersession.pair` — including "coexist", because a corpus holding only the pairs that
+superseded teaches a model that everything supersedes. Rows carry the §2 schema plus provenance
+(existing-memory id, ages, slot, cardinality, similarity-as-provenance, incumbent outcome). Same
+extraction gate, same `SecretDetector` redaction; `/forget` purges pair rows by the stored
+memory's id as well as by excerpt. Six tests pin all of it.
+
+**The incumbent, stamped by running it** (`PairStamp` in Companion.Eval): the shipped rules —
+value-key identity, cardinality, `SignalsReplacement`, the mention check — run over every pair
+row and write their verdict. On the corpus so far, at the action level: regression F1 0.800,
+synthetic F1 0.815, false-supersede rate 0.086.
+
+**The pipeline** (`training/supersession/`): `taxonomy.py` (labels, actions, one renderer),
+`generate.py` (90 rows / 40 families across all seven labels, hard negatives with markers on
+COEXIST rows and none on SUPERSEDES rows), `assemble.py` (the 12 regression incidents hand-mapped
+to the seven labels and FROZEN as holdout; the provenance/licence manifest the trainer enforces;
+optional DialogueNLI weak stage relabelled through the audited cardinality mapping only),
+`train.py` (grouped 5-fold CV through the same imported training loop as the binary encoder,
+per-label and action-level metrics, paired bootstrap against the stamped incumbent, temperature
+calibration that refuses a fit that worsens ECE, and the safe-coverage table). `harvest.py` turns
+captured pair rows into the adjudication queue with the incumbent's verdict as sort key.
+
+First run, 90 synthetic rows, 16 epochs, all develop rows one author's templates:
+
+```
+supersede ACTION:  model P=0.655 R=0.463 F1=0.543   false-supersede 0.123
+incumbent, same:         P=0.825 R=0.805 F1=0.815   false-supersede 0.086
+model - incumbent: -0.272 [-0.556, +0.032]          indistinguishable
+calibration:       fitted T=0.50 REJECTED (ECE 0.075 -> 0.207); T=1
+safe coverage:     0% at every bar - the model owns nothing yet
+holdout:           4/12 production incidents exact-label
+```
+
+Read it as the design says to: this is a pipeline being proven, not a model being judged. Ninety
+rows over seven classes is far below what a 22M encoder needs, the model knows it (max softmax
+0.31 on the holdout), and the calibration guard and the empty coverage table are the machinery
+saying so honestly instead of flattering it. The per-label structure is already informative —
+CORRECTS and CONTRADICTS, the two classes the incumbent cannot express at all, are the model's
+best (F1 0.462, 0.444) — and the misses that matter are the regression incidents, printed one by
+one above the table every run.
+
+What moves these numbers, in order: captured real pairs (base rate + adjudication queue), more
+generator families (forty is the number the binary work already showed is marginal), and only
+then model-side work.
+
+## Order of work (original, for the record)
 
 1. Pair capture (§7) — it gates the base rate, the adjudication queue, and the real test set.
 2. The generator for the six labels, with the regression set frozen as held-out gold.
