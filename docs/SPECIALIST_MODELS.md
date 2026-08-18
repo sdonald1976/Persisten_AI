@@ -623,9 +623,25 @@ cross-validation and the same paired bootstrap.
 
 ```bash
 python training/datasets/fetch.py --list          # the register, with licences
+python training/datasets/fetch.py --probe         # which repository ids actually resolve
 python training/datasets/fetch.py dialogue-nli    # -> corpus/memory.supersession.borrowed.jsonl
 python training/cognition/crossval.py             # same metric, now on real data
 ```
+
+**DialogueNLI does not come off the Hub, and that is measured rather than expected.** The obvious
+mirror is script-based; `datasets` 4.5 removed loading scripts, so it fails outright — and because
+its viewer was disabled for the same reason, the Hub's auto-parquet conversion never ran on it
+either, so there is no converted branch to fall back to. Two other ids are tried first, but the
+reliable route is the author's own distribution:
+
+```bash
+# https://wellecks.github.io/dialogue_nli/  — download, unzip
+python training/datasets/fetch.py dialogue-nli --from-file dialogue_nli_train.jsonl
+```
+
+Column names differ between the two: the author's JSON uses `sentence1`/`sentence2`, the Hub copies
+`premise`/`hypothesis`. Both are accepted, because an adapter written against one fails on the other
+with a schema error that reads as a broken download.
 
 Three things were worth being careful about, and two of them are lessons this project already paid
 for:

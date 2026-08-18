@@ -45,12 +45,20 @@ CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus"
 # first: `datasets` >= 4.0 dropped trust_remote_code and >= 4.5 dropped loading scripts, so the
 # original ids for super_glue and clinc_oos are dead on any recent install.
 SOURCES = {
+    # Order is evidence, not preference. `xksteven/dialogue_nli` is KNOWN to fail on any modern
+    # install: it is script-based, its Hub viewer is disabled for that reason, and because the
+    # viewer never ran there is no auto-converted parquet branch to fall back to either. It is kept
+    # last only so the error names it. `pietrolesci/dialogue_nli` is what the tasksource collection
+    # loads programmatically, which is decent evidence it is script-free.
     "dialogue-nli": dict(
-        hf=[("xksteven/dialogue_nli", None), ("pietrolesci/dialogue_nli", None)],
+        hf=[("pietrolesci/dialogue_nli", None), ("tasksource/dialogue-nli", None),
+            ("xksteven/dialogue_nli", None)],
         split="train", decision="memory.supersession",
         licence="unconfirmed — check wellecks.github.io/dialogue_nli",
-        note="(persona, persona) pairs labelled E/N/C. The Phase 4 failure cases ARE its subject.",
-        manual="https://wellecks.github.io/dialogue_nli/ — download, then --from-file the JSON"),
+        note="(persona, persona) pairs labelled E/N/C. Columns differ by mirror: the author's JSON "
+             "uses sentence1/sentence2, the Hub mirrors premise/hypothesis. Both are handled.",
+        manual="https://wellecks.github.io/dialogue_nli/ — download, then --from-file the JSON. "
+               "This is the reliable route, not the fallback: the Hub copies are script-based."),
     "commitment-bank": dict(
         hf=[("aps/super_glue", "cb"), ("super_glue", "cb")],
         split="train", decision="memory.assertion",
@@ -216,11 +224,15 @@ def build(name, rows):
     spec = SOURCES[name]
     kwargs = dict(spec.get("kwargs", {}))
 
-    # CLINC ships intents as label ids; the adapter matches on names, and passing ids straight
-    # through would silently label every row negative.
-    if name == "clinc150" and hasattr(rows, "features"):
-        feature = rows.features.get("intent")
-        kwargs["label_names"] = list(getattr(feature, "names", []) or [])
+    # Both of these ship their labels as integer ids, and neither adapter will guess what an id
+    # means — so the names are read off the dataset's own feature schema, which is the one place
+    # they are stated rather than assumed.
+    if hasattr(rows, "features"):
+        column = {"clinc150": "intent", "dialogue-nli": "label"}.get(name)
+        if column:
+            names = list(getattr(rows.features.get(column), "names", []) or [])
+            if names:
+                kwargs["label_names"] = names
 
     mapped = adapters.ADAPTERS[name](list(rows), **kwargs)
 

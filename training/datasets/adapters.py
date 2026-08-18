@@ -83,27 +83,59 @@ def require(columns, needed, name):
 # question — "does this thing someone said follow from their profile" — which is closer to
 # extraction than to supersession.
 # --------------------------------------------------------------------------------------------
-def dialogue_nli(rows, pairs_only=True):
+def dialogue_nli(rows, label_names=None):
+    """Accepts either column naming, because the distributions disagree and both are in use.
+
+    The canonical release from the author's site uses `sentence1`/`sentence2`; the Hub mirrors
+    expose the same rows as `premise`/`hypothesis`. An adapter written against one of them fails on
+    the other with a schema error that looks like a broken download.
+
+    Integer labels are NOT decoded by assumption. Which integer means entailment is a convention,
+    conventions differ between mirrors, and guessing one is precisely the mistake the CommitmentBank
+    adapter made — SuperGLUE's 0 meaning entailment read as a Likert 0.0 meaning undecided, which
+    inverted the label on the rows that mattered most. If the labels are ints, the dataset's own
+    feature names are read; if those are absent, this raises rather than picks.
+    """
     out = []
     for r in rows:
-        require(r.keys(), ["sentence1", "sentence2", "label"], "dialogue_nli")
-        label = str(r["label"]).lower()
+        keys = r.keys()
+        if "sentence1" in keys and "sentence2" in keys:
+            first, second = r["sentence1"], r["sentence2"]
+        elif "premise" in keys and "hypothesis" in keys:
+            first, second = r["premise"], r["hypothesis"]
+        else:
+            raise ValueError(
+                f"dialogue_nli: expected sentence1/sentence2 (the author's JSON) or "
+                f"premise/hypothesis (the Hub mirrors), got {sorted(keys)}.")
+        require(keys, ["label"], "dialogue_nli")
+
+        raw = r["label"]
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            label = str(raw).lower()
+        elif label_names:
+            label = str(label_names[raw]).lower()
+        else:
+            raise ValueError(
+                f"dialogue_nli: label {raw!r} is an integer and no label names were supplied, so "
+                f"which class it means is unknown. fetch.py reads them off the dataset's own "
+                f"features; for a hand-downloaded file, pass label_names=[...] in the order the "
+                f"file documents. It is not guessed — a mirror that orders them differently would "
+                f"silently invert entailment and contradiction.")
+
         if label not in ("entailment", "neutral", "contradiction"):
             continue
-        if pairs_only and r.get("dtype") not in (None, "", "triple"):
-            pass  # dtype is informational; the pair itself is what matters
 
-        # A contradiction is a supersession candidate; entailment and neutral are not. Collapsed to
-        # binary because that is the decision the memory pipeline makes — and note it makes it
+        # A contradiction is a supersession CANDIDATE; entailment and neutral are not. Collapsed to
+        # binary because that is the decision the memory pipeline makes — and it makes it
         # ADVISORILY: no model deletes anything, MemoryCurator does, with a revision record.
         out.append(_row(
-            text=f"{r['sentence1']} </s> {r['sentence2']}",
+            text=f"{first} </s> {second}",
             label=label == "contradiction",
             decision="memory.supersession",
             # Group on the premise. The same persona sentence appears in hundreds of pairs, so a
             # row split trains on "I have a dog / I have a cat" and tests on "I have a dog / I have
             # a hamster" and calls that generalisation.
-            family=f"premise:{r['sentence1']}",
+            family=f"premise:{first}",
             source="research_corpus",
             generator="dialogue-nli"))
     return out

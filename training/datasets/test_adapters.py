@@ -46,6 +46,33 @@ check("premise is the family, so one persona cannot straddle a split",
 check("decision key matches the pipeline", rows[0]["decision"] == "memory.supersession")
 
 print()
+print("dialogue-nli — the Hub mirrors name the columns differently from the author's JSON")
+hub = dialogue_nli([{"premise": "i have a dog", "hypothesis": "i have no pets",
+                     "label": "contradiction"}])
+check("premise/hypothesis works as well as sentence1/sentence2", hub[0]["label"] is True)
+check("and produces the same text and family",
+      hub[0]["text"] == "i have a dog </s> i have no pets"
+      and hub[0]["family"] == "premise:i have a dog")
+
+try:
+    dialogue_nli([{"a": 1, "b": 2, "label": "contradiction"}])
+    check("neither naming raises, naming both", False, "no error raised")
+except ValueError as e:
+    check("neither naming raises, naming both",
+          "sentence1" in str(e) and "premise" in str(e))
+
+print()
+print("dialogue-nli — an integer label is not decoded by guesswork")
+coded = dialogue_nli([{"premise": "a", "hypothesis": "b", "label": 2}],
+                     label_names=["entailment", "neutral", "contradiction"])
+check("with names supplied, 2 -> contradiction", coded[0]["label"] is True)
+try:
+    dialogue_nli([{"premise": "a", "hypothesis": "b", "label": 2}])
+    check("without names, it refuses rather than assuming an order", False, "no error raised")
+except ValueError as e:
+    check("without names, it refuses rather than assuming an order", "not guessed" in str(e))
+
+print()
 print("commitment-bank — both label encodings, because which you get depends where you downloaded it")
 likert = commitment_bank([
     {"premise": "Did I ever tell you what timber I bought?", "hypothesis": "The speaker bought timber.", "label": 2.5},
@@ -105,11 +132,20 @@ check("turns of one dialogue share a family",
 
 print()
 print("schema drift fails loudly rather than producing an all-negative corpus")
+# Not premise/hypothesis — those became valid when the Hub mirrors turned out to use them, and this
+# assertion caught its own staleness on the next run, which is the behaviour wanted from it.
 try:
-    dialogue_nli([{"premise": "a", "hypothesis": "b", "label": "contradiction"}])
-    check("renamed columns raise", False, "no error raised")
+    dialogue_nli([{"text_a": "a", "text_b": "b", "label": "contradiction"}])
+    check("unrecognised columns raise, naming both accepted shapes", False, "no error raised")
 except ValueError as e:
-    check("renamed columns raise", "sentence1" in str(e), str(e)[:80])
+    check("unrecognised columns raise, naming both accepted shapes",
+          "sentence1" in str(e) and "premise" in str(e), str(e)[:80])
+
+try:
+    daily_dialog_commitment([{"utterances": ["hi"], "acts": [1]}])
+    check("a renamed column in another adapter raises too", False, "no error raised")
+except ValueError as e:
+    check("a renamed column in another adapter raises too", "dialog" in str(e))
 
 print()
 print("no row carries a heuristic verdict — the incumbent is scored by running it, not by guessing")
