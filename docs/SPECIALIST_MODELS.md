@@ -561,20 +561,43 @@ have annotated corpora that match far more precisely than a template generator e
 
 Two of those are not "roughly relevant". They are the exact problem.
 
-**DialogueNLI is the question Phase 4 measured MNLI failing.** §Phase 4 concluded that MNLI asks
-whether two sentences describe the same scene, while memory asks whether both can be true *of one
-person*, and recorded these failures:
+**DialogueNLI is much closer to the question Phase 4 measured MNLI failing — and one step of that
+is still unverified.** §Phase 4 concluded that MNLI asks whether two sentences describe the same
+scene, while memory asks whether both can be true *of one person*, and recorded these failures:
 
 ```
 corgi called Kanga / cat called Mim     needs coexist    MNLI said contradiction 1.00
 plays cello / plays piano               needs coexist    MNLI said contradiction 1.00
 ```
 
-DialogueNLI is built from PersonaChat persona sentences and annotated *for that second question* —
-someone was asked whether one person could plausibly hold both. 310,000 pairs of it. The conclusion
-"we would need a fine-tune on supersession-framed pairs, which needs labelled data, which needs
-capture running on real conversations" was right about the first clause and **wrong about the rest**:
-that data has been sitting in public since 2019.
+DialogueNLI is built from PersonaChat personas and labelled from human-annotated **relation
+triples** — `(i, have_pet, dog)` — where contradiction is assigned via an explicitly *negating*
+triple such as `(i, not_have, dog)`, and pairs across *different* relations (`have_pet` against
+`have_vehicle`) are neutral by rule. That is person-level coherence rather than scene identity,
+which is the right axis and the one MNLI was measured getting wrong. 310,000 pairs of it, public
+since 2019.
+
+**What is not confirmed is the case the argument rests on: same relation, different value.** "I have
+a corgi" against "I have a cat" is one `have_pet` triple against another, and the published rules do
+not say whether `have_pet` is treated as many-valued. If those pairs are neutral, this corpus
+answers our question. If they are contradiction, it shares MNLI's problem exactly and only its
+negation-derived rows are usable. An earlier draft of this section asserted the first outcome; it
+was a recollection of the annotation scheme, not a reading of the data.
+
+Five minutes of arithmetic over the real file settles it, so that is now a command rather than a
+belief:
+
+```bash
+python training/datasets/fetch.py dialogue-nli --audit
+```
+
+It cross-tabulates the corpus's own relation pairs against its own labels and says which of the two
+worlds we are in. **Run it before the fine-tune, not after.**
+
+The reordering still holds either way, because it does not depend on that answer: "we would need a
+fine-tune on supersession-framed pairs, which needs labelled data, which needs capture running on
+real conversations" was wrong about the last clause. Person-level entailment data exists in public
+at scale, and none of it had to be waited for.
 
 **CommitmentBank is AssertionGuard, itemised by someone else.** 1,200 naturally occurring discourses
 whose final sentence puts a clause-embedding predicate under an *entailment-cancelling operator* — a
