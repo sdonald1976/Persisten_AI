@@ -82,28 +82,55 @@ public static class CognitiveCorpus
 
     private static IEnumerable<TrainingRow> Unfinished()
     {
+        // Obligation said many ways. The incumbent regex knows "need to / have to / got to /
+        // must / supposed to / in the middle of" and misses the rest, which is most of them:
+        // recall 0.471 on the first corpus, ninety misses out of two hundred and sixty. Nobody
+        // can enumerate how people say they have not finished something, which is the argument
+        // for learning it rather than listing it.
         var open = new[]
         {
             "I need to finish {t} {w}", "I've got to sort {t} {w}", "I still need to do {t}",
             "I'm supposed to have {t} done {w}", "I have to get {t} finished {w}",
             "I'm in the middle of {t}", "I must get {t} sorted {w}",
+            "{t} is still hanging over me", "I haven't got round to {t} yet",
+            "{t} has been on my list for weeks", "I keep putting off {t}",
+            "{t} is half done", "I've made a start on {t} but that's all",
+            "{t} won't finish itself", "I'm behind on {t}",
+            "there's still {t} to do", "{t} is outstanding",
+            "I owe someone {t} {w}", "{t} needs doing before I can move on",
+            "I promised I'd have {t} done {w}", "I'm partway through {t}",
+            "{t} is the one thing I haven't cracked", "I've been meaning to do {t} for ages",
+            "I ought to finish {t} {w}", "{t} is nagging at me",
         };
+
+        // The same vocabulary with the work already done, delegated, abandoned or hypothetical.
+        // These are what a keyword list cannot see: "I needed to do the roof and I did" contains
+        // every trigger word and describes nothing outstanding.
         var closed = new[]
         {
             "I finished {t} {w}", "I got {t} done in the end", "{t} is finally sorted",
             "I needed to do {t} and I did", "I don't need to bother with {t} any more",
             "someone else is doing {t}", "I finished {t} ages ago",
+            "{t} is off my list", "I've stopped worrying about {t}",
+            "{t} turned out to be unnecessary", "we cancelled {t}",
+            "I had to do {t} last year", "{t} was sorted before I got there",
+            "I thought I'd have to do {t} but I didn't", "{t} is somebody else's problem now",
+            "if I had to do {t} I'd start with the wiring", "would I need to do {t} first",
+            "do you think {t} still needs doing", "{t} is done, thankfully",
+            "I used to have to do {t} every spring", "I no longer need to do {t}",
+            "{t} got done while I was away", "I've finished with {t} for good",
+            "remind me why {t} needed doing", "I never did get round to {t}, and it stopped mattering",
         };
 
         foreach (var t in open)
             foreach (var thing in Things)
-                foreach (var w in Whens.Take(3))
+                foreach (var w in Whens)
                     yield return Row(
                         t.Replace("{t}", thing).Replace("{w}", w), true, "memory.unfinished", $"open:{t}", 1);
 
         foreach (var t in closed)
             foreach (var thing in Things)
-                foreach (var w in Whens.Take(3))
+                foreach (var w in Whens)
                     yield return Row(
                         t.Replace("{t}", thing).Replace("{w}", w), false, "memory.unfinished", $"closed:{t}", 3);
     }
