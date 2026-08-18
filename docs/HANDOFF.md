@@ -40,12 +40,12 @@ actually happened, and every derived thing must be able to say where it came fro
   - `src/Companion.Core` — domain + interfaces + all logic. Pure, no I/O deps.
   - `src/Companion.Infrastructure` — EF, model provider adapters, world link, DI composition root.
   - `src/Companion.Api` — headless HTTP + SSE + WebSocket face (+ `wwwroot` reference client).
-  - `tests/Companion.Tests` — full suite, **853 passing** at last handoff.
+  - `tests/Companion.Tests` — full suite, **932 passing** at last handoff.
   - `tools/Companion.Soak` — drives real conversations against a running companion over HTTP and
     reports what is wrong with the replies *and with the store afterwards*. Run it before believing
     a memory change works: `dotnet test` has never caught one of these failures, because they all
     live in seams whose components are individually correct.
-- `global.json` pins .NET 9 (`9.0.313`, `latestFeature`).
+- `global.json` pins .NET 9 (`9.0.316`, `latestFeature`).
 - EF migrations: `dotnet ef migrations add <Name> --project src/Companion.Infrastructure
   --startup-project src/Companion.Infrastructure`.
 
@@ -181,7 +181,23 @@ raise it before adding autonomy that widens what she produces unprompted.
 
 ## Open backlog
 
-- **Content gate** — see above. Ask me about this rather than assuming either way.
+- **Content gate — built, and the decision left is whether to enforce it.** `IReplyGate` /
+  `LlmReplyGate`, off by default, and when switched on it defaults to **shadow**: it judges every
+  reply, records the verdict at `/diagnostics/shadow?subject=safety.gate`, and changes nothing. It
+  fails open on every path. Enforcing is a separate flag and a separate decision, and the honest
+  way to make it is to run it in shadow for a while and read what it would have stopped.
+- **Specialist models — the measurement exists, no model has earned adoption.** See
+  [`SPECIALIST_MODELS.md`](SPECIALIST_MODELS.md), which is the audit, the plan, and the record of
+  two predictions that turned out wrong. Cross-encoder and NLI are built, measured and **off**;
+  the cognitive classifier's corpus is built and cross-validated and the model **loses** on two of
+  three decisions. Every one of those verdicts is blocked on the same thing: the corpus is
+  synthetic and one person wrote it.
+  - **The one thing that needs you:** switch on `CognitiveModels:Capture` for a while. It records
+    what the heuristics said about real sentences — no model runs, nothing changes, and it only
+    touches turns already allowed to produce durable memory. Then
+    `python training/cognition/harvest.py` writes a review queue. That is the input everything
+    else is waiting on, and it also measures the conversational base rate that several published
+    precision figures currently assume.
 - **She still invents progress on my projects.** Asked "how's that plot coming along?", she answers
   with a description instead of saying she can't see it. Three rounds of prompt work took it from
   three paragraphs of specifics (compost layers, heirloom tomatoes, a south-facing slope) written in
