@@ -329,6 +329,48 @@ What moves these numbers, in order: captured real pairs (base rate + adjudicatio
 generator families (forty is the number the binary work already showed is marginal), and only
 then model-side work.
 
+## The synthetic-life experiment (2026-08-18): representative structure, memorized surface
+
+dev_automate's merged generator (`tools/Companion.Eval/SyntheticLife.cs`, 10,000 events over 1,000
+simulated lives) was audited and adapted for this task — `training/supersession/
+adapt_synthetic_life.py` holds the audit and its exclusions: 5,699 of 10,000 events survive.
+Excluded with reasons: 1,963 pairless events, the `establish-fact` family (re-establishes seeded
+values; 61 % duplicate-shaped, and it corrupts the generator's own canonical state after a
+supersession), and 1,507 value-identical pairs under non-DUPLICATE labels — label noise sitting
+exactly on the boundaries this model exists to learn. The shipped split artifacts are ungrouped
+(995 of 1,000 lives straddle them) and were not used; folds group on the life.
+
+The controlled experiment — same MiniLM, same gates, same frozen 12-incident holdout, only the
+data changed:
+
+| | 90-row corpus | synthetic-life (5,699 rows) |
+|---|---|---|
+| CV action F1 | 0.543 | **1.000** |
+| CV false-supersede | 0.123 | 0.000 |
+| vs incumbent (same rows) | −0.272 [−0.556, +0.032] | +0.412 [+0.264, +0.611] "beats" |
+| safe coverage | 0 % | "93 % at every bar, 0 FS" |
+| **production holdout** | **4/12**, misses at 0.22–0.31 | **3/12**, misses at 0.68–0.99 |
+
+A perfect score with a zero-error confusion matrix on five thousand rows is not a model learning a
+decision; it is a model recognising 41 template families, and life-grouped folds cannot prevent
+that because every life renders the same templates. The holdout is the tell: transfer went DOWN
+while confidence went UP — "I left the university, I'm at a startup now" is called DUPLICATE at
+0.96, which in production is a real change silently suppressed. Every in-corpus number above the
+holdout row is template recognition wearing the metrics of competence.
+
+What the corpus is genuinely worth: the structural coverage is real and new — the first
+change-over-time data (temporary → permanent, expiry, return-to-previous), corrections of
+corrections, delayed clarifications — and the action mapping is a clean surjection onto this
+task's action groups. The binding constraint is linguistic diversity, not volume or structure.
+The generator already contains the remedy unbuilt into these artifacts: `LlmSyntheticVerbalizer`
+with validation/quarantine and `verbalizationGroupId` grouping. Structure from the simulator,
+surface from a verbalizer, folds on the verbalization group.
+
+Generator defects recorded for the dev_automate line, not fixed here: the `establish-fact` state
+bug; new values chosen independent of state (source of the 1,507 inconsistent rows); shipped
+split files ungrouped; `synthetic-life-1000.jsonl` and `synthetic-life-phase3-1000.jsonl` are
+content-identical.
+
 ## Order of work (original, for the record)
 
 1. Pair capture (§7) — it gates the base rate, the adjudication queue, and the real test set.
