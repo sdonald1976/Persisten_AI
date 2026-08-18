@@ -109,14 +109,19 @@ def dialogue_nli(rows, label_names=None):
                 f"premise/hypothesis (the Hub mirrors), got {sorted(keys)}.")
         require(keys, ["label"], "dialogue_nli")
 
-        raw = r["label"]
-        if isinstance(raw, bool) or not isinstance(raw, int):
-            label = str(raw).lower()
+        # `original_label` is the string form, and pietrolesci/dialogue_nli carries it beside an
+        # int64 `label` that has no ClassLabel metadata — so the schema states nothing and this
+        # column states everything. Preferred wherever present.
+        if r.get("original_label") not in (None, ""):
+            label = str(r["original_label"]).strip().lower()
+        elif isinstance(raw := r["label"], bool) or not isinstance(raw, int):
+            label = str(raw).strip().lower()
         elif label_names:
-            label = str(label_names[raw]).lower()
+            label = str(label_names[raw]).strip().lower()
         else:
             raise ValueError(
-                f"dialogue_nli: label {raw!r} is an integer and no label names were supplied, so "
+                f"dialogue_nli: label {r['label']!r} is an integer, there is no original_label "
+                f"column, and no label names were supplied, so "
                 f"which class it means is unknown. fetch.py reads them off the dataset's own "
                 f"features; for a hand-downloaded file, pass label_names=[...] in the order the "
                 f"file documents. It is not guessed — a mirror that orders them differently would "

@@ -628,20 +628,51 @@ python training/datasets/fetch.py dialogue-nli    # -> corpus/memory.supersessio
 python training/cognition/crossval.py             # same metric, now on real data
 ```
 
-**DialogueNLI does not come off the Hub, and that is measured rather than expected.** The obvious
-mirror is script-based; `datasets` 4.5 removed loading scripts, so it fails outright — and because
-its viewer was disabled for the same reason, the Hub's auto-parquet conversion never ran on it
-either, so there is no converted branch to fall back to. Two other ids are tried first, but the
-reliable route is the author's own distribution:
+**What actually resolves**, from a real `--probe` run rather than a guess:
 
-```bash
-# https://wellecks.github.io/dialogue_nli/  — download, unzip
-python training/datasets/fetch.py dialogue-nli --from-file dialogue_nli_train.jsonl
-```
+| corpus | id that loads | columns |
+|---|---|---|
+| `dialogue-nli` | `pietrolesci/dialogue_nli` | `dtype, id, label, original_label, sentence1, sentence2, triple1, triple2` |
+| `commitment-bank` | `aps/super_glue/cb` | `premise, hypothesis, label, idx` |
+| `clinc150` | `clinc/clinc_oos/plus` | `text, intent` |
+| `daily-dialog` | **none** | both known ids are script-based and fail on `datasets` ≥ 4.5 |
 
-Column names differ between the two: the author's JSON uses `sentence1`/`sentence2`, the Hub copies
-`premise`/`hypothesis`. Both are accepted, because an adapter written against one fails on the other
-with a schema error that reads as a broken download.
+DailyDialog is the one to go without if it stays broken — it is also the one with the awkward
+licence, and it feeds only the *detection* half of a judgement whose gate stays code regardless.
+
+The DialogueNLI mirror carries `original_label` beside an int64 `label` that has **no ClassLabel
+metadata**, so nothing can be read off the schema and the string column is the only thing that
+states what an id means. The adapter prefers it, and still refuses to decode a bare integer without
+names — a mirror that ordered its classes differently would silently swap entailment and
+contradiction.
+
+#### The audit, and two ways it was wrong before it worked
+
+`fetch.py dialogue-nli --audit` was built to settle whether the corpus treats *same relation,
+different value* — "I have a corgi" against "I have a cat" — as neutral or as contradiction. Its
+first run on real data produced a confident verdict that was worth nothing, twice over:
+
+1. It compared labels against the string `"neutral"` while the mirror stores integers, so the count
+   was always zero and it printed "mostly NOT neutral" **whatever the data said**. A verdict that
+   cannot come out the other way is not a measurement.
+2. It bucketed on the **relation alone**, which conflates two unrelated cases. A pair sharing the
+   *same triple* is an entailment by construction — that is how the corpus makes its positives —
+   and it landed in the same bucket as the case in question. Of the 192,337 same-relation pairs,
+   52 % are entailment and 46 % contradiction, and that split is almost certainly same-value against
+   everything else rather than the answer to anything.
+
+It now buckets on same-value / different-value / different-relation, decodes through
+`original_label`, withholds the verdict entirely when labels cannot be decoded, and carries the
+different-relation bucket as a **control**: the paper labels relation swaps neutral by construction,
+so if that bucket is not overwhelmingly neutral the triples are being misread and nothing else in
+the output should be believed. All four branches are tested against fixtures.
+
+One thing the first run did establish, because it can be derived rather than assumed: different-
+relation pairs came out `1` at 81 %, and the paper labels those neutral by rule, so **`1` = neutral**
+— which agrees with HF's conventional NLI ordering `[entailment, neutral, contradiction]`.
+
+**So the question is still open**, and re-running `--audit` after a pull answers it. That is a
+better position than the previous one, which was an answer nobody should have trusted.
 
 Three things were worth being careful about, and two of them are lessons this project already paid
 for:

@@ -62,6 +62,12 @@ except ValueError as e:
           "sentence1" in str(e) and "premise" in str(e))
 
 print()
+print("dialogue-nli — original_label wins, because the int column carries no schema to read")
+both = dialogue_nli([{"sentence1": "a", "sentence2": "b", "label": 0,
+                      "original_label": "contradiction"}])
+check("original_label is preferred over the raw id", both[0]["label"] is True)
+
+print()
 print("dialogue-nli — an integer label is not decoded by guesswork")
 coded = dialogue_nli([{"premise": "a", "hypothesis": "b", "label": 2}],
                      label_names=["entailment", "neutral", "contradiction"])
