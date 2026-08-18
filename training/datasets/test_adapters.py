@@ -26,9 +26,13 @@ def check(name, condition, detail=""):
         failures.append(name)
 
 
+# The labels in this fixture are INVENTED to exercise the mapping. They are not claims about how
+# DialogueNLI labels these sentences — that question is open and `fetch.py --audit` settles it
+# against the real file. A test fixture that doubles as evidence about a corpus is how an
+# unverified belief gets laundered into a fact.
 print("dialogue-nli — contradiction is the supersession candidate, and the premise is the group")
 rows = dialogue_nli([
-    {"sentence1": "i have a dog", "sentence2": "i have a cat", "label": "contradiction"},
+    {"sentence1": "i have a dog", "sentence2": "i have no pets", "label": "contradiction"},
     {"sentence1": "i have a dog", "sentence2": "i love animals", "label": "entailment"},
     {"sentence1": "i play cello", "sentence2": "i dislike olives", "label": "neutral"},
     {"sentence1": "x", "sentence2": "y", "label": "-"},   # unlabelled rows are dropped, not guessed
