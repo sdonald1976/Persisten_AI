@@ -455,7 +455,13 @@ public static class DependencyInjection
         // off the recorder says so and callers skip the work entirely rather than paying for it.
         // Capture writes to the same table and needs the same recorder, hence either flag.
         if (options.ShadowMode || options.Capture)
-            services.AddSingleton<IShadowRecorder, ShadowRecorder>();
+            services.AddSingleton<IShadowRecorder>(sp => new ShadowRecorder(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<ShadowRecorder>>(),
+                // Capture alone must not start running models. The two flags are documented as
+                // independent and were not: one recorder served both and said it was shadowing.
+                shadowing: options.ShadowMode));
         else
             services.AddSingleton<IShadowRecorder, NullShadowRecorder>();
 

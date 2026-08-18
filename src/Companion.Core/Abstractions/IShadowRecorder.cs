@@ -19,11 +19,21 @@ namespace Companion.Core.Abstractions;
 public interface IShadowRecorder
 {
     /// <summary>
-    /// Whether anything is being recorded. Callers check this before doing the extra work of
-    /// running a model they are going to throw away — shadow mode costs a real inference per turn,
-    /// and when it is off that cost should not be paid at all.
+    /// Whether anything is being recorded at all. Capture checks this; it writes a row per
+    /// judgement and runs no model, so it is cheap and the only question is whether to store.
     /// </summary>
     bool IsRecording { get; }
+
+    /// <summary>
+    /// Whether a model should be RUN beside the heuristic. A separate question from
+    /// <see cref="IsRecording"/>, and separating them fixes a real coupling: capture and shadow
+    /// mode are documented as independent switches, but both resolved to one recorder whose
+    /// IsRecording was hard-coded true, and <c>Shadow.CompareAsync</c> gated on that. So switching
+    /// on capture — which is meant to cost nothing and run nothing — would have started paying an
+    /// NLI inference on every turn the moment a model file appeared, without anyone asking for it.
+    /// Inert today only because no model is enabled, which is the kind of safety that expires.
+    /// </summary>
+    bool IsShadowing { get; }
 
     Task RecordAsync(ShadowComparison comparison, CancellationToken ct = default);
 
@@ -41,6 +51,25 @@ public interface IShadowRecorder
     /// </summary>
     Task<IReadOnlyList<ShadowComparison>> GetCapturesAsync(
         string? subject, int count, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes captured rows whose stored text contains any of <paramref name="excerpts"/>, and
+    /// returns how many went. Called when a memory is forgotten.
+    ///
+    /// This exists because the promise capture makes was only half kept. It is documented as
+    /// writing nothing a turn was not allowed to remember, and the gate that enforces that is
+    /// evaluated AT TURN TIME — a private conversation, an in-character one, one marked "don't
+    /// remember". A later <c>/forget</c> was not covered at all: the memory was marked deleted and
+    /// its embedding purged while the sentence it came from stayed in the telemetry table,
+    /// verbatim, as training data. "We won't remember this, except in the corpus" is not a promise
+    /// anyone would accept if it were written down that way.
+    ///
+    /// Matching is on the excerpt text because that is the only link there is — a capture row has
+    /// no message id, and adding one is a schema change for a table that should be getting smaller
+    /// rather than wider. Excerpts are the user's own quoted words, and short ones are ignored so
+    /// that forgetting a memory evidenced by "the roof" cannot sweep out unrelated sentences.
+    /// </summary>
+    Task<int> ForgetCapturesAsync(IReadOnlyCollection<string> excerpts, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -66,7 +95,9 @@ public static class Shadow
         string? input = null,
         CancellationToken ct = default)
     {
-        if (!recorder.IsRecording)
+        // IsShadowing, not IsRecording: running a model is the expensive half and it is shadow
+        // mode's decision, not capture's.
+        if (!recorder.IsShadowing)
             return legacy;
 
         var started = Stopwatch.GetTimestamp();

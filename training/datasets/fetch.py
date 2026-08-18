@@ -36,6 +36,15 @@ a licence column for its models and the same discipline applies to data.
 """
 import argparse, json, pathlib, sys
 
+# Windows consoles default to cp1252, and these scripts (and torch's own exporter) print em-dashes
+# and the odd emoji. Encoding is not cosmetic here: on the first real run torch.onnx.export
+# captured the graph successfully and then died with UnicodeEncodeError writing its own success
+# message, which reads exactly like a failed export. Reconfigured rather than left to the caller
+# to set PYTHONIOENCODING, because the failure names the wrong culprit.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import adapters  # noqa: E402
 
