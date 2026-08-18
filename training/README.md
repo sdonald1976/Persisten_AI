@@ -85,3 +85,37 @@ one once you've rated a few hundred replies.
 
 Reminder: this tunes *how it talks*, not *what it knows*. Facts stay in the forgettable memory
 layer, never baked into weights.
+
+## unfinished-work classifier — the first heuristic with evidence against it
+
+```bash
+dotnet run --project tools/Companion.Eval -- --only corpus --out training/corpus
+python training/unfinished/train.py
+```
+
+Measured on ten template families held out of training entirely — unseen phrasings, not
+unseen rows:
+
+```
+regex (incumbent)      P=1.000 R=0.438 F1=0.609
+tf-idf + logreg        P=0.937 R=0.925 F1=0.931
+```
+
+The incumbent never claims work that is not there and misses more than half of what is,
+because it is a list of obligation phrasings and there is no end to those. The learned model
+picks up "I haven't got round to", "is still hanging over me", "I keep putting off",
+"I'm behind on" — none of which appear in its training families.
+
+**Not adopted.** Three reasons, all of which have to be answered first:
+
+1. Every row is synthetic and I wrote the templates. The model may be learning my writing
+   habits rather than English, and the only cure is examples from real conversations.
+2. Precision drops 1.000 → 0.937. The regex has never once invented an open loop; this
+   would, on roughly one negative in sixteen. Open loops are surfaced unprompted, so a false
+   positive is her asking about work that does not exist.
+3. It still misses "I'm in the middle of X" — which the regex gets right, and which is in the
+   training data. A replacement that loses cases the incumbent handles is not a replacement,
+   it is a trade, and the regression corpus exists precisely to stop that being invisible.
+
+The obvious next step is a hybrid: the regex keeps its perfect precision, the model catches
+what it misses, and the union is measured against both.
