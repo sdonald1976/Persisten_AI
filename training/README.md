@@ -86,36 +86,99 @@ one once you've rated a few hundred replies.
 Reminder: this tunes *how it talks*, not *what it knows*. Facts stay in the forgettable memory
 layer, never baked into weights.
 
-## unfinished-work classifier — the first heuristic with evidence against it
+## Cognitive classifiers — what the corpus actually shows
 
 ```bash
 dotnet run --project tools/Companion.Eval -- --only corpus --out training/corpus
-python training/unfinished/train.py
+python training/cognition/crossval.py                     # every decision
+python training/cognition/crossval.py memory.unfinished   # one
 ```
 
-Measured on ten template families held out of training entirely — unseen phrasings, not
-unseen rows:
+### The retraction
+
+The previous version of this section claimed `memory.unfinished` was "the first heuristic worth
+replacing", on this evidence:
 
 ```
 regex (incumbent)      P=1.000 R=0.438 F1=0.609
-tf-idf + logreg        P=0.937 R=0.925 F1=0.931
+tf-idf + logreg        P=0.937 R=0.925 F1=0.931      (+0.322)
 ```
 
-The incumbent never claims work that is not there and misses more than half of what is,
-because it is a list of obligation phrasings and there is no end to those. The learned model
-picks up "I haven't got round to", "is still hanging over me", "I keep putting off",
-"I'm behind on" — none of which appear in its training families.
+That was one draw of ten template families. The same code, same seed, scored on the ten
+*validation* families instead gives `regex F1 0.000, model F1 0.595` — the regex fires on nothing
+at all in one draw and on 44 % of rows in another. Neither number is wrong; both are properties of
+which ten families landed in the split. **Ten families is not a sample**, and +0.322 from one of
+them is a coin flip reported to three decimal places.
 
-**Not adopted.** Three reasons, all of which have to be answered first:
+The harness now cross-validates over families and puts a paired bootstrap interval on every
+difference, which is the only thing here that can answer "is A better than B".
 
-1. Every row is synthetic and I wrote the templates. The model may be learning my writing
-   habits rather than English, and the only cure is examples from real conversations.
-2. Precision drops 1.000 → 0.937. The regex has never once invented an open loop; this
-   would, on roughly one negative in sixteen. Open loops are surfaced unprompted, so a false
-   positive is her asking about work that does not exist.
-3. It still misses "I'm in the middle of X" — which the regex gets right, and which is in the
-   training data. A replacement that loses cases the incumbent handles is not a replacement,
-   it is a trade, and the regression corpus exists precisely to stop that being invisible.
+### What that says, over all forty-plus families
 
-The obvious next step is a hybrid: the regex keeps its perfect precision, the model catches
-what it misses, and the union is measured against both.
+95 % interval on the difference in family-macro F1 against the shipped rule:
+
+| decision | union (regex OR model) | model alone |
+|---|---|---|
+| `memory.decision` | **−0.247** [−0.492, −0.073] — loses | −0.552 — loses |
+| `memory.unfinished` | **+0.317** [+0.068, +0.558] — **beats** | +0.290 [−0.016, +0.565] — indistinguishable |
+| `tool.capability` | −0.143 [−0.333, +0.000] — indistinguishable | −0.596 — loses |
+| `companion.commitment` | 9 families — too few to cross-validate at all | |
+
+Three things worth reading twice.
+
+**The swap is not supported; the composition is.** On the one decision where anything wins, the
+model *alone* is indistinguishable from the regex and the *union* beats it. The previous headline
+measured the swap and reported a win the swap does not have. This is the shape the codebase already
+uses everywhere — two independent signals, neither trusted alone — and it is the only variant that
+cannot lose a case the incumbent gets, which is checked rather than assumed.
+
+**It is one decision out of three.** The same model class makes `memory.decision` and
+`tool.capability` measurably worse. "Anything learnable should be learned" is not what the data
+says; "this particular judgement is learnable and those two are not, yet" is.
+
+**Winning the metric is not the same as being safe to ship.** Precision at a 3 % conversational
+base rate, which is roughly what a real conversation looks like:
+
+```
+memory.unfinished    incumbent 0.103     union 0.025
+```
+
+Family-macro F1 counts a wrongly-fired negative family the same as a missed positive one.
+Production does not: an open loop is surfaced unprompted, so a false positive is her asking how
+work that does not exist is going, and a false negative is only silence. The union wins the metric
+and would fabricate about four times as often. (Both numbers are worst-case — the corpus negatives
+are adversarial by construction, not sampled from conversation.)
+
+### So it is not adopted, and here is what would change that
+
+Every error the model makes is the same error: it cannot read tense, negation or mood.
+
+```
+said yes - closed:I thought I'd have to do {t} but I didn't
+said yes - closed:we cancelled {t}
+said yes - closed:would I need to do {t} first
+said yes - closed:{t} is finally sorted
+```
+
+Character n-grams over 750 rows cannot see any of that, and no amount of threshold tuning will
+make them. That is a statement about the model class, not about the idea — a sentence encoder is
+the thing that reads tense, and swapping tf-idf for one is the next experiment rather than the next
+regex.
+
+The other half is the corpus. Forty families sounds like a lot until you notice the metric needs
+them: fold-to-fold spread runs ±0.14 to ±0.31, wider than every gap being measured. Rows are cheap
+(950 of them) and families are what count, so the generator should cross fewer fillers and write
+more phrasings — particularly the ones above, since tense and negation are barely represented.
+
+### Two incumbent defects the harness found on the way
+
+Neither needs a model:
+
+- `DecisionDetector` misses **"I've chosen X"** and fires on **"everyone assumes we're going with X"**.
+- `ToolNudge` fires on **"are you able to come tomorrow"** and **"are you able to make it on
+  Saturday"**, and misses **"do you have access to the internet"**.
+
+Left unpatched on purpose. Adding four phrases to a regex so it scores better on a corpus I wrote
+is the treadmill this whole effort exists to get off, and it would also quietly make the baseline
+easier to beat. They are recorded here so the decision to fix them is a decision rather than an
+accident.
