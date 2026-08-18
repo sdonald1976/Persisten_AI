@@ -993,6 +993,13 @@ deliberately avoids, so it is bounded three ways:
   twelve characters so that forgetting something evidenced by "the roof" cannot sweep out every
   sentence mentioning a roof. Deleting more than was asked is the worse error: a removed row cannot
   be recovered, and the only cost of keeping one is that a human sees it again.
+- **Pair capture rides the same machinery.** Subject `memory.supersession.pair` records the
+  (incoming, existing) pair at the moment the supersession decision is made — every exit,
+  including the decision NOT to supersede — as structured JSON with provenance, under the same
+  gate, the same redaction, and a /forget purge that matches on the stored memory's id as well as
+  its excerpts. It exists because the specialised supersession model
+  ([`SUPERSESSION_TASK.md`](SUPERSESSION_TASK.md)) trains on pairs, and message capture cannot
+  know which existing memory was in play.
 - **Nothing prunes the table.** There is no retention policy, so captured text stays until it is
   deleted by hand. At four rows a turn the size is irrelevant; the point is that it is a verbatim
   second copy of one side of the conversation with no expiry.
