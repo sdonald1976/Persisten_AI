@@ -183,6 +183,17 @@ def expected_calibration_error(probabilities, truths, bins=10):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--weak", action="store_true", help="pretrain on the weak stage first")
+    parser.add_argument("--fold-on", default="corpus", choices=("corpus", "template"),
+                        help="fold-group boundary: 'corpus' uses each row's own fold_group (the "
+                             "life, for synthetic-life rows); 'template' groups on the generator's "
+                             "templateFamilyId, which tests UNSEEN VERBALIZATIONS — the number "
+                             "that predicts transfer, because life-grouped folds still see every "
+                             "template's phrasing on both sides across different lives")
+    parser.add_argument("--develop", default="synthetic", choices=("synthetic", "synthlife"),
+                        help="which gold corpus is the development set. 'synthlife' is the audited "
+                             "adaptation of the merged synthetic-life corpus; the frozen regression "
+                             "holdout is identical either way, which is what makes the two runs an "
+                             "apples-to-apples measurement of the data alone")
     # 16, not the binary trainer's 4: ninety rows over seven classes is ~25 steps per epoch of
     # batch-16 training, and at 4 epochs the first run never left the prior (max softmax 0.16 on
     # every holdout row). Underfitting that looks like a verdict is worse than a slow default.
@@ -192,7 +203,7 @@ def main():
 
     sources = allowed_sources()
     develop, holdout = [], []
-    for suffix in ("synthetic", "regression", "reviewed"):
+    for suffix in (args.develop, "regression", "reviewed"):
         for row in load(suffix):
             if row.get("source") not in sources and suffix != "reviewed":
                 sys.exit(f"row source {row.get('source')!r} is not in the manifest — a corpus "
@@ -201,22 +212,35 @@ def main():
     weak = load("weak") if args.weak else []
 
     families = {r["family"] for r in develop}
-    print(f"develop {len(develop)} rows / {len(families)} families   "
-          f"holdout {len(holdout)} rows (frozen regression)   weak {len(weak)} rows")
+    # Folds group on the corpus's own leakage boundary — fold_group where a row carries one (the
+    # synthetic-life adapter sets it to the LIFE, because one simulated person's timeline shares
+    # state and phrasing), falling back to the metric family. The two are different jobs: the
+    # fold group is "what must not straddle a split", the family is "one way of saying one thing".
+    if args.fold_on == "template":
+        groups = {(r.get("provenance") or {}).get("templateFamilyId") or r.get("fold_group") or r["family"] for r in develop}
+    else:
+        groups = {r.get("fold_group") or r["family"] for r in develop}
+    print(f"develop {len(develop)} rows / {len(families)} metric families / "
+          f"{len(groups)} fold groups   holdout {len(holdout)} rows (frozen regression)   "
+          f"weak {len(weak)} rows")
     if all(r["source"] == "synthetic" for r in develop):
         print("ALL DEVELOP ROWS ARE SYNTHETIC — one author's templates. Real pairs arrive via "
               "CognitiveModels:Capture and the adjudication queue; every number below is "
               "provisional until they do.")
     print()
 
-    ordered = sorted(families)
+    ordered = sorted(groups)
     random.Random(11).shuffle(ordered)
-    fold_of = {family: i % FOLDS for i, family in enumerate(ordered)}
+    fold_of = {group: i % FOLDS for i, group in enumerate(ordered)}
+    if args.fold_on == "template":
+        group_of = lambda r: (r.get("provenance") or {}).get("templateFamilyId") or r.get("fold_group") or r["family"]
+    else:
+        group_of = lambda r: r.get("fold_group") or r["family"]
 
     pooled = [None] * len(develop)
     for fold in range(FOLDS):
-        train_rows = [r for r in develop if fold_of[r["family"]] != fold]
-        test_idx = [i for i, r in enumerate(develop) if fold_of[r["family"]] == fold]
+        train_rows = [r for r in develop if fold_of[group_of(r)] != fold]
+        test_idx = [i for i, r in enumerate(develop) if fold_of[group_of(r)] == fold]
         if weak:
             # Weak stage first, gold stage second, per fold — the weak rows never cross into the
             # fold's test families because they come from a different corpus entirely.
@@ -236,6 +260,18 @@ def main():
     print("per-label, family level (each family predicted by a model that never saw it):")
     family_truth, family_pred = family_verdicts(develop, predicted)
     print(per_label_table(family_truth, family_pred))
+
+    print()
+    print("per-label, row level (pooled out-of-fold):")
+    print(per_label_table(truth_rows, predicted))
+
+    print()
+    print("confusion, row level — truth down the side, prediction across:")
+    short = [l[:6] for l in LABELS]
+    print("      " + f"{'':<12}" + " ".join(f"{c:>6}" for c in short))
+    for t in LABELS:
+        counts = collections.Counter(q for tt, q in zip(truth_rows, predicted) if tt == t)
+        print("      " + f"{t:<12}" + " ".join(f"{counts.get(q, 0):>6}" for q in LABELS))
 
     precision, recall, f1, false_supersede = action_stats(truth_rows, predicted)
     print()
