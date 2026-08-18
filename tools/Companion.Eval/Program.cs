@@ -19,9 +19,6 @@ if (!Directory.Exists(datasets))
     return 2;
 }
 
-Console.WriteLine("evaluating the current heuristics — this is the baseline a model has to beat");
-Console.WriteLine();
-
 var suites = new (string Name, Func<bool, Metrics> Run)[]
 {
     ("decision", v => Evaluate.Decision(Path.Combine(datasets, "decision.jsonl"), v)),
@@ -63,11 +60,128 @@ if (only is not null && only.Equals("lives", StringComparison.OrdinalIgnoreCase)
     return await LifeSuite.RunAsync(count, seed, model, url, verbose);
 }
 
+// Structured synthetic-life corpus: hidden canonical state is generated and evolved before any
+// dialogue is rendered. This mode is deterministic, provider-independent, and requires no LLM.
+if (only is not null && only.Equals("synthetic", StringComparison.OrdinalIgnoreCase))
+{
+    var seed = int.TryParse(ArgValue("--seed"), out var sd) ? sd : 1;
+    var people = int.TryParse(ArgValue("--people"), out var p) ? p : 1;
+    var turns = int.TryParse(ArgValue("--turns"), out var t) ? t : 160;
+    var events = int.TryParse(ArgValue("--events"), out var e) ? e : 0;
+    var outPath = ArgValue("--out") ?? Path.Combine(AppContext.BaseDirectory, "synthetic-life.jsonl");
+    var failuresPath = ArgValue("--failures");
+    var replayPerson = ArgValue("--replay");
+    var splitDir = ArgValue("--split-out");
+    var splitGroup = ArgValue("--split-group") ?? "life";
+    var avaUrl = ArgValue("--ava-url");
+    var avaToken = ArgValue("--ava-token");
+    var e2eFailuresPath = ArgValue("--e2e-failures");
+    var minFamilies = ParseMinimums("--min-family");
+    var minDifficulty = ParseMinimums("--min-difficulty");
+    var request = new SyntheticRunRequest(
+        seed,
+        people,
+        turns,
+        EventsPerPerson: events,
+        MinSemanticFamilies: minFamilies,
+        MinDifficulty: minDifficulty);
+
+    if (replayPerson is not null)
+    {
+        var replayed = SyntheticLife.Replay(seed, replayPerson, request);
+        Console.WriteLine($"{replayed.ScenarioId}: {replayed.Turns.Count} turns, {replayed.Examples.Count} labelled events");
+        foreach (var turn in replayed.Turns.Where(tn => tn.Relevant).Take(8))
+            Console.WriteLine($"{turn.Turn,4}: {turn.Utterance}");
+        return 0;
+    }
+
+    var watch = System.Diagnostics.Stopwatch.StartNew();
+    var scenarios = SyntheticLife.Generate(request);
+    var rows = scenarios.SelectMany(s => s.Examples).ToList();
+
+    if (avaUrl is not null)
+    {
+        var e2eLives = int.TryParse(ArgValue("--e2e-lives"), out var el) ? el : 1;
+        if (e2eLives != 1)
+        {
+            Console.Error.WriteLine("HTTP end-to-end mode currently supports one life per Ava process because User:Id is server-side.");
+            Console.Error.WriteLine("Launch a separate isolated Ava instance per synthetic user for multi-life HTTP runs.");
+            return 2;
+        }
+
+        var scenario = scenarios[0];
+        var syntheticUser = SyntheticUserSafety.UserIdFor(scenario);
+        Console.WriteLine($"end-to-end HTTP synthetic eval → {avaUrl}");
+        Console.WriteLine($"expected Ava User:Id: {syntheticUser}");
+        await using var client = HttpAvaConversationClient.FromBaseUrl(
+            avaUrl, syntheticUser, avaToken, TimeSpan.FromMinutes(15));
+        var evaluator = new SyntheticAvaEvaluator(_ => client);
+        var e2e = await evaluator.EvaluateAsync(scenario);
+        Console.WriteLine($"life {e2e.LifeId}, turns {e2e.TurnsEvaluated}, semantic events {e2e.SemanticEventsEvaluated}");
+        Console.WriteLine($"current canonical recall: {e2e.Survival.CurrentFactRecall:P1}");
+        Console.WriteLine($"missing current facts: {e2e.Survival.MissingCurrentFacts}");
+        Console.WriteLine($"stale superseded facts: {e2e.Survival.StaleSupersededFacts}");
+        Console.WriteLine($"foreign-person contamination: {e2e.Survival.ForeignPersonContamination}");
+        Console.WriteLine($"temporary-state promotions: {e2e.Survival.TemporaryStatePromotions}");
+        var byStage = e2e.Failures.GroupBy(f => f.FailureStage).OrderBy(g => g.Key);
+        foreach (var stage in byStage)
+            Console.WriteLine($"     {stage.Key,-36} {stage.Count(),5}");
+        if (e2eFailuresPath is not null)
+        {
+            SyntheticFailureArtifacts.WriteJsonl(e2eFailuresPath, e2e.Failures);
+            Console.WriteLine($"e2e failure export: {e2eFailuresPath}");
+        }
+        return 0;
+    }
+
+    var evaluated = SyntheticEvaluation.Evaluate(rows, new KeywordProbe());
+    var written = SyntheticLife.WriteJsonl(outPath, evaluated);
+    watch.Stop();
+
+    Console.WriteLine($"synthetic-life wrote {written} rows to {outPath}");
+    Console.WriteLine($"seed {seed}, people {people}, turns/person {turns}, events/person {(events == 0 ? "seeded" : events)}, {watch.Elapsed.TotalSeconds:F2}s");
+
+    var report = SyntheticLife.Report(scenarios, request);
+    PrintCounts("semantic", report.BySemanticFamily);
+    PrintCounts("operation", report.ByMemoryOperation);
+    PrintCounts("difficulty", report.ByDifficulty);
+    PrintCounts("distance", report.ByEventDistance);
+    Console.WriteLine($"scenario families: {report.UniqueScenarioFamilies}");
+    Console.WriteLine($"duplicates: exact {report.ExactDuplicateUtterances} ({report.ExactDuplicateRate:P1}), normalized {report.NormalizedDuplicateUtterances} ({report.NormalizedDuplicateRate:P1}), structures {report.DuplicateStructures}");
+    Console.WriteLine($"lexical diversity/row: {report.LexicalDiversityPerRow:F2}");
+    foreach (var warning in report.Warnings)
+        Console.WriteLine($"warning: {warning}");
+
+    var failures = SyntheticEvaluation.FailuresAndDisagreements(evaluated);
+    Console.WriteLine($"failures/disagreements: {failures.Count}");
+    if (failuresPath is not null)
+    {
+        SyntheticLife.WriteJsonl(failuresPath, failures);
+        Console.WriteLine($"failure export: {failuresPath}");
+    }
+
+    if (splitDir is not null)
+    {
+        Directory.CreateDirectory(splitDir);
+        var split = SyntheticLife.Split(evaluated, splitGroup, seed);
+        SyntheticLife.WriteJsonl(Path.Combine(splitDir, "synthetic.train.jsonl"), split.Train);
+        SyntheticLife.WriteJsonl(Path.Combine(splitDir, "synthetic.validation.jsonl"), split.Validation);
+        SyntheticLife.WriteJsonl(Path.Combine(splitDir, "synthetic.test.jsonl"), split.Test);
+        Console.WriteLine(
+            $"split ({splitGroup} groups): train {split.Train.Count}, validation {split.Validation.Count}, test {split.Test.Count}");
+    }
+
+    return 0;
+}
+
+Console.WriteLine("evaluating the current heuristics — this is the baseline a model has to beat");
+Console.WriteLine();
+
 var rankingOnly = only is not null && only.Equals("resolution", StringComparison.OrdinalIgnoreCase);
 if (chosen.Length == 0 && !rankingOnly)
 {
     Console.Error.WriteLine(
-        $"Unknown suite '{only}'. Known: {string.Join(", ", suites.Select(s => s.Name))}, resolution, lives, tier0, text, corpus");
+        $"Unknown suite '{only}'. Known: {string.Join(", ", suites.Select(s => s.Name))}, resolution, lives, synthetic, tier0, text, corpus");
     return 2;
 }
 
@@ -132,4 +246,25 @@ string? ArgValue(string name)
 {
     var i = Array.IndexOf(args, name);
     return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+}
+
+Dictionary<string, int> ParseMinimums(string name)
+{
+    var result = new Dictionary<string, int>(StringComparer.Ordinal);
+    for (var i = 0; i < args.Length; i++)
+    {
+        if (!args[i].Equals(name, StringComparison.OrdinalIgnoreCase) || i + 1 >= args.Length)
+            continue;
+        var parts = args[i + 1].Split('=', 2);
+        if (parts.Length == 2 && int.TryParse(parts[1], out var count))
+            result[parts[0]] = count;
+    }
+    return result;
+}
+
+static void PrintCounts(string title, IReadOnlyDictionary<string, int> counts)
+{
+    Console.WriteLine(title + ":");
+    foreach (var (key, count) in counts.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        Console.WriteLine($"     {key,-34} {count,6}");
 }
