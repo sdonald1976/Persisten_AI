@@ -149,6 +149,21 @@ work that does not exist is going, and a false negative is only silence. The uni
 and would fabricate about four times as often. (Both numbers are worst-case — the corpus negatives
 are adversarial by construction, not sampled from conversation.)
 
+### Two things that change this, both now buildable
+
+**A real model.** `python training/cognition/finetune_encoder.py memory.unfinished` fine-tunes a
+22M MiniLM and exports ONNX straight into `models/`, which is what the C# side already loads. Run
+`crossval.py` afterwards, not instead — the comparison that matters is the same grouped
+cross-validation and paired bootstrap, and a model that skips it is a model adopted for being newer.
+
+**Real data.** `python training/datasets/fetch.py --list` — DialogueNLI, CommitmentBank, CLINC150,
+DailyDialog, mapped into this repo's row shape and read by `crossval.py` unchanged. See
+§"The corpora that already exist" in `docs/SPECIALIST_MODELS.md` for what matches what and why two
+of them are the exact problems Phase 4 measured an off-the-shelf model failing.
+
+Neither has been run. Hugging Face was unreachable from the session that wrote them, so the mapping
+is tested offline and the downloads are not.
+
 ### So it is not adopted, and here is what would change that
 
 Every error the model makes is the same error: it cannot read tense, negation or mood.

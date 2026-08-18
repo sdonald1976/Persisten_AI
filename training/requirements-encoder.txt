@@ -1,0 +1,12 @@
+# Specialist encoder fine-tuning + ONNX export. Separate from requirements.txt, which pulls Unsloth
+# for generative LoRA work and is far heavier than this needs — a 22M encoder trains on CPU in
+# minutes and does not want a training stack built for 3B models.
+#
+#   python -m venv .venv && source .venv/bin/activate
+#   pip install -r training/requirements-encoder.txt
+torch>=2.2
+transformers>=4.44
+datasets>=2.20          # only for training/datasets/fetch.py
+onnx>=1.16
+onnxruntime>=1.18       # for verifying the export before trusting it in C#
+scikit-learn>=1.4       # crossval.py — the baseline the encoder has to beat

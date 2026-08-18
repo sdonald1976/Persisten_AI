@@ -4,3 +4,7 @@ outputs/
 *.jsonl
 *.gguf
 .venv/
+
+# Python bytecode from the training scripts
+__pycache__/
+*.pyc
