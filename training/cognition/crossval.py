@@ -89,8 +89,8 @@ def load(decision, split):
     return [Row(json.loads(line)) for line in path.open(encoding="utf-8") if line.strip()]
 
 
-def load_reviewed(decision):
-    """Human-labelled sentences from real conversations, if any have been harvested yet.
+def load_extra(decision, suffix):
+    """Rows from outside the generator: harvested real conversations, or a borrowed research corpus.
 
     These go into the DEVELOPMENT set rather than the held-out one, which is the opposite of what
     it feels like it should be. Real rows are the scarce and valuable thing, and the temptation is
@@ -100,7 +100,7 @@ def load_reviewed(decision):
     incomparable numbers is worse than one honest one. When there are enough real rows to hold some
     back, they should become their own suite rather than being mixed into this one.
     """
-    path = CORPUS / f"{decision}.reviewed.jsonl"
+    path = CORPUS / f"{decision}.{suffix}.jsonl"
     if not path.exists():
         return []
     rows = [Row(json.loads(line)) for line in path.open(encoding="utf-8") if line.strip()]
@@ -198,8 +198,9 @@ def precision_at_prior(truth, pred, prior):
 
 
 def run(decision):
-    reviewed = load_reviewed(decision)
-    develop = load(decision, "train") + load(decision, "validation") + reviewed
+    reviewed = load_extra(decision, "reviewed")
+    borrowed = load_extra(decision, "borrowed")
+    develop = load(decision, "train") + load(decision, "validation") + reviewed + borrowed
     holdout = load(decision, "test")
     families = {r.family for r in develop}
 
@@ -208,17 +209,29 @@ def run(decision):
         print(f"    {len(develop)} rows / {len(families)} families — too few to cross-validate; skipped")
         print()
         return
-    if develop[0].heuristic is None:
-        print("    no incumbent in the corpus — nothing to compare against")
+    unstamped = sum(1 for r in develop if r.heuristic is None)
+    if unstamped == len(develop):
+        print("    no incumbent verdict on any row — nothing to compare against")
+    elif unstamped:
+        # Counting an absent verdict as "said no" would credit the incumbent with perfect precision
+        # on rows it was never run over, which flatters exactly the thing under test.
+        print(f"    {unstamped} rows carry no incumbent verdict (borrowed or captured). The "
+              f"incumbent's row below is scored as if it declined on those; run the real detector "
+              f"over them before believing its precision.")
 
     print(f"    development {len(develop):>4} rows / {len(families)} families   "
           f"held out {len(holdout):>4} rows / {len({r.family for r in holdout})} families")
-    if reviewed:
-        print(f"    of which {len(reviewed)} are human-labelled sentences from real conversations "
-              f"({len(reviewed) / len(develop):.0%} of the corpus)")
+    if reviewed or borrowed:
+        parts = []
+        if reviewed:
+            parts.append(f"{len(reviewed)} human-labelled from real conversations")
+        if borrowed:
+            parts.append(f"{len(borrowed)} from a research corpus")
+        print(f"    of which {' and '.join(parts)} "
+              f"({(len(reviewed) + len(borrowed)) / len(develop):.0%} of the corpus is not synthetic)")
     else:
-        print("    all synthetic — no reviewed captures yet, so every number below is a statement "
-              "about one person's templates. See training/cognition/harvest.py")
+        print("    all synthetic — every number below is a statement about one person's templates. "
+              "See training/datasets/fetch.py and training/cognition/harvest.py")
 
     texts = [r.text for r in develop]
     labels = [r.label for r in develop]

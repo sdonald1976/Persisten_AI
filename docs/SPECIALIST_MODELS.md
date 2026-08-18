@@ -223,7 +223,7 @@ and evaluation at §16, after several models are in. Building the measurement fi
 | 3 — cross-encoder | **built, measured, NOT adopted** — see below |
 | 4 — NLI | **built, measured, REJECTED for now** — and it disproved §3.2. See below |
 | 5 — cognitive classifier | **corpus built, cross-validated, NOT adopted** — and it retracted a claim. See below |
-| 6 — emotion | not started |
+| 6 — emotion | not started — GoEmotions (Apache-2.0) is the obvious start; see §The corpora that already exist |
 | 7 — roaming seam | **built** — `IRoamingPolicy`, structured observation, ranked deliberation. No policy trained, and §Phase 7 says what actually blocks one |
 | 8 — retirement | not started |
 
@@ -542,6 +542,91 @@ preference signal**: a way for a person to say "that was a good place to be" or 
 there all day", or an observable consequence the companion can be scored against. Until one exists,
 the heuristic is not a placeholder — it is the correct implementation, because it is the only one
 that can explain itself.
+
+### The corpora that already exist, and the fact that nobody looked
+
+Every verdict above is qualified by the same sentence: *the corpus is synthetic and one person wrote
+it.* That was treated for several sessions as a fact about the world. It is a fact about nobody
+having checked whether these judgements have names in the literature. Most of them do, and several
+have annotated corpora that match far more precisely than a template generator ever will.
+
+| decision here | public corpus | size | what it is | licence |
+|---|---|---|---|---|
+| `FactSupersession` | **DialogueNLI** (Welleck et al. 2019) | ~310k pairs | persona sentences labelled entailment / neutral / **contradiction** | unconfirmed |
+| `AssertionGuard` | **CommitmentBank** (de Marneffe et al.) | 1,200 discourses | speaker commitment to an embedded clause under question / modal / negation / conditional | unconfirmed (CB itself CC-BY) |
+| `tool.capability` | **CLINC150** | 22.5k utterances | 150 intents over 10 domains **plus a real out-of-scope class** | unconfirmed (CC BY-SA 3.0 per UCI) |
+| `CommitmentDetector` | **DailyDialog** | 13,118 dialogues | per-utterance acts incl. **commissive** | **CC BY-NC-SA 4.0 — non-commercial, ShareAlike** |
+| `MoodDetector` | **GoEmotions** | 58k comments | 27 multi-label emotions | Apache-2.0 |
+| long-term persona change | **Multi-Session Chat** (Xu et al. 2022) | 5-session dialogues | persona carried and revised across sessions | unconfirmed |
+
+Two of those are not "roughly relevant". They are the exact problem.
+
+**DialogueNLI is the question Phase 4 measured MNLI failing.** §Phase 4 concluded that MNLI asks
+whether two sentences describe the same scene, while memory asks whether both can be true *of one
+person*, and recorded these failures:
+
+```
+corgi called Kanga / cat called Mim     needs coexist    MNLI said contradiction 1.00
+plays cello / plays piano               needs coexist    MNLI said contradiction 1.00
+```
+
+DialogueNLI is built from PersonaChat persona sentences and annotated *for that second question* —
+someone was asked whether one person could plausibly hold both. 310,000 pairs of it. The conclusion
+"we would need a fine-tune on supersession-framed pairs, which needs labelled data, which needs
+capture running on real conversations" was right about the first clause and **wrong about the rest**:
+that data has been sitting in public since 2019.
+
+**CommitmentBank is AssertionGuard, itemised by someone else.** 1,200 naturally occurring discourses
+whose final sentence puts a clause-embedding predicate under an *entailment-cancelling operator* — a
+question, a modal, a negation, or the antecedent of a conditional — with human ratings of how
+committed the speaker is to the embedded clause. The three failures recorded in §Phase 4 are three
+of those four environments:
+
+```
+"Did I ever tell you what timber I bought?"   question      NLI wrongly entailed at 0.97
+"If I bought cedar, would it last longer?"    conditional   wrongly entailed at 0.68
+"I wouldn't say I've bought the timber yet"   negation      the case sentence mood cannot reach
+```
+
+This does not retire capture — real sentences from *this* companion are still the only thing that
+measures its base rate, and no public corpus contains her user. But it reorders the queue: **the NLI
+fine-tune can start now**, and does not need to wait behind months of conversation.
+
+#### How they are wired in
+
+`training/datasets/adapters.py` maps each corpus to the row shape everything else already reads, so
+a borrowed row, a generated row and a harvested row are the same row and go through the same grouped
+cross-validation and the same paired bootstrap.
+
+```bash
+python training/datasets/fetch.py --list          # the register, with licences
+python training/datasets/fetch.py dialogue-nli    # -> corpus/memory.supersession.borrowed.jsonl
+python training/cognition/crossval.py             # same metric, now on real data
+```
+
+Three things were worth being careful about, and two of them are lessons this project already paid
+for:
+
+- **The group key.** Real corpora bring an invisible version of the leakage trap: the same persona
+  sentence appears in hundreds of DialogueNLI pairs, and one CLINC intent has a hundred paraphrases.
+  Splitting either by row measures memorisation, exactly as the template-filler split did. Every
+  adapter declares a `family` explicitly, and it means "what must not appear on both sides".
+- **The incumbent has no verdict on borrowed rows**, and counting an absent verdict as "said no"
+  would credit the regex with perfect precision on rows it was never run over — flattering precisely
+  the thing under test. `crossval.py` now says how many rows are in that state.
+- **Schema drift fails loudly.** These adapters were written from published descriptions, not
+  against the files. A renamed column would otherwise produce an all-negative corpus, which trains a
+  model that says no to everything, scores 97 % accuracy, and is discovered weeks later.
+
+`training/datasets/test_adapters.py` runs offline with no network and no `datasets` install, and it
+earned that separation immediately: it caught an inverted label in the CommitmentBank adapter, where
+inferring the encoding from the value read SuperGLUE's `0` (**entailment** — fully committed) as a
+Likert `0.0` (**undecided**). A bare number cannot be disambiguated, so it is no longer guessed —
+the caller is asked.
+
+**The downloads themselves are unverified**, because the session that wrote this had no route to
+Hugging Face. The mapping is tested; the fetching is not. Expect the first run to need a fix, and to
+tell you which one.
 
 ### Capture: the way out of the deadlock
 
