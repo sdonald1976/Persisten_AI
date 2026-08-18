@@ -108,6 +108,10 @@ public class CognitiveCaptureTests
     /// The verdict survives, the credential does not. Skipping the row entirely would be the easy
     /// answer and the wrong one: it would bias the very rate the capture exists to measure, and the
     /// rate is knowable without keeping the sentence.
+    ///
+    /// Called directly, because on the user's side this is defence in depth rather than the thing
+    /// standing in the way — see <see cref="ACredentialInAUserMessage_NeverReachesCaptureAtAll"/>.
+    /// It is the reply path where nothing else looks.
     /// </summary>
     [Fact]
     public async Task ASentenceThatLooksLikeACredential_KeepsTheVerdictAndDropsTheText()
@@ -165,6 +169,62 @@ public class CognitiveCaptureTests
         Assert.Equal(1, agreement.Comparisons);
         Assert.Equal(1, agreement.Disagreements);
         Assert.Single(await recorder.GetDisagreementsAsync("memory.unfinished", 50));
+    }
+
+    /// <summary>
+    /// Her reply is where the credential check is load-bearing, and it took running the capture
+    /// against a live instance to see that. Nothing else inspects a reply for secrets: the privacy
+    /// classifier reads the user's message, and a key that arrives in a tool result and is quoted
+    /// back is checked here or nowhere.
+    /// </summary>
+    [Fact]
+    public async Task ACredentialInHerReply_KeepsTheVerdictAndDropsTheText()
+    {
+        await using var host = Host();
+        using var scope = host.CreateScope();
+        var recorder = scope.ServiceProvider.GetRequiredService<IShadowRecorder>();
+
+        await scope.ServiceProvider.GetRequiredService<ICognitiveCapture>()
+            .CaptureReplyAsync("I'll make a note that the key is ghp_abcdefghijklmnopqrstuvwxyz0123456789.");
+
+        var row = Assert.Single(await recorder.GetCapturesAsync("companion.commitment", 10));
+        Assert.Equal("true", row.Legacy);
+        Assert.Null(row.Input);
+    }
+
+    /// <summary>
+    /// On the user's side the redaction never gets a turn, because the privacy classifier calls the
+    /// same <c>SecretDetector</c> and a message containing a key makes the whole turn
+    /// non-rememberable. Asserted rather than assumed: the capture was documented as "keeps the
+    /// rate, drops the text" until a live run showed the row is not written at all, and the
+    /// difference matters to anyone computing a base rate from this table.
+    /// </summary>
+    [Fact]
+    public async Task ACredentialInAUserMessage_NeverReachesCaptureAtAll()
+    {
+        await using var host = Host();
+
+        Guid conversationId;
+        using (var seed = host.CreateScope())
+        {
+            var sp = seed.ServiceProvider;
+            await sp.GetRequiredService<CompanionSeeder>().SeedAsync(Now);
+            conversationId = (await sp.GetRequiredService<IConversationStore>()
+                .StartConversationAsync(CompanionSeeder.DemoUserId, "t", "mock", "test")).Id;
+        }
+
+        using (var scope = host.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<ICompanion>().RespondAsync(
+                CompanionSeeder.DemoUserId, conversationId,
+                "I still need to rotate sk-abcdefghijklmnopqrstuvwxyz012345 on the server.");
+        }
+
+        using (var scope = host.CreateScope())
+        {
+            Assert.Empty(await scope.ServiceProvider.GetRequiredService<IShadowRecorder>()
+                .GetCapturesAsync(null, 100));
+        }
     }
 
     [Fact]
