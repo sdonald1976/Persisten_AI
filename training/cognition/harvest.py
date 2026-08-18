@@ -75,7 +75,7 @@ def existing_reviewed(decision):
     path = CORPUS / f"{decision}.reviewed.jsonl"
     if not path.exists():
         return set()
-    return {json.loads(line)["text"] for line in path.open(encoding="utf-8") if line.strip()}
+    return {json.loads(line).get("text") for line in path.open(encoding="utf-8") if line.strip()}
 
 
 def main():
@@ -119,6 +119,28 @@ def main():
                 dupes += 1
                 continue
             seen.add(text)
+
+            # Pair-capture rows carry the structured pair as JSON, not a bare sentence, and the
+            # review queue keeps the structure: an adjudicator labelling "SUPERSEDES or COEXIST?"
+            # needs the ages and the slot, and the trainer reads the same fields. The incumbent's
+            # outcome string rides along as `incumbent`, a weak label like every other.
+            if decision == "memory.supersession.pair":
+                pair = json.loads(text)
+                queue.append({
+                    "decision": decision,
+                    "label": None,
+                    "family": f"captured:{pair['existing']['id']}:{pair['incoming']['fact'][:40]}",
+                    "difficulty": 0,
+                    "source": "real_conversation",
+                    "generator": "pair-capture-1",
+                    "split": "develop",
+                    "incoming": pair["incoming"],
+                    "existing": pair["existing"],
+                    "pair": pair["pair"],
+                    "incumbent": row.get("legacy"),
+                })
+                continue
+
             queue.append({
                 "text": text,
                 # Null on purpose. See the module docstring: a corpus labelled by the rule it is

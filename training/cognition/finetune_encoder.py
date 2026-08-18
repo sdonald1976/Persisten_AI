@@ -79,7 +79,8 @@ def load(decision):
     return rows, seen
 
 
-def fit(train, base=DEFAULT_BASE, epochs=4, batch=16, lr=2e-5, max_len=128, seed=1, quiet=False):
+def fit(train, base=DEFAULT_BASE, epochs=4, batch=16, lr=2e-5, max_len=128, seed=1, quiet=False,
+        classes=None):
     """Fine-tunes `base` on training rows and returns (model, tokenizer, device).
 
     Lifted out of main() so that crossval.py can fit the same model per fold instead of carrying a
@@ -95,7 +96,14 @@ def fit(train, base=DEFAULT_BASE, epochs=4, batch=16, lr=2e-5, max_len=128, seed
 
     torch.manual_seed(seed)
     tokenizer = AutoTokenizer.from_pretrained(base)
-    model = AutoModelForSequenceClassification.from_pretrained(base, num_labels=2)
+
+    # `classes` widens the same loop to a multi-class task (the supersession pair taxonomy) instead
+    # of a second trainer growing beside this one. Binary callers change nothing: labels stay the
+    # row's boolean. With classes, the row's label is the class NAME and the id is its index — the
+    # order is the caller's contract, and the caller writes it into the artifact manifest.
+    num_labels = len(classes) if classes else 2
+    label_id = (lambda r: classes.index(r["label"])) if classes else (lambda r: int(r["label"]))
+    model = AutoModelForSequenceClassification.from_pretrained(base, num_labels=num_labels)
 
     class Rows(Dataset):
         def __init__(self, items): self.items = items
@@ -109,7 +117,7 @@ def fit(train, base=DEFAULT_BASE, epochs=4, batch=16, lr=2e-5, max_len=128, seed
             enc = tokenizer(*parts, truncation=True, max_length=max_len,
                             padding="max_length", return_tensors="pt")
             item = {k: v.squeeze(0) for k, v in enc.items()}
-            item["labels"] = torch.tensor(int(r["label"]))
+            item["labels"] = torch.tensor(label_id(r))
             return item
 
     # CPU on purpose. The GPU here is a 6 GB 1660 already thrashing between generative models, and
@@ -123,12 +131,13 @@ def fit(train, base=DEFAULT_BASE, epochs=4, batch=16, lr=2e-5, max_len=128, seed
     # Weighted, because these corpora are nowhere near balanced and an unweighted loss on a 3 %
     # positive set learns to say no. The generated corpus is the opposite problem at 68 % positive;
     # either way the weight is computed rather than assumed.
-    positives = sum(r["label"] for r in train)
+    counts = [0] * num_labels
+    for r in train:
+        counts[label_id(r)] += 1
     weight = torch.tensor(
-        [len(train) / (2 * max(1, len(train) - positives)), len(train) / (2 * max(1, positives))],
-        device=device, dtype=torch.float)
+        [len(train) / (num_labels * max(1, c)) for c in counts], device=device, dtype=torch.float)
     if not quiet:
-        print(f"class weights {weight.tolist()} from {positives}/{len(train)} positive")
+        print(f"class weights {[round(w, 2) for w in weight.tolist()]} from counts {counts}")
 
     loader = DataLoader(Rows(train), batch_size=batch, shuffle=True)
     optimiser = torch.optim.AdamW(model.parameters(), lr=lr)
@@ -152,8 +161,11 @@ def fit(train, base=DEFAULT_BASE, epochs=4, batch=16, lr=2e-5, max_len=128, seed
     return model, tokenizer, device
 
 
-def predict(model, tokenizer, rows, max_len=128, device=None, chunk_size=64):
-    """P(label=1) for each row, in order. Same encoding as fit, for the same anti-drift reason."""
+def predict(model, tokenizer, rows, max_len=128, device=None, chunk_size=64, full=False):
+    """P(label=1) per row — or, with full=True, the whole probability vector per row.
+
+    Same encoding as fit, for the same anti-drift reason. `full` exists for the multi-class
+    callers; binary callers keep receiving the positive-class scalar they always did."""
     import torch
 
     device = device or next(model.parameters()).device
@@ -169,7 +181,8 @@ def predict(model, tokenizer, rows, max_len=128, device=None, chunk_size=64):
                             truncation=True, max_length=max_len, padding="max_length",
                             return_tensors="pt")
             logits = model(**{k: v.to(device) for k, v in enc.items()}).logits
-            probabilities.extend(logits.softmax(-1)[:, 1].tolist())
+            soft = logits.softmax(-1)
+            probabilities.extend(soft.tolist() if full else soft[:, 1].tolist())
     return probabilities
 
 

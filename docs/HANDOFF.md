@@ -192,6 +192,10 @@ raise it before adding autonomy that widens what she produces unprompted.
   the cognitive classifier's corpus is built and cross-validated and the model **loses** on two of
   three decisions. Every one of those verdicts is blocked on the same thing: the corpus is
   synthetic and one person wrote it.
+  - **The supersession decision now has its own task design, approved and underway** —
+    [`SUPERSESSION_TASK.md`](SUPERSESSION_TASK.md): a seven-label taxonomy, pair capture wired
+    through the pipeline, a purpose-built corpus and a 7-way trainer with false-supersede budgets
+    and safe-coverage measurement. The incumbent is a baseline and fallback, not the architecture.
   - **The one thing that needs you:** switch on `CognitiveModels:Capture` for a while. It records
     what the heuristics said about real sentences — no model runs, nothing changes, and it only
     touches turns already allowed to produce durable memory. Then

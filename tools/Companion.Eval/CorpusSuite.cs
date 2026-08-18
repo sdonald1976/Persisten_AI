@@ -63,6 +63,11 @@ public static class CorpusSuite
         // negatives it was never asked about.
         BorrowedStamp.Run(directory, Heuristic);
 
+        // The supersession pair task keeps its own stamper: its rows are structured pairs, its
+        // incumbent is a composition of rules rather than one detector, and its score is at the
+        // action level. See PairStamp.
+        PairStamp.Run(directory);
+
         Console.WriteLine();
         Console.WriteLine("splits are drawn on the TEMPLATE FAMILY, never the row: fillers make many");
         Console.WriteLine("rows one sentence, and splitting by row would score memorisation.");
