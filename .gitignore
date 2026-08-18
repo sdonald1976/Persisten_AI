@@ -40,3 +40,6 @@ prompts/
 # megabytes, versioned independently of this code, and awkward to remove from history later.
 models/
 *.onnx
+
+# Python virtualenv for training/ (torch is ~2.5 GB; never committed)
+.venv/

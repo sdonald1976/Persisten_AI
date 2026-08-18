@@ -183,6 +183,128 @@ def label_of(row, label_names=None):
     return str(raw).strip().lower()
 
 
+# The corpus marks an unannotated sentence with this rather than omitting the triple, so it arrives
+# looking like a relation named "<none>". Counting it as a relation puts every unannotated row into
+# the different-relation bucket and dilutes the one control this audit has.
+NONE_TRIPLE = "<none>"
+
+# Relations that are each other's negation. A contradiction between these is manufactured by the
+# corpus rather than judged, so they are separated from the control instead of counted against it:
+# the paper's rule is that a relation SWAP is neutral, and it means unrelated relations, not a
+# relation against its own negation. Held as a stated assumption because it is one — the audit
+# prints the antonym bucket's own label split, which is the number that would falsify it. If those
+# pairs are not overwhelmingly contradiction, this list is wrong and the control below is polluted.
+LIKING = ("like", "favorite")
+
+
+def is_antonym_pair(first, second):
+    if first.startswith("not_") or second.startswith("not_"):
+        return True
+    return ((first.startswith("dislike") and second.startswith(LIKING))
+            or (second.startswith("dislike") and first.startswith(LIKING)))
+
+
+def leading_count(value):
+    """Splits "2 dog" into ("2", "dog"), and leaves "dog" as (None, "dog").
+
+    DialogueNLI writes quantities into the value, so "I have two dogs" against "I have five dogs"
+    is a same-relation/different-value pair exactly like "a dog" against "a cat" — and it is a
+    different question. One is arithmetic, the other is the question memory asks. Reporting them
+    together is how the decisive bucket came out 96 % contradiction while the case we care about
+    was 100 % neutral underneath it.
+    """
+    head, _, rest = str(value).strip().partition(" ")
+    if head.isdigit() and rest.strip():
+        return head, rest.strip().lower()
+    return None, str(value).strip().lower()
+
+
+def conflict_kind(first, second):
+    """"count" when two values differ only in a leading number, "kind" otherwise."""
+    number1, base1 = leading_count(first)
+    number2, base2 = leading_count(second)
+    return "count" if base1 == base2 and number1 != number2 else "kind"
+
+
+CONTROL = "different relation, unrelated (control: neutral by rule)"
+ANTONYM = "different relation, negated (contradiction by construction)"
+SAME_VALUE = "same relation, same value (entailment by construction)"
+KIND = "same relation, different KIND of value"
+COUNT = "same relation, different COUNT of one value"
+
+
+def bucket_of(triple1, triple2):
+    """Which question a pair of triples is asking, or None when it cannot be read.
+
+    Returns (bucket, relation). The relation is carried because the answer to this audit turned out
+    to live entirely inside the per-relation breakdown: aggregated, the decisive bucket is 96 %
+    contradiction; split by relation it is nineteen relations at 0-2 % neutral and seven at 100 %,
+    with nothing in between. That is not a corpus being inconsistent, it is a corpus encoding
+    cardinality — and an aggregate hides it completely.
+    """
+    if not triple1 or not triple2 or len(triple1) < 3 or len(triple2) < 3:
+        return None
+    relation1, relation2 = str(triple1[1]), str(triple2[1])
+    if relation1 == NONE_TRIPLE or relation2 == NONE_TRIPLE:
+        return None
+    if relation1 != relation2:
+        return (ANTONYM if is_antonym_pair(relation1, relation2) else CONTROL), None
+    value1, value2 = str(triple1[2]).strip().lower(), str(triple2[2]).strip().lower()
+    if value1 == value2:
+        return SAME_VALUE, relation1
+    return (COUNT if conflict_kind(value1, value2) == "count" else KIND), relation1
+
+
+CANONICAL = ("entailment", "neutral", "contradiction")
+
+
+def derive_label_names(buckets, dominant=0.8):
+    """Works out which of this mirror's label strings means what, from the corpus's construction.
+
+    NOT from the strings themselves. `pietrolesci/dialogue_nli` calls them positive/neutral/negative
+    while the canonical release says entailment/neutral/contradiction, and the previous version of
+    this audit compared against the literal string "contradiction", counted zero every time, and
+    printed a verdict that could not come out the other way. Hardcoding the other vocabulary would
+    only move the same bug.
+
+    So it is derived from two anchors the paper states and this file can check:
+
+      * a pair of persona sentences sharing a triple is an ENTAILMENT by construction — that is how
+        the corpus makes its positives;
+      * a pair across two unrelated relations is NEUTRAL by rule.
+
+    Whatever label dominates each of those names that class, and the third is contradiction by
+    elimination. Both anchors must be overwhelming and they must disagree with each other, or this
+    returns None and the caller withholds the verdict rather than guessing — which is the rule this
+    repo has already paid for elsewhere: SuperGLUE's 0 meaning entailment, read as a Likert 0.0
+    meaning undecided, inverted the labels on the rows that mattered most.
+
+    A mirror that already uses the canonical names must AGREE with the derivation. If it does not,
+    something is being read wrong, and that is a failure rather than a preference.
+    """
+    def dominant_label(bucket):
+        counts = buckets.get(bucket)
+        if not counts:
+            return None
+        label, count = counts.most_common(1)[0]
+        return label if count / sum(counts.values()) >= dominant else None
+
+    entailment, neutral = dominant_label(SAME_VALUE), dominant_label(CONTROL)
+    if not entailment or not neutral or entailment == neutral:
+        return None
+
+    observed = {label for counts in buckets.values() for label in counts}
+    remaining = observed - {entailment, neutral}
+    if len(remaining) != 1:
+        return None
+    contradiction = remaining.pop()
+
+    derived = {entailment: "entailment", neutral: "neutral", contradiction: "contradiction"}
+    if any(raw in CANONICAL and canonical != raw for raw, canonical in derived.items()):
+        return None
+    return derived
+
+
 def audit(name, rows, label_names=None):
     """Cross-tabulates DialogueNLI's own relation triples against its own labels.
 
@@ -190,39 +312,40 @@ def audit(name, rows, label_names=None):
     "can both be true of one person" rather than "do these describe one scene" — was a recollection
     of the annotation scheme rather than a reading of the data.
 
-    THE FIRST VERSION OF THIS FUNCTION WAS WRONG TWICE, and both are worth keeping written down
-    because they are the same kind of mistake the rest of this project keeps finding:
+    IT HAS NOW BEEN WRONG THREE TIMES, and every one is the same kind of mistake:
 
-      1. It compared the label against the string "neutral" while the mirror stores integers, so
-         the count was always zero and it printed "mostly NOT neutral" whatever the data said. A
-         verdict that cannot come out the other way is not a measurement. Labels are now decoded
-         through `original_label`, which is the column that actually states them.
+      1. It compared the label against the string "neutral" while the mirror stores integers, so the
+         count was always zero and it printed "mostly NOT neutral" whatever the data said.
+      2. It bucketed on the RELATION alone, so same-triple pairs — entailments by construction —
+         landed in the same bucket as the case in question.
+      3. It then compared against the string "contradiction" while this mirror says "negative", so
+         the verdict was again computed from a count that was structurally zero, and it announced
+         the worst of the three possible answers about a corpus that gives the best one. Labels are
+         now DERIVED from the corpus's construction (see derive_label_names) rather than named.
 
-      2. It bucketed on the RELATION alone, which conflates two unrelated cases. A pair of persona
-         sentences sharing the *same triple* is an entailment by construction — that is how the
-         corpus makes its positives — and it lands in the same bucket as the case we care about.
-         The question is specifically SAME RELATION, DIFFERENT VALUE: "I have a corgi" against
-         "I have a cat", one `have_pet` against another. Only that bucket decides whether this
-         corpus answers our question or shares MNLI's problem.
+    All three shipped believing they had measured something, and what they had in common was a
+    number that could only come out one way. That is the thing to check first in anything here.
 
-    The third bucket, different relations, is the control: the paper labels relation swaps neutral
-    by construction, so if it does not come out overwhelmingly neutral, the triples are not being
-    read correctly and nothing else here should be believed.
+    The fourth reading is the one that answers the question, and it needed one more split: values
+    differing by a leading COUNT ("2 dog" against "5 dog") are arithmetic rather than cardinality,
+    and they are an eighth of the decisive bucket at 96 % contradiction. Separating them is what
+    turned an apparently inconsistent corpus into a completely regular one.
     """
     import collections
 
     buckets = collections.defaultdict(collections.Counter)
-    for r in rows:
-        t1, t2 = r.get("triple1"), r.get("triple2")
-        if not t1 or not t2 or len(t1) < 3 or len(t2) < 3:
+    by_relation = collections.defaultdict(collections.Counter)
+    dropped = 0
+    for row in rows:
+        placed = bucket_of(row.get("triple1"), row.get("triple2"))
+        if placed is None:
+            dropped += 1
             continue
-        label = label_of(r, label_names)
-        if t1[1] != t2[1]:
-            buckets["different relation (control: should be neutral)"][label] += 1
-        elif str(t1[2]).strip().lower() == str(t2[2]).strip().lower():
-            buckets["same relation, SAME value"][label] += 1
-        else:
-            buckets["same relation, DIFFERENT value"][label] += 1
+        bucket, relation = placed
+        label = label_of(row, label_names)
+        buckets[bucket][label] += 1
+        if bucket == KIND:
+            by_relation[relation][label] += 1
 
     if not buckets:
         print(f"{name}: no usable triple annotations on these rows, so the label rule cannot be "
@@ -230,44 +353,116 @@ def audit(name, rows, label_names=None):
               f"triple2; a mirror that dropped them cannot answer this.")
         return
 
-    total = sum(sum(c.values()) for c in buckets.values())
-    print(f"{name}: {total} pairs carrying triples\n")
-    for bucket in ("same relation, DIFFERENT value", "same relation, SAME value",
-                   "different relation (control: should be neutral)"):
+    total = sum(sum(counts.values()) for counts in buckets.values())
+    print(f"{name}: {total} pairs with both triples annotated "
+          f"({dropped} dropped: no triple, or one side unannotated)\n")
+
+    names = derive_label_names(buckets)
+    if names is None:
+        print("  LABELS COULD NOT BE DERIVED. The two anchors this reads them from — same-triple")
+        print("  pairs are entailment by construction, unrelated-relation pairs are neutral by")
+        print("  rule — did not come out cleanly, so which class is which is unknown and every")
+        print("  verdict below is withheld rather than guessed. Counts are printed raw.\n")
+    else:
+        print("  label vocabulary, derived from the corpus's construction, not from its spelling:")
+        for raw, canonical in sorted(names.items(), key=lambda pair: CANONICAL.index(pair[1])):
+            print(f"     {raw:<14} = {canonical}")
+        print()
+
+    def share(counts, want):
+        """The fraction of one bucket carrying a canonical class, or None if labels are unknown."""
+        if names is None:
+            return None
+        n = sum(counts.values())
+        return sum(v for k, v in counts.items() if names.get(k) == want) / n if n else 0.0
+
+    for bucket in (KIND, COUNT, SAME_VALUE, CONTROL, ANTONYM):
         counts = buckets.get(bucket)
         if not counts:
             continue
         n = sum(counts.values())
-        print(f"  {bucket:<46} n={n:<8} " +
-              "  ".join(f"{k} {v / n:.0%}" for k, v in counts.most_common(4)))
+        rendered = "  ".join(f"{names[k] if names else k} {v / n:.0%}"
+                             for k, v in counts.most_common(3))
+        print(f"  {bucket:<50} n={n:<8} {rendered}")
 
-    decisive = buckets.get("same relation, DIFFERENT value")
-    if not decisive:
-        print("\n  No same-relation/different-value pairs at all, which is itself the answer: the "
-              "corpus never asks our question and cannot settle it.")
+    # The control and the antonym split are what say whether anything else here can be believed.
+    control = buckets.get(CONTROL)
+    if names and control and share(control, "neutral") < 0.9:
+        print("\n  THE CONTROL FAILED. Unrelated relations are neutral by the paper's rule and here")
+        print("  they are not, so the triples are not being read as intended and nothing above")
+        print("  should be believed.")
+        return
+    antonyms = buckets.get(ANTONYM)
+    if names and antonyms and share(antonyms, "contradiction") < 0.6:
+        print("\n  The negated-relation bucket is not mostly contradiction, so the antonym rule in")
+        print("  this file is wrong and the control it was separated from is polluted. Fix")
+        print("  is_antonym_pair before reading the verdict.")
         return
 
-    n = sum(decisive.values())
-    neutral = decisive.get("neutral", 0) / n
-    contradiction = decisive.get("contradiction", 0) / n
-    unknown = sum(v for k, v in decisive.items() if k.startswith("id:")) / n
+    if not by_relation:
+        print("\n  No same-relation/different-kind pairs at all, which is itself the answer: the")
+        print("  corpus never asks our question and cannot settle it.")
+        return
+    if names is None:
+        return
+
+    print("\n  THE DECISIVE BUCKET, PER RELATION — same relation, different KIND of value")
+    print("  (\"I have a corgi\" against \"I have a cat\"). Relations with at least 100 pairs:\n")
+    ranked = [(relation, counts) for relation, counts in by_relation.items()
+              if sum(counts.values()) >= 100]
+    ranked.sort(key=lambda pair: share(pair[1], "neutral"))
+    for relation, counts in ranked:
+        print(f"     {relation:<28} n={sum(counts.values()):<7} "
+              f"neutral {share(counts, 'neutral'):>4.0%}  "
+              f"contradiction {share(counts, 'contradiction'):>4.0%}")
+
+    if not ranked:
+        print("     (no relation reaches 100 pairs, so it cannot be read per relation)")
+        return
+
+    shares = [share(counts, "neutral") for _, counts in ranked]
+    many = [relation for (relation, _), s in zip(ranked, shares) if s >= 0.8]
+    single = [relation for (relation, _), s in zip(ranked, shares) if s <= 0.2]
+    middle = len(shares) - len(many) - len(single)
+
+    aggregate = collections.Counter()
+    for counts in by_relation.values():
+        aggregate.update(counts)
+    neutral = share(aggregate, "neutral")
+
     print()
-    if unknown > 0.5:
-        print("  Labels could not be decoded — no original_label column and no label names. The")
-        print("  percentages above are raw ids and the verdict below is withheld rather than")
-        print("  guessed, because a wrong mapping here inverts the conclusion entirely.")
+    if middle == 0 and many and single:
+        print(f"  BIMODAL, CLEANLY: {len(single)} relations treat a different value as a "
+              f"contradiction and {len(many)}")
+        print("  treat it as neutral, with NONE in between. That is not an inconsistent corpus, it")
+        print("  is a corpus encoding RELATION CARDINALITY — the same axis PredicateVocabulary")
+        print("  already encodes, and the axis MNLI was measured getting wrong. Usable whole.")
+        print()
+        print(f"  Read the aggregate ({neutral:.0%} neutral) as meaningless: it is dominated by "
+              f"whichever")
+        print("  relation happens to be largest. The per-relation split is the finding.")
+        print()
+        print("  many-valued here:   " + ", ".join(sorted(many)))
+        print("  single-valued here: " + ", ".join(sorted(single)))
+        print()
+        print("  Worth diffing against PredicateVocabulary before trusting a fine-tune on this: a")
+        print("  relation this corpus calls single-valued and the companion calls multi-valued is a")
+        print("  disagreement a model would learn and the pipeline would then quietly override.")
     elif neutral >= 0.6:
         print(f"  {neutral:.0%} NEUTRAL. One person may hold both, which is the question memory")
         print("  supersession asks and the reason to prefer this corpus over MNLI. Use it whole.")
-    elif contradiction >= 0.6:
-        print(f"  {contradiction:.0%} CONTRADICTION. Two different pets read as a conflict, so for")
-        print("  supersession this corpus shares MNLI's problem exactly. Train only on the rows")
-        print("  whose contradiction comes from an explicitly negating triple (not_have and its")
-        print("  kin), and treat same-relation/different-value rows as unusable.")
+    elif 1 - neutral >= 0.6:
+        print(f"  {1 - neutral:.0%} CONTRADICTION, and not split by relation either "
+              f"({middle} relations sit in the")
+        print("  middle), so two different pets read as a conflict however it is sliced. For")
+        print("  supersession this corpus shares MNLI's problem exactly. Train only on rows whose")
+        print("  contradiction comes from an explicitly negating triple, and treat")
+        print("  same-relation/different-kind rows as unusable.")
     else:
-        print(f"  Split — {neutral:.0%} neutral against {contradiction:.0%} contradiction. The")
-        print("  corpus is inconsistent on exactly the case we need, which is a third answer and")
-        print("  the worst one: it cannot be used whole and cannot be filtered by label alone.")
+        print(f"  Split — {neutral:.0%} neutral, and {middle} of {len(ranked)} relations sit in the "
+              f"middle rather than")
+        print("  at one end, so it is not cardinality either. That is the third answer and the")
+        print("  worst one: it cannot be used whole and cannot be filtered by label alone.")
 
 
 def rows_from_file(name, path):
