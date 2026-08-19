@@ -395,6 +395,67 @@ bug; new values chosen independent of state (source of the 1,507 inconsistent ro
 split files ungrouped; `synthetic-life-1000.jsonl` and `synthetic-life-phase3-1000.jsonl` are
 content-identical.
 
+## The naturalization experiment (2026-08-19): diversity moves the holdout, and the control proves it
+
+The phase-4 corpus exists in two forms that differ in exactly one thing. Both come from the same
+fixed simulator (Codex's semantic fixes: state-aware values, genuinely-new-slot establishments,
+generation-time validity throws — commit 5839105); one keeps the deterministic template surface
+(747 pair rows after the audit's rejections), the other runs 120 boundary-priority events through
+`LlmSyntheticVerbalizer` + the conservative validator (149 pair rows surviving quarantine and the
+same rejections). Same MiniLM, same trainer, same gates, same frozen holdout as 1229ad2. Corpus
+construction was committed before any of these numbers were read.
+
+| | phase-3 (1229ad2) | phase-4 structured (control) | phase-4 naturalized |
+|---|---|---|---|
+| rows / surfaces | 5,699 / 41 templates | 747 / 41 templates | 149 / LLM paraphrases |
+| life-grouped action F1, FS | 1.000, 0.000 | 1.000, 0.000 | 1.000, 0.000 |
+| life-grouped calibration | rejected | **T=0.25 accepted, ECE 0.000** | T=0.45 accepted, ECE 0.091 |
+| template-grouped action F1, FS | 0.906, 0.076 | 0.808, **0.171** | 0.890, 0.129 |
+| template-grouped vs incumbent | "beats" | +0.311 [−0.069, +0.633] indist. | +0.316 [−0.001, +0.531] indist. |
+| **production holdout** | **3/12** (misses 0.68–0.99) | **2/12** (misses 0.49–0.97) | **5/12** (misses 0.23–0.66) |
+
+**The control is the loudest sentence in the table.** With every semantic defect fixed and the
+surface still deterministic, the model scores a perfect 1.000 on every one of seven classes,
+calibration *sharpens* to ECE 0.000, safe coverage reads 94 % at every bar — and the holdout
+falls to 2/12, the worst transfer ever measured on this task, at up to 0.97 confidence. Every
+in-corpus number a deterministic-surface corpus produces is template recognition, now proven
+under fixed semantics rather than argued.
+
+**The naturalized corpus, 5× smaller, beats both on the only real data in the room**: 5/12, and
+its misses sit at 0.23–0.66 — the first run whose confidence on wrong answers is honestly low,
+and the first whose temperature fit was accepted rather than refused. Linguistic diversity did
+not make the model much better in-corpus; it made the model's *knowledge transferable* and its
+*doubt honest*.
+
+Per-label on unseen templates, the watch-list:
+
+| class | phase-3 | structured control | naturalized | reading |
+|---|---|---|---|---|
+| COEXIST | 0.000 | 0.385 (R=0.238; 112/147 → SUPERSEDES) | **0.492** (18/43 → SUPERSEDES) | recovers; half the recovery is the semantic fixes, the rest is surface diversity — and the coexist-buried-as-change error is still the dominant one |
+| REFINES | 0.480 | 0.545 | **0.792** | the clearest diversity win |
+| UNCERTAIN | 0.601 | 0.606 | **0.000** | eliminated by the validator, not the model: 10 surviving rows, never once predicted |
+| DUPLICATE | 1.000 | 1.000 | — (0 rows) | validator's all-words rule killed every paraphrase |
+| CONTRADICTS | 1.000 | 1.000 | — (0 rows) | same |
+| SUPERSEDES | 0.911 | 0.818 | 0.877 | |
+| CORRECTS | 0.893 | 0.779 | 1.000 in-corpus — and **over-predicted on the holdout** | 5 of 7 naturalized holdout misses say CORRECTS ("I live in Cambridge now" → CORRECTS); 9 marker-saturated training rows taught "statement of change = correction" |
+
+**What is NOT supported**: adoption, exactly as before. False-supersede on unseen surfaces is
+0.129–0.171 against incumbents at 0.000–0.058 — the budget gate fails everywhere; UNCERTAIN is
+dead in the naturalized corpus; two classes are absent from it entirely; and both incumbent
+comparisons straddle zero. The verdict is about the *data direction*, not the model: surface
+diversity transfers, template volume does not, and the next corpus needs the fixes recorded at
+the phase-4 checkpoint (values without label markers, a value-preservation check that accepts
+natural paraphrase, an UNCERTAIN/CONTRADICTS/DUPLICATE path through quarantine, a 7B-class
+verbalizer) plus more than 120 events. Those findings came from the pre-training audit and the
+holdout — none of them is a patch applied to this corpus after seeing its scores.
+
+Reproduction: `training/supersession/reject_invalid.py` over the committed artifacts, then
+`adapt_synthetic_life.py <artifact>`, the eval tool's `--only corpus` stamp, and
+`train.py --develop synthlife --fold-on corpus|template`. The naturalized artifact itself is
+unseeded LLM output; `artifacts/` is gitignored for storage reasons, so it exists only on this
+machine. Holdout fits are identical across
+fold modes by construction, and matched exactly — a consistency check the runs passed.
+
 ## Order of work (original, for the record)
 
 1. Pair capture (§7) — it gates the base rate, the adjudication queue, and the real test set.
