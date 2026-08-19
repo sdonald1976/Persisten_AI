@@ -11,6 +11,9 @@ R4 listener-subject shift (naturalized only): the utterance asserts the fact abo
    while the fact's subject is the user - the validator only checks other:* subjects.
 R5 task-instruction leakage (naturalized only): the utterance contains the prompt's own
    meta-language about the classification task.
+R6 subject-id narration (naturalized only): the utterance names the simulator's subject id
+   ("Life-0026 switched to...") - third-person narration of a first-person fact, which no
+   real user produces and which quietly shifts the subject.
 """
 import json, re, sys, collections
 
@@ -40,6 +43,8 @@ for r in rows:
             why = "R4 listener-subject shift"
         elif any(m in u.lower() for m in META):
             why = "R5 task-instruction leakage"
+        elif re.search(r"life-\d{4}", u, re.I):
+            why = "R6 subject-id narration"
     if why:
         rejected[(why, r["expectedLabel"])] += 1
         if len(examples[why]) < 2:

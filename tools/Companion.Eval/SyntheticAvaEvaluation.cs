@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Companion.Core.Abstractions;
 
 namespace Companion.Eval;
@@ -487,12 +488,26 @@ public interface ISyntheticVerbalizationValidator
 
 public sealed record SyntheticVerbalizationVerdict(string Status, bool TrustedForTraining, string? Reason = null);
 
-public sealed class ConservativeSyntheticVerbalizationValidator : ISyntheticVerbalizationValidator
+public sealed partial class ConservativeSyntheticVerbalizationValidator : ISyntheticVerbalizationValidator
 {
-    private static readonly string[] ChangeMarkers = { "instead", "anymore", "no longer", "used to", "now ", "these days", "switched", "changed" };
-    private static readonly string[] CorrectionMarkers = { "correct", "meant", "mistake", "wrong", "actually", "rather" };
-    private static readonly string[] RefinementMarkers = { "specifically", "precisely", "particular", "more exact", "to be specific", "kind of" };
-    private static readonly string[] UncertainMarkers = { "maybe", "might", "perhaps", "temporary", "for now", "for this", "would", "if ", "?", "said", "apparently", "not sure" };
+    private static readonly string[] ChangeMarkers = { "instead", "anymore", "no longer", "used to", "now", "these days", "switched", "changed", "switching" };
+    private static readonly string[] CorrectionMarkers = { "correct", "corrected", "correcting", "meant", "mistake", "mixed up", "wrong", "actually", "rather" };
+    private static readonly string[] RefinementMarkers = { "specifically", "precisely", "particular", "more exact", "to be specific", "kind of", "more specific" };
+    private static readonly string[] UncertainMarkers =
+    {
+        "maybe", "might", "perhaps", "temporary", "temporarily", "for now", "for this", "would", "if", "?",
+        "said", "apparently", "not sure", "guess", "seems", "seem", "sort of", "hard to say", "hard to tell",
+        "who knows", "we'll see", "not certain", "no idea", "at the moment", "for the moment", "this month",
+        "this week", "while things", "could be", "trying", "experimenting",
+    };
+    // The verbalizer prompt's own vocabulary. A paraphrase that talks ABOUT the classification
+    // task instead of speaking AS the user is label leakage of the worst kind — the training
+    // text states the class definition.
+    private static readonly string[] TaskLanguage =
+    {
+        "change over time", "semantic relation", "temporal scope", "ground truth", "immutable",
+        "paraphrase", "structured event", "expected label", "durable fact", "coexist", "supersede",
+    };
 
     public SyntheticVerbalizationVerdict Validate(SyntheticCorpusRow source, string candidate)
     {
@@ -502,17 +517,23 @@ public sealed class ConservativeSyntheticVerbalizationValidator : ISyntheticVerb
             return new("quarantined", false, "paraphrase too long");
         if (Normalize(candidate) == Normalize(source.DeterministicUtterance ?? source.Utterance))
             return new("quarantined", false, "not a distinct paraphrase");
+        if (TaskLanguage.Any(m => candidate.Contains(m, StringComparison.OrdinalIgnoreCase)))
+            return new("quarantined", false, "task language leaked into paraphrase");
         if (!ContainsImportantValue(source.CurrentFact.Value, candidate))
             return new("quarantined", false, "current value not preserved");
         if (source.CurrentFact.SubjectId.StartsWith("other:", StringComparison.Ordinal) &&
-            (candidate.StartsWith("I ", StringComparison.OrdinalIgnoreCase) || candidate.Contains(" my ", StringComparison.OrdinalIgnoreCase)))
+            FirstPersonClaim().IsMatch(candidate))
             return new("quarantined", false, "possible subject shift");
+        if (!source.CurrentFact.SubjectId.StartsWith("other:", StringComparison.Ordinal) &&
+            ListenerClaim().IsMatch(candidate))
+            return new("quarantined", false, "fact shifted onto the listener");
         if (source.ExpectedLabel == "COEXIST" && ContainsAny(candidate, ChangeMarkers))
             return new("quarantined", false, "coexist paraphrase implies replacement");
         if (source.ExpectedLabel == "SUPERSEDES" && source.ExpectedMemoryOperation != "EXPIRE" &&
             !ContainsAny(candidate, ChangeMarkers) && !ContainsImportantValue(source.PreviousFact?.Value, candidate))
             return new("quarantined", false, "supersession relation not explicit enough");
-        if (source.ExpectedLabel == "CORRECTS" && !ContainsAny(candidate, CorrectionMarkers))
+        if (source.ExpectedLabel == "CORRECTS" && !ContainsAny(candidate, CorrectionMarkers) &&
+            !ContainsImportantValue(source.PreviousFact?.Value, candidate))
             return new("quarantined", false, "correction relation not preserved");
         if (source.ExpectedLabel == "REFINES" && !ContainsAny(candidate, RefinementMarkers) &&
             !ContainsImportantValue(source.PreviousFact?.Value, candidate))
@@ -522,21 +543,50 @@ public sealed class ConservativeSyntheticVerbalizationValidator : ISyntheticVerb
         return new("accepted", true);
     }
 
+    /// <summary>
+    /// The candidate must carry the fact's content words — tolerantly. Contractions are folded
+    /// ("cannot"/"can't"/"cant" all match), and a value of three or more content words may lose
+    /// one of them, because "can't abide Perth" IS "cannot stand Perth" and a validator that
+    /// rejects every natural paraphrase of a class removes the class from the corpus.
+    /// </summary>
     private static bool ContainsImportantValue(string? value, string candidate)
     {
         if (string.IsNullOrWhiteSpace(value)) return false;
-        var words = value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Select(w => new string(w.Where(char.IsLetterOrDigit).ToArray()))
+        var haystack = FoldContractions(candidate);
+        var words = FoldContractions(value).Split(' ', StringSplitOptions.RemoveEmptyEntries)
             .Where(w => w.Length > 2 && w is not ("the" or "and" or "with" or "named" or "called" or "actually"))
             .ToArray();
-        return words.Length == 0 || words.All(w => candidate.Contains(w, StringComparison.OrdinalIgnoreCase));
+        if (words.Length == 0) return true;
+        var missing = words.Count(w => !haystack.Contains(w, StringComparison.OrdinalIgnoreCase));
+        return missing == 0 || (words.Length >= 3 && missing <= 1);
     }
 
+    private static string FoldContractions(string text)
+    {
+        var folded = text.ToLowerInvariant()
+            .Replace("’", "'").Replace("'", "")
+            .Replace("cannot", "cant").Replace("can not", "cant");
+        var letters = new string(folded.Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray());
+        return string.Join(' ', letters.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    /// <summary>Markers match on word boundaries, so sentence-final "now" counts and "gift" does
+    /// not contain "if". "?" is the one marker that is punctuation, checked literally.</summary>
     private static bool ContainsAny(string candidate, IEnumerable<string> markers)
-        => markers.Any(m => candidate.Contains(m, StringComparison.OrdinalIgnoreCase));
+        => markers.Any(m => m == "?"
+            ? candidate.Contains('?')
+            : Regex.IsMatch(candidate, $@"\b{Regex.Escape(m)}\b", RegexOptions.IgnoreCase));
 
     private static string Normalize(string text)
         => string.Join(' ', text.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    // First-person CLAIM of a fact, not any first-person word: "I wrote it in my notebook" is the
+    // narrator being themselves; "I prefer curry" about someone else's fact is a subject shift.
+    [GeneratedRegex(@"\bI\s+(?:prefer|like|love|enjoy|drink|eat|have|own|keep|am|'m)\b|\bmy\s+(?:favorite|favourite|preference|preferred|pet|dog|cat|drink|food|routine|go-to)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex FirstPersonClaim();
+
+    [GeneratedRegex(@"\byour\s+(?:favorite|favourite|preference|preferred|pet|drink|food|routine)\b|\byou\s+(?:prefer|like|love|enjoy|drink|eat)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex ListenerClaim();
 }
 
 public static class SyntheticVerbalizationExtensions
