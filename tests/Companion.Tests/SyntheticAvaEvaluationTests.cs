@@ -268,6 +268,38 @@ public class SyntheticAvaEvaluationTests
         Assert.All(rows, r => Assert.Equal("deterministic-template", r.VerbalizerId));
     }
 
+    [Fact]
+    public async Task Naturalization_pipeline_tracks_groups_provenance_and_quarantine()
+    {
+        var rows = SyntheticLife.GenerateRows(new SyntheticRunRequest(1827, People: 12, TurnsPerPerson: 180, EventsPerPerson: 10));
+        var result = await SyntheticNaturalizationPipeline.RunAsync(rows, new AlternatingVerbalizer(),
+            new SyntheticNaturalizationRequest(91, MaxStructuredEvents: 20, ParaphrasesPerEvent: 2, MaxConcurrency: 2));
+
+        Assert.Equal(20, result.StructuredEvents);
+        Assert.Equal(40, result.Attempted);
+        Assert.NotEmpty(result.Accepted);
+        Assert.NotEmpty(result.Quarantined);
+        Assert.All(result.Accepted.Concat(result.Quarantined), row =>
+        {
+            Assert.NotNull(row.DeterministicUtterance);
+            Assert.NotNull(row.VerbalizationGroupId);
+            Assert.NotNull(row.VerbalizationSeed);
+            Assert.Equal("test-naturalizer", row.VerbalizerId);
+        });
+        Assert.Equal(2, result.Diagnostics.Overall.ParaphrasesPerStructuredEvent);
+    }
+
+    [Fact]
+    public void Naturalization_selection_prioritizes_boundaries_and_caps_duplicates()
+    {
+        var rows = SyntheticLife.GenerateRows(new SyntheticRunRequest(1827, People: 60, TurnsPerPerson: 180, EventsPerPerson: 12));
+        var selected = SyntheticNaturalizationPipeline.SelectStructuredEvents(rows,
+            new SyntheticNaturalizationRequest(91, MaxStructuredEvents: 70));
+
+        Assert.True(selected.Count(r => r.ExpectedLabel == "DUPLICATE") <= 5);
+        Assert.True(selected.Count(r => r.ExpectedLabel is "COEXIST" or "SUPERSEDES") > selected.Count / 2);
+    }
+
     private static SyntheticCorpusRow Row(string label)
         => Rows(new SyntheticRunRequest(
             1827,
@@ -279,6 +311,25 @@ public class SyntheticAvaEvaluationTests
 
     private static IReadOnlyList<SyntheticCorpusRow> Rows(SyntheticRunRequest request)
         => SyntheticLife.GenerateRows(request);
+
+    private sealed class AlternatingVerbalizer : ISyntheticUtteranceVerbalizer
+    {
+        public string Id => "test-naturalizer";
+
+        public Task<SyntheticVerbalization> VerbalizeAsync(SyntheticCorpusRow row, CancellationToken ct = default)
+        {
+            var accepted = row.VerbalizationSeed % 2 == 0;
+            return Task.FromResult(new SyntheticVerbalization(
+                row.DeterministicUtterance ?? row.Utterance,
+                $"{row.DeterministicUtterance ?? row.Utterance} phrasing {row.VerbalizationSeed}",
+                Id,
+                accepted ? "accepted" : "quarantined",
+                accepted,
+                accepted ? null : "test quarantine",
+                "fixture-model",
+                row.VerbalizationSeed));
+        }
+    }
 
     private sealed class FakeAvaClient : IAvaConversationClient
     {

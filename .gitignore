@@ -43,3 +43,6 @@ models/
 
 # Python virtualenv for training/ (torch is ~2.5 GB; never committed)
 .venv/
+
+# Generated corpora and evaluation artifacts - large, and either reproducible from a recorded command or machine-local experimental records. See docs/SYNTHETIC_LIFE.md.
+artifacts/
