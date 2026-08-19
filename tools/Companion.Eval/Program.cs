@@ -78,6 +78,7 @@ if (only is not null && only.Equals("synthetic", StringComparison.OrdinalIgnoreC
     var e2eFailuresPath = ArgValue("--e2e-failures");
     var minFamilies = ParseMinimums("--min-family");
     var minDifficulty = ParseMinimums("--min-difficulty");
+    var naturalize = args.Contains("--naturalize", StringComparer.OrdinalIgnoreCase);
     var request = new SyntheticRunRequest(
         seed,
         people,
@@ -98,6 +99,41 @@ if (only is not null && only.Equals("synthetic", StringComparison.OrdinalIgnoreC
     var watch = System.Diagnostics.Stopwatch.StartNew();
     var scenarios = SyntheticLife.Generate(request);
     var rows = scenarios.SelectMany(s => s.Examples).ToList();
+
+    if (naturalize)
+    {
+        var verbalizerUrl = ArgValue("--verbalizer-url") ?? Environment.GetEnvironmentVariable("OPENAI_API_BASE") ?? "http://localhost:11434/v1";
+        var verbalizerModel = ArgValue("--verbalizer-model") ?? Environment.GetEnvironmentVariable("MODEL_NAME") ?? "gpt-4.1-mini";
+        var apiKey = Environment.GetEnvironmentVariable(ArgValue("--verbalizer-key-env") ?? "OPENAI_API_KEY");
+        var maxStructured = int.TryParse(ArgValue("--naturalize-events"), out var ne) ? ne : 300;
+        var paraphrases = int.TryParse(ArgValue("--paraphrases"), out var np) ? np : 3;
+        var concurrency = int.TryParse(ArgValue("--naturalize-concurrency"), out var nc) ? nc : 4;
+        var quarantinePath = ArgValue("--quarantine") ?? Path.ChangeExtension(outPath, ".quarantine.jsonl");
+        var structuredPath = ArgValue("--structured-out");
+        if (structuredPath is not null)
+            SyntheticLife.WriteJsonl(structuredPath, rows);
+
+        using var model = new SyntheticOpenAiChatModel(verbalizerUrl, verbalizerModel, apiKey);
+        var verbalizer = new LlmSyntheticVerbalizer(model, new ConservativeSyntheticVerbalizationValidator(), $"llm:{verbalizerModel}");
+        var naturalized = await SyntheticNaturalizationPipeline.RunAsync(rows, verbalizer,
+            new SyntheticNaturalizationRequest(seed, maxStructured, paraphrases, concurrency));
+        SyntheticLife.WriteJsonl(outPath, naturalized.Accepted);
+        SyntheticLife.WriteJsonl(quarantinePath, naturalized.Quarantined);
+        Console.WriteLine($"naturalized structured events: {naturalized.StructuredEvents}");
+        Console.WriteLine($"verbalization attempts: {naturalized.Attempted}, accepted {naturalized.Accepted.Count}, quarantined {naturalized.Quarantined.Count}");
+        PrintDiversity(naturalized.Diagnostics);
+
+        if (splitDir is not null)
+        {
+            Directory.CreateDirectory(splitDir);
+            var split = SyntheticLife.Split(naturalized.Accepted, splitGroup, seed);
+            SyntheticLife.WriteJsonl(Path.Combine(splitDir, "synthetic.train.jsonl"), split.Train);
+            SyntheticLife.WriteJsonl(Path.Combine(splitDir, "synthetic.validation.jsonl"), split.Validation);
+            SyntheticLife.WriteJsonl(Path.Combine(splitDir, "synthetic.test.jsonl"), split.Test);
+            Console.WriteLine($"split ({splitGroup} groups): train {split.Train.Count}, validation {split.Validation.Count}, test {split.Test.Count}");
+        }
+        return 0;
+    }
 
     if (avaUrl is not null)
     {
@@ -267,4 +303,15 @@ static void PrintCounts(string title, IReadOnlyDictionary<string, int> counts)
     Console.WriteLine(title + ":");
     foreach (var (key, count) in counts.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         Console.WriteLine($"     {key,-34} {count,6}");
+}
+
+static void PrintDiversity(SyntheticDiversityReport report)
+{
+    var o = report.Overall;
+    Console.WriteLine($"diversity: rows {o.Rows}, unique {o.UniqueUtterances}, unique normalized {o.UniqueNormalizedUtterances}, exact duplicates {o.ExactDuplicates}, normalized duplicates {o.NormalizedDuplicates}, paraphrases/event {o.ParaphrasesPerStructuredEvent:F2}");
+    PrintCounts("label", report.ByLabel.ToDictionary(kv => kv.Key, kv => kv.Value.Rows, StringComparer.Ordinal));
+    PrintCounts("boundary", report.BoundaryTargets);
+    PrintCounts("validation", report.ValidationOutcomes);
+    if (report.ValidationReasons.Count > 0)
+        PrintCounts("quarantine reason", report.ValidationReasons);
 }

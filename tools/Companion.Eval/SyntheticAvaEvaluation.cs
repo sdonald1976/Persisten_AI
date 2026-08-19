@@ -405,7 +405,9 @@ public sealed record SyntheticVerbalization(
     string VerbalizerId,
     string ValidationStatus,
     bool TrustedForTraining,
-    string? Reason = null);
+    string? Reason = null,
+    string? Model = null,
+    int? Seed = null);
 
 public sealed class DeterministicTemplateVerbalizer : ISyntheticUtteranceVerbalizer
 {
@@ -436,18 +438,46 @@ public sealed class LlmSyntheticVerbalizer : ISyntheticUtteranceVerbalizer
 
     public async Task<SyntheticVerbalization> VerbalizeAsync(SyntheticCorpusRow row, CancellationToken ct = default)
     {
+        var seed = row.VerbalizationSeed ?? row.Seed;
         var prompt =
-            "Paraphrase the user's utterance naturally. Preserve subject, value, temporality, and meaning. " +
-            "Do not add facts. Return only the paraphrase.";
+            "Rewrite one synthetic user's utterance as varied, natural conversational English. " +
+            "The structured event below is immutable ground truth: preserve its subject, values, relation, " +
+            "certainty and temporality exactly. Do not infer a class, change the relation, add facts, explain, " +
+            "or mention this task. Return only one rewritten utterance. " + StyleInstruction(seed);
         var user =
-            $"Utterance: {row.Utterance}\nSubject: {row.CurrentFact.SubjectId}\n" +
-            $"Value: {row.CurrentFact.Value}\nExpected label: {row.ExpectedLabel}\n" +
-            $"Operation: {row.ExpectedMemoryOperation}\nTemporal: {row.TemporalScope}";
+            $"Original: {row.DeterministicUtterance ?? row.Utterance}\n" +
+            $"Subject: {row.CurrentFact.SubjectId}\nPrevious value: {row.PreviousFact?.Value ?? "(none)"}\n" +
+            $"Current value: {row.CurrentFact.Value}\nSemantic relation: {SemanticConstraint(row)}\n" +
+            $"Temporal scope: {row.TemporalScope}\nPermanent: {row.Permanent}";
         var completion = await _model.CompleteAsync(prompt, user, ct: ct);
-        var candidate = completion.Text.Trim();
+        var candidate = completion.Text.Trim().Trim('"');
         var verdict = _validator.Validate(row, candidate);
-        return new SyntheticVerbalization(row.Utterance, candidate, Id, verdict.Status, verdict.TrustedForTraining, verdict.Reason);
+        return new SyntheticVerbalization(row.DeterministicUtterance ?? row.Utterance, candidate, Id,
+            verdict.Status, verdict.TrustedForTraining, verdict.Reason, completion.Model, seed);
     }
+
+    private static string SemanticConstraint(SyntheticCorpusRow row) => row.ExpectedLabel switch
+    {
+        "COEXIST" => row.PreviousFact is null ? "adds a previously unset fact" : "adds a compatible fact without replacing the previous fact",
+        "SUPERSEDES" => row.ExpectedMemoryOperation == "EXPIRE" ? "ends the temporary previous state" : "replaces the previous value with the current value",
+        "CORRECTS" => "corrects an earlier inaccurate value; this is not a change over time",
+        "REFINES" => "makes the previous value more specific without contradicting it",
+        "DUPLICATE" => "restates the same fact without changing it",
+        "CONTRADICTS" => "conflicts with the previous value without resolving which is true",
+        _ => "is uncertain, quoted, hypothetical, ambiguous, or temporary and must not be promoted as a durable fact",
+    };
+
+    private static string StyleInstruction(int seed) => Math.Abs(seed % 8) switch
+    {
+        0 => "Use a concise casual register.",
+        1 => "Use an indirect conversational aside.",
+        2 => "Use a warm, reflective register.",
+        3 => "Use a terse message-like fragment.",
+        4 => "Use a slightly rambling but clear sentence.",
+        5 => "Use a self-correcting spoken cadence.",
+        6 => "Use a neutral everyday register with varied syntax.",
+        _ => "Use an informal register without canned transition phrases.",
+    };
 }
 
 public interface ISyntheticVerbalizationValidator
@@ -459,22 +489,54 @@ public sealed record SyntheticVerbalizationVerdict(string Status, bool TrustedFo
 
 public sealed class ConservativeSyntheticVerbalizationValidator : ISyntheticVerbalizationValidator
 {
+    private static readonly string[] ChangeMarkers = { "instead", "anymore", "no longer", "used to", "now ", "these days", "switched", "changed" };
+    private static readonly string[] CorrectionMarkers = { "correct", "meant", "mistake", "wrong", "actually", "rather" };
+    private static readonly string[] RefinementMarkers = { "specifically", "precisely", "particular", "more exact", "to be specific", "kind of" };
+    private static readonly string[] UncertainMarkers = { "maybe", "might", "perhaps", "temporary", "for now", "for this", "would", "if ", "?", "said", "apparently", "not sure" };
+
     public SyntheticVerbalizationVerdict Validate(SyntheticCorpusRow source, string candidate)
     {
         if (string.IsNullOrWhiteSpace(candidate))
             return new("rejected", false, "empty paraphrase");
+        if (candidate.Length > 500)
+            return new("quarantined", false, "paraphrase too long");
+        if (Normalize(candidate) == Normalize(source.DeterministicUtterance ?? source.Utterance))
+            return new("quarantined", false, "not a distinct paraphrase");
         if (!ContainsImportantValue(source.CurrentFact.Value, candidate))
             return new("quarantined", false, "current value not preserved");
         if (source.CurrentFact.SubjectId.StartsWith("other:", StringComparison.Ordinal) &&
-            candidate.Contains("I ", StringComparison.OrdinalIgnoreCase))
+            (candidate.StartsWith("I ", StringComparison.OrdinalIgnoreCase) || candidate.Contains(" my ", StringComparison.OrdinalIgnoreCase)))
             return new("quarantined", false, "possible subject shift");
+        if (source.ExpectedLabel == "COEXIST" && ContainsAny(candidate, ChangeMarkers))
+            return new("quarantined", false, "coexist paraphrase implies replacement");
+        if (source.ExpectedLabel == "SUPERSEDES" && source.ExpectedMemoryOperation != "EXPIRE" &&
+            !ContainsAny(candidate, ChangeMarkers) && !ContainsImportantValue(source.PreviousFact?.Value, candidate))
+            return new("quarantined", false, "supersession relation not explicit enough");
+        if (source.ExpectedLabel == "CORRECTS" && !ContainsAny(candidate, CorrectionMarkers))
+            return new("quarantined", false, "correction relation not preserved");
+        if (source.ExpectedLabel == "REFINES" && !ContainsAny(candidate, RefinementMarkers) &&
+            !ContainsImportantValue(source.PreviousFact?.Value, candidate))
+            return new("quarantined", false, "refinement relation not preserved");
+        if (source.ExpectedLabel == "UNCERTAIN" && !ContainsAny(candidate, UncertainMarkers))
+            return new("quarantined", false, "uncertainty boundary not preserved");
         return new("accepted", true);
     }
 
-    private static bool ContainsImportantValue(string value, string candidate)
-        => value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Where(w => w.Length > 2)
-            .Any(w => candidate.Contains(w, StringComparison.OrdinalIgnoreCase));
+    private static bool ContainsImportantValue(string? value, string candidate)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var words = value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => new string(w.Where(char.IsLetterOrDigit).ToArray()))
+            .Where(w => w.Length > 2 && w is not ("the" or "and" or "with" or "named" or "called" or "actually"))
+            .ToArray();
+        return words.Length == 0 || words.All(w => candidate.Contains(w, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ContainsAny(string candidate, IEnumerable<string> markers)
+        => markers.Any(m => candidate.Contains(m, StringComparison.OrdinalIgnoreCase));
+
+    private static string Normalize(string text)
+        => string.Join(' ', text.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }
 
 public static class SyntheticVerbalizationExtensions
@@ -486,7 +548,10 @@ public static class SyntheticVerbalizationExtensions
             DeterministicUtterance = verbalization.OriginalUtterance,
             VerbalizedUtterance = verbalization.CandidateUtterance,
             VerbalizerId = verbalization.VerbalizerId,
+            VerbalizerModel = verbalization.Model,
+            VerbalizationSeed = verbalization.Seed,
             VerbalizationStatus = verbalization.ValidationStatus,
+            VerbalizationReason = verbalization.Reason,
             TrustedForTraining = verbalization.TrustedForTraining,
             VerbalizationGroupId = row.VerbalizationGroupId ?? row.ScenarioId,
         };

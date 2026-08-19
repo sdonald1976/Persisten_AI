@@ -34,7 +34,7 @@ WHAT THE AUDIT FOUND (2026-08-18, on synthetic-life-phase3-1000.jsonl, 10,000 ro
   input. The render uses exactly what production would have: the utterance, the incoming fact, the
   existing fact, slot, cardinality, age bucket.
 """
-import collections, json, pathlib, sys
+import argparse, collections, json, pathlib, sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from taxonomy import LABELS, is_valid, render  # noqa: E402
@@ -44,7 +44,7 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-ARTIFACT = ROOT / "artifacts" / "synthetic-life-phase3-1000.jsonl"
+DEFAULT_ARTIFACT = ROOT / "artifacts" / "synthetic-life-phase4-naturalized.jsonl"
 CORPUS = ROOT / "training" / "corpus"
 
 # The generator's fact keys, mapped onto the companion's predicate vocabulary so cardinality — and
@@ -58,7 +58,9 @@ PREDICATE = {
     "preference.drink.espresso": ("likes", False),
     "preference.drink.breakfast": ("likes", False),
     "preference.drink.oat": ("likes", False),
+    "preference.drink": ("likes", False),
     "preference.food": ("likes", False),
+    "preference.food.additional": ("likes", False),
     "pet.primary": ("has_pet", False),
     "project.active": ("works_on", False),
     "opinion.city": ("belief", False),
@@ -81,9 +83,13 @@ def fact_sentence(fact):
 
 
 def main():
-    if not ARTIFACT.exists():
-        sys.exit(f"no artifact at {ARTIFACT}")
-    rows = [json.loads(line) for line in ARTIFACT.open(encoding="utf-8") if line.strip()]
+    parser = argparse.ArgumentParser(description="Adapt a trusted synthetic-life JSONL artifact to pair rows.")
+    parser.add_argument("artifact", nargs="?", type=pathlib.Path, default=DEFAULT_ARTIFACT)
+    args = parser.parse_args()
+    artifact = args.artifact if args.artifact.is_absolute() else ROOT / args.artifact
+    if not artifact.exists():
+        sys.exit(f"no artifact at {artifact}")
+    rows = [json.loads(line) for line in artifact.open(encoding="utf-8") if line.strip()]
 
     excluded = collections.Counter()
     made = []
@@ -98,9 +104,6 @@ def main():
         prev, cur = r.get("previousFact"), r.get("currentFact")
         if not prev or not cur:
             excluded["no-pair (no previous fact)"] += 1
-            continue
-        if r["family"] == "establish-fact":
-            excluded["establish-fact (seeded re-establishment)"] += 1
             continue
         if norm(prev["value"]) == norm(cur["value"]) and label != "DUPLICATE":
             excluded[f"value-identical under {label}"] += 1
@@ -129,6 +132,10 @@ def main():
             # Provenance for adjudication and error analysis — read by nothing that renders.
             "provenance": {"lifeId": r["lifeId"], "scenarioId": r["scenarioId"],
                            "templateFamilyId": r.get("templateFamilyId"),
+                           "verbalizationGroupId": r.get("verbalizationGroupId"),
+                           "verbalizer": r.get("verbalizerId"),
+                           "verbalizerModel": r.get("verbalizerModel"),
+                           "verbalizationSeed": r.get("verbalizationSeed"),
                            "eventDistanceBucket": r.get("eventDistanceBucket")},
         }
         row["text"] = render(row)
@@ -151,7 +158,7 @@ def main():
         "task": "memory.supersession.pair", "labels": list(LABELS), "sources": {}, "excluded": {}}
     manifest["sources"]["synthetic_life"] = {
         "file": out.name,
-        "corpus": "artifacts/synthetic-life-phase3-1000.jsonl (dev_automate, generator "
+        "corpus": str(artifact.relative_to(ROOT)).replace("\\", "/") + " (generator "
                   + (made[0]["generator"] if made else "?") + ")",
         "licence": "this repository",
         "role": "gold-synthetic, audited — see adapt_synthetic_life.py header for exclusions",

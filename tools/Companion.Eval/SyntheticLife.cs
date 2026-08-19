@@ -138,6 +138,9 @@ public static partial class SyntheticLife
         string groupBy = "life",
         int seed = 1)
     {
+        if (groupBy is not ("life" or "family" or "template" or "verbalization"))
+            throw new ArgumentOutOfRangeException(nameof(groupBy), groupBy,
+                "Supported groups are life, family, template, and verbalization.");
         var groups = rows
             .GroupBy(r => groupBy switch
             {
@@ -214,6 +217,7 @@ public static partial class SyntheticLife
             {
                 var before = state.Snapshot();
                 var ev = item.Family.Create(person, state, rng);
+                EnsureSemanticallyValid(state, ev);
                 var applied = state.Apply(ev);
                 var template = TemplateRegistry.Render(person, style, ev, applied, rng);
                 var after = state.Snapshot();
@@ -342,6 +346,25 @@ public static partial class SyntheticLife
     {
         var tail = personId.Split('-').LastOrDefault();
         return int.TryParse(tail, out var i) ? i : 0;
+    }
+
+    private static void EnsureSemanticallyValid(SyntheticState state, SyntheticEvent ev)
+    {
+        var current = ev.ExpectedMemoryOperation == "EXPIRE"
+            ? state.Latest(ev.SubjectId, ev.FactKey)
+            : state.Active(ev.SubjectId, ev.FactKey);
+        var identical = current is not null && current.Value.Equals(ev.Value, StringComparison.OrdinalIgnoreCase);
+        if (ev.SemanticLabel == "DUPLICATE" && !identical)
+            throw new InvalidOperationException($"{ev.Family} must repeat the active value for {ev.FactKey}.");
+        if (ev.SemanticLabel is "SUPERSEDES" or "CORRECTS" or "REFINES" or "CONTRADICTS")
+        {
+            if (current is null)
+                throw new InvalidOperationException($"{ev.Family} requires an active value for {ev.FactKey}.");
+            if (identical)
+                throw new InvalidOperationException($"{ev.Family} cannot emit an unchanged value for {ev.FactKey}.");
+        }
+        if (ev.SemanticLabel != "DUPLICATE" && identical)
+            throw new InvalidOperationException($"{ev.Family} emitted an identical value with label {ev.SemanticLabel}.");
     }
 }
 
@@ -525,7 +548,9 @@ public sealed class SyntheticState
         state._facts.Add(new CanonicalFact(person.Id, "preference.coffee", "coffee preference", person.InitialCoffee, true));
         state._facts.Add(new CanonicalFact(person.Id, "preference.drink.espresso", "drink preference", "espresso", true));
         state._facts.Add(new CanonicalFact(person.Id, "preference.drink.breakfast", "drink preference", "breakfast drinks", true));
+        state._facts.Add(new CanonicalFact(person.Id, "preference.drink", "drink preference", "still water", true));
         state._facts.Add(new CanonicalFact(person.Id, "preference.food", "favorite food", person.InitialFood, true));
+        state._facts.Add(new CanonicalFact(person.Id, "preference.food.additional", "additional favorite food", "fresh fruit", true));
         state._facts.Add(new CanonicalFact(person.Id, "pet.primary", "pet", person.InitialPet, true));
         state._facts.Add(new CanonicalFact(person.Id, "project.active", "active project", person.Project, true));
         state._facts.Add(new CanonicalFact(person.Id, "opinion.city", "opinion about city", "love " + person.City, true));
@@ -536,6 +561,17 @@ public sealed class SyntheticState
 
     public CanonicalFact? Active(string subjectId, string key)
         => _facts.LastOrDefault(f => f.SubjectId == subjectId && f.Key == key && f.Active);
+
+    public CanonicalFact? Latest(string subjectId, string key)
+        => _facts.LastOrDefault(f => f.SubjectId == subjectId && f.Key == key);
+
+    public bool IsValueActive(string subjectId, string value)
+        => _facts.Any(f => f.SubjectId == subjectId && f.Active &&
+            f.Value.Equals(value, StringComparison.OrdinalIgnoreCase));
+
+    public CanonicalFact? MostRecentInactive(string subjectId, string key, string? exceptValue = null)
+        => _facts.LastOrDefault(f => f.SubjectId == subjectId && f.Key == key && !f.Active &&
+            (exceptValue is null || !f.Value.Equals(exceptValue, StringComparison.OrdinalIgnoreCase)));
 
     public IReadOnlyList<CanonicalFact> Candidates(string subjectId, string key, string value)
     {
@@ -551,23 +587,35 @@ public sealed class SyntheticState
 
     public AppliedSyntheticEvent Apply(SyntheticEvent ev)
     {
-        var previous = Active(ev.SubjectId, ev.FactKey);
+        var previous = ev.ExpectedMemoryOperation == "EXPIRE"
+            ? Latest(ev.SubjectId, ev.FactKey)
+            : Active(ev.SubjectId, ev.FactKey);
         var candidates = Candidates(ev.SubjectId, ev.FactKey, ev.Value);
         var affectedKeys = ev.AffectedFactKeys.Count == 0 ? new[] { ev.FactKey } : ev.AffectedFactKeys;
         var affected = _facts
             .Where(f => f.SubjectId == ev.SubjectId && affectedKeys.Contains(f.Key, StringComparer.Ordinal) && f.Active)
             .ToList();
 
-        if (ev.ExpectedMemoryOperation is "REPLACE" or "EXPIRE" or "FLAG")
+        if (ev.ExpectedMemoryOperation is "REPLACE" or "MERGE")
         {
             for (var i = 0; i < _facts.Count; i++)
                 if (_facts[i].SubjectId == ev.SubjectId && affectedKeys.Contains(_facts[i].Key, StringComparer.Ordinal) && _facts[i].Active)
                     _facts[i] = _facts[i] with { Active = false, TemporalScope = ev.ExpectedMemoryOperation == "EXPIRE" ? "expired" : _facts[i].TemporalScope };
         }
 
-        var active = ev.ExpectedMemoryOperation is not ("DO_NOT_PROMOTE" or "IGNORE_OR_MERGE" or "EXPIRE");
+        if (ev.ExpectedMemoryOperation == "EXPIRE")
+        {
+            for (var i = _facts.Count - 1; i >= 0; i--)
+                if (_facts[i].SubjectId == ev.SubjectId && _facts[i].Key == ev.FactKey)
+                {
+                    _facts[i] = _facts[i] with { Active = false, TemporalScope = "expired" };
+                    break;
+                }
+        }
+
+        var active = ev.ExpectedMemoryOperation is not ("DO_NOT_PROMOTE" or "IGNORE_OR_MERGE" or "EXPIRE" or "FLAG");
         var current = new CanonicalFact(ev.SubjectId, ev.FactKey, ev.FactLabel, ev.Value, active, ev.Permanent, ev.TemporalScope);
-        if (ev.ExpectedMemoryOperation is not ("IGNORE_OR_MERGE" or "EXPIRE"))
+        if (ev.ExpectedMemoryOperation is not ("IGNORE_OR_MERGE" or "EXPIRE" or "FLAG"))
             _facts.Add(current);
 
         return new AppliedSyntheticEvent(previous, current, candidates, affected);
@@ -611,7 +659,10 @@ public sealed record SyntheticCorpusRow(
     string? DeterministicUtterance = null,
     string? VerbalizedUtterance = null,
     string? VerbalizerId = null,
+    string? VerbalizerModel = null,
+    int? VerbalizationSeed = null,
     string? VerbalizationStatus = null,
+    string? VerbalizationReason = null,
     bool TrustedForTraining = true,
     string? VerbalizationGroupId = null)
 {
@@ -777,14 +828,37 @@ internal static class ScenarioFamilies
     {
         Family("establish-fact", "COEXIST", "STORE", 10, GapKind.Short,
             new[] { "explicit", "direct" },
-            (p, s, r) => Ev("establish-fact", p.Id, "preference.coffee", "coffee preference",
-                p.InitialCoffee, "COEXIST", "STORE", true, "present", "preference.coffee", "explicit", "direct")),
+            (p, s, r) =>
+            {
+                var choices = new[]
+                {
+                    (Key: "preference.drink.afternoon", Label: "afternoon drink", Value: "sparkling water"),
+                    (Key: "preference.snack", Label: "preferred snack", Value: "salted almonds"),
+                    (Key: "routine.weekend", Label: "weekend routine", Value: "a Sunday morning walk"),
+                }.Where(x => s.Active(p.Id, x.Key) is null && !s.IsValueActive(p.Id, x.Value)).ToArray();
+                var choice = choices.Length == 0
+                    ? (Key: $"preference.extra.{r.Next(100000):00000}", Label: "additional preference", Value: $"notebook choice {r.Next(100000):00000}")
+                    : Pick(r, choices);
+                return Ev("establish-fact", p.Id, choice.Key, choice.Label, choice.Value,
+                    "COEXIST", "STORE", true, "present", choice.Key, "explicit", "direct", "previously-unset-slot");
+            }),
 
         Family("compatible-fact", "COEXIST", "STORE", 9, GapKind.Short,
             new[] { "multiple-candidate-memories" },
-            (p, s, r) => Ev("compatible-fact", p.Id, Pick(r, new[] { "preference.drink.espresso", "preference.drink.breakfast", "preference.drink.oat" }),
-                "drink preference", Pick(r, new[] { "espresso", "breakfast drinks", "oat milk" }),
-                "COEXIST", "STORE", true, "present", "preference.drink", "multiple-candidate-memories")),
+            (p, s, r) =>
+            {
+                var choices = new[]
+                {
+                    (Key: "preference.drink", Value: "sparkling water"),
+                    (Key: "preference.drink", Value: "peppermint tea"),
+                    (Key: "preference.drink", Value: "orange juice"),
+                }.Where(x => !s.IsValueActive(p.Id, x.Value)).ToArray();
+                var choice = choices.Length == 0
+                    ? (Key: "preference.drink", Value: $"seasonal drink {r.Next(100000):00000}")
+                    : Pick(r, choices);
+                return Ev("compatible-fact", p.Id, choice.Key, "drink preference", choice.Value,
+                    "COEXIST", "STORE", true, "present", choice.Key, "multiple-candidate-memories", "additive-preference");
+            }),
 
         Family("supersede-fact", "SUPERSEDES", "REPLACE", 9, GapKind.Long,
             new[] { "implicit" },
@@ -810,21 +884,44 @@ internal static class ScenarioFamilies
 
         Family("correct-erroneous-fact", "CORRECTS", "REPLACE", 7, GapKind.Medium,
             new[] { "correction", "explicit" },
-            (p, s, r) => Ev("correct-erroneous-fact", p.Id, "pet.primary", "pet",
-                p.CorrectedPet, "CORRECTS", "REPLACE", true, "present", "pet.primary",
-                "correction", "explicit")),
+            (p, s, r) =>
+            {
+                var current = s.Active(p.Id, "pet.primary")?.Value;
+                var value = p.CorrectedPet.Equals(current, StringComparison.OrdinalIgnoreCase)
+                    ? p.InitialPet
+                    : p.CorrectedPet;
+                return Ev("correct-erroneous-fact", p.Id, "pet.primary", "pet",
+                    value, "CORRECTS", "REPLACE", true, "present", "pet.primary",
+                    "correction", "explicit");
+            }),
 
         Family("correction-of-correction", "CORRECTS", "REPLACE", 5, GapKind.Long,
             new[] { "correction", "correction-of-correction" },
-            (p, s, r) => Ev("correction-of-correction", p.Id, "pet.primary", "pet",
-                $"actually {p.CorrectedPet}", "CORRECTS", "REPLACE", true, "present", "pet.primary",
-                "correction", "correction-of-correction")),
+            (p, s, r) =>
+            {
+                var current = s.Active(p.Id, "pet.primary")?.Value;
+                var value = current?.StartsWith("actually ", StringComparison.OrdinalIgnoreCase) == true
+                    ? p.InitialPet
+                    : $"actually {p.CorrectedPet}";
+                if (value.Equals(current, StringComparison.OrdinalIgnoreCase))
+                    value = p.InitialPet;
+                return Ev("correction-of-correction", p.Id, "pet.primary", "pet", value,
+                    "CORRECTS", "REPLACE", true, "present", "pet.primary",
+                    "correction", "correction-of-correction");
+            }),
 
         Family("refine-fact", "REFINES", "MERGE", 7, GapKind.Medium,
             new[] { "refinement", "explicit" },
-            (p, s, r) => Ev("refine-fact", p.Id, "preference.food", "favorite food",
-                p.RefinedFood, "REFINES", "MERGE", true, "present", "preference.food",
-                "refinement", "explicit")),
+            (p, s, r) =>
+            {
+                var current = s.Active(p.Id, "preference.food")?.Value ?? p.InitialFood;
+                var value = p.RefinedFood.Equals(current, StringComparison.OrdinalIgnoreCase)
+                    ? $"{p.RefinedFood} with extra detail"
+                    : p.RefinedFood;
+                return Ev("refine-fact", p.Id, "preference.food", "favorite food",
+                    value, "REFINES", "MERGE", true, "present", "preference.food",
+                    "refinement", "explicit");
+            }),
 
         Family("duplicate-paraphrase", "DUPLICATE", "IGNORE_OR_MERGE", 6, GapKind.Short,
             new[] { "paraphrase", "duplicate" },
@@ -840,44 +937,83 @@ internal static class ScenarioFamilies
 
         Family("temporary-state", "UNCERTAIN", "DO_NOT_PROMOTE", 6, GapKind.Medium,
             new[] { "temporary-state", "uncertain-duration" },
-            (p, s, r) => Ev("temporary-state", p.Id, "routine.temporary", "temporary routine",
-                p.TemporaryRoutine, "UNCERTAIN", "DO_NOT_PROMOTE", false, "temporary",
-                "routine.temporary", "temporary-state", "uncertain-duration")),
+            (p, s, r) =>
+            {
+                var current = s.Active(p.Id, "routine.temporary")?.Value;
+                var choices = new[] { p.TemporaryRoutine, "late lunches", "weekend shifts", "evening walks" }
+                    .Where(x => !x.Equals(current, StringComparison.OrdinalIgnoreCase)).ToArray();
+                return Ev("temporary-state", p.Id, "routine.temporary", "temporary routine",
+                    Pick(r, choices), "UNCERTAIN", "DO_NOT_PROMOTE", false, "temporary",
+                    "routine.temporary", "temporary-state", "uncertain-duration");
+            }),
 
         Family("temporary-expires", "SUPERSEDES", "EXPIRE", 4, GapKind.Short,
             new[] { "expired-temporary-state" },
-            (p, s, r) => Ev("temporary-expires", p.Id, "routine.temporary", "temporary routine",
-                p.TemporaryRoutine, "SUPERSEDES", "EXPIRE", false, "expired",
-                "routine.temporary", "expired-temporary-state")),
+            (p, s, r) =>
+            {
+                var temporary = s.Latest(p.Id, "routine.temporary");
+                return temporary is null
+                    ? Ev("temporary-state", p.Id, "routine.temporary", "temporary routine",
+                        p.TemporaryRoutine, "UNCERTAIN", "DO_NOT_PROMOTE", false, "temporary",
+                        "routine.temporary", "temporary-state", "uncertain-duration")
+                    : Ev("temporary-expires", p.Id, "routine.temporary", "temporary routine",
+                        $"no longer {temporary.Value}", "SUPERSEDES", "EXPIRE", false, "expired",
+                        "routine.temporary", "expired-temporary-state");
+            }),
 
         Family("temporary-becomes-permanent", "SUPERSEDES", "REPLACE", 4, GapKind.Medium,
             new[] { "temporary-becomes-permanent" },
-            (p, s, r) => Ev("temporary-becomes-permanent", p.Id, "preference.coffee", "coffee preference",
-                s.Active(p.Id, "routine.temporary")?.Value ?? p.CoffeePath.Last(),
-                "SUPERSEDES", "REPLACE", true, "present", "preference.coffee",
-                "temporary-becomes-permanent")),
+            (p, s, r) =>
+            {
+                var current = s.Active(p.Id, "preference.coffee")?.Value ?? p.InitialCoffee;
+                var proposed = s.Latest(p.Id, "routine.temporary")?.Value ?? p.CoffeePath.Last();
+                var value = proposed.Equals(current, StringComparison.OrdinalIgnoreCase)
+                    ? NextValue(current, p.CoffeePath)
+                    : proposed;
+                return Ev("temporary-becomes-permanent", p.Id, "preference.coffee", "coffee preference",
+                    value, "SUPERSEDES", "REPLACE", true, "present", "preference.coffee",
+                    "temporary-becomes-permanent");
+            }),
 
         Family("return-to-previous-state", "SUPERSEDES", "REPLACE", 4, GapKind.Long,
             new[] { "return-to-previous-state", "historical-reference" },
-            (p, s, r) => Ev("return-to-previous-state", p.Id, "preference.coffee", "coffee preference",
-                p.InitialCoffee, "SUPERSEDES", "REPLACE", true, "present", "preference.coffee",
-                "return-to-previous-state", "historical-reference")),
+            (p, s, r) =>
+            {
+                var active = s.Active(p.Id, "preference.coffee")?.Value ?? p.InitialCoffee;
+                var historical = s.MostRecentInactive(p.Id, "preference.coffee", active)?.Value;
+                var value = historical ?? NextValue(active, p.CoffeePath);
+                return Ev("return-to-previous-state", p.Id, "preference.coffee", "coffee preference",
+                    value, "SUPERSEDES", "REPLACE", true, "present", "preference.coffee",
+                    "return-to-previous-state", "historical-reference");
+            }),
 
         Family("another-person-fact", "COEXIST", "STORE_OTHER_SUBJECT", 8, GapKind.Medium,
             new[] { "another-person-contamination", "pronoun-reference" },
             (p, s, r) =>
             {
-                var rel = Pick(r, p.Relations.ToArray());
+                var available = p.Relations
+                    .Where(x => !s.IsValueActive("other:" + x.Role + ":" + x.Name, p.OtherFood))
+                    .ToArray();
+                var rel = available.Length == 0 ? Pick(r, p.Relations.ToArray()) : Pick(r, available);
+                var value = s.IsValueActive("other:" + rel.Role + ":" + rel.Name, p.OtherFood)
+                    ? $"{p.OtherFood} as well"
+                    : p.OtherFood;
                 return Ev("another-person-fact", "other:" + rel.Role + ":" + rel.Name,
-                    "preference.food", "favorite food", p.OtherFood, "COEXIST", "STORE_OTHER_SUBJECT",
+                    "preference.food", "favorite food", value, "COEXIST", "STORE_OTHER_SUBJECT",
                     true, "present", "preference.food", "another-person-contamination", "pronoun-reference");
             }),
 
         Family("self-other-comparison", "COEXIST", "STORE", 6, GapKind.Short,
             new[] { "comparison", "another-person-contamination", "multiple-candidate-memories" },
-            (p, s, r) => Ev("self-other-comparison", p.Id, "preference.food", "favorite food",
-                p.InitialFood, "COEXIST", "STORE", true, "present", "preference.food",
-                "comparison", "another-person-contamination", "multiple-candidate-memories")),
+            (p, s, r) =>
+            {
+                var choices = new[] { p.OtherFood, p.InitialFood, "fresh berries", "dark chocolate" }
+                    .Where(x => !s.IsValueActive(p.Id, x)).ToArray();
+                var value = choices.Length == 0 ? $"seasonal food {r.Next(100000):00000}" : Pick(r, choices);
+                return Ev("self-other-comparison", p.Id, "preference.food.additional", "additional favorite food",
+                    value, "COEXIST", "STORE", true, "present", "preference.food.additional",
+                    "comparison", "another-person-contamination", "multiple-candidate-memories");
+            }),
 
         Family("ambiguous-reference", "UNCERTAIN", "DO_NOT_PROMOTE", 4, GapKind.Medium,
             new[] { "pronoun-ambiguity", "ambiguous" },
@@ -887,9 +1023,16 @@ internal static class ScenarioFamilies
 
         Family("delayed-clarification", "CORRECTS", "REPLACE", 4, GapKind.Long,
             new[] { "delayed-clarification", "topic-interruption" },
-            (p, s, r) => Ev("delayed-clarification", p.Id, "preference.food", "favorite food",
-                p.RefinedFood, "CORRECTS", "REPLACE", true, "present", "preference.food",
-                "delayed-clarification", "topic-interruption")),
+            (p, s, r) =>
+            {
+                var current = s.Active(p.Id, "preference.food")?.Value ?? p.InitialFood;
+                var value = p.RefinedFood.Equals(current, StringComparison.OrdinalIgnoreCase)
+                    ? p.InitialFood
+                    : p.RefinedFood;
+                return Ev("delayed-clarification", p.Id, "preference.food", "favorite food",
+                    value, "CORRECTS", "REPLACE", true, "present", "preference.food",
+                    "delayed-clarification", "topic-interruption");
+            }),
 
         Family("quoted-speech", "UNCERTAIN", "DO_NOT_PROMOTE", 3, GapKind.Short,
             new[] { "quoted-speech", "assertion-boundary" },
@@ -1003,8 +1146,8 @@ internal static class TemplateRegistry
             },
             "temporary-expires" => new[]
             {
-                $"That temporary {ev.Value} thing is over now.",
-                $"I'm done with the short-term {ev.Value} routine.",
+                $"That temporary {applied.PreviousFact?.Value ?? ev.Value} thing is over now.",
+                $"I'm done with the short-term {applied.PreviousFact?.Value ?? ev.Value} routine.",
             },
             "temporary-becomes-permanent" => new[]
             {

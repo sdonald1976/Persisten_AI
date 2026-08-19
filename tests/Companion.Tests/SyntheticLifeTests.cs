@@ -296,6 +296,53 @@ public class SyntheticLifeTests
         Assert.True(report.NormalizedDuplicateUtterances > 0);
     }
 
+    [Fact]
+    public void Non_duplicate_labels_never_reuse_the_active_value()
+    {
+        var rows = SyntheticLife.GenerateRows(new SyntheticRunRequest(1827, People: 200, TurnsPerPerson: 180, EventsPerPerson: 10));
+
+        Assert.DoesNotContain(rows, r => r.ExpectedLabel != "DUPLICATE" &&
+            r.PreviousFact is not null &&
+            r.PreviousFact.Value.Equals(r.CurrentFact.Value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Establish_fact_only_populates_a_previously_unset_slot()
+    {
+        var rows = SyntheticLife.GenerateRows(new SyntheticRunRequest(1827, People: 100, TurnsPerPerson: 180, EventsPerPerson: 10))
+            .Where(r => r.Family == "establish-fact").ToList();
+
+        Assert.NotEmpty(rows);
+        Assert.All(rows, row =>
+        {
+            Assert.Null(row.PreviousFact);
+            Assert.DoesNotContain(row.CanonicalStateBefore.Facts,
+                f => f.SubjectId == row.CurrentFact.SubjectId && f.Key == row.CurrentFact.Key && f.Active);
+            Assert.Single(row.CanonicalStateAfter.Facts.Where(
+                f => f.SubjectId == row.CurrentFact.SubjectId && f.Key == row.CurrentFact.Key && f.Active));
+        });
+    }
+
+    [Theory]
+    [InlineData("life")]
+    [InlineData("template")]
+    [InlineData("verbalization")]
+    public void Every_supported_split_axis_keeps_groups_disjoint(string groupBy)
+    {
+        var rows = SyntheticLife.GenerateRows(new SyntheticRunRequest(1827, People: 40, TurnsPerPerson: 180, EventsPerPerson: 10));
+        var split = SyntheticLife.Split(rows, groupBy, 73);
+        Func<SyntheticCorpusRow, string> key = groupBy switch
+        {
+            "template" => r => r.TemplateFamilyId,
+            "verbalization" => r => r.VerbalizationGroupId ?? r.ScenarioId,
+            _ => r => r.LifeId,
+        };
+
+        Assert.Empty(split.Train.Select(key).Intersect(split.Validation.Select(key)));
+        Assert.Empty(split.Train.Select(key).Intersect(split.Test.Select(key)));
+        Assert.Empty(split.Validation.Select(key).Intersect(split.Test.Select(key)));
+    }
+
     private static IReadOnlyList<string> Fingerprint(IEnumerable<SyntheticCorpusRow> rows)
         => rows.Select(row => JsonSerializer.Serialize(row, new JsonSerializerOptions(JsonSerializerDefaults.Web))).ToList();
 
