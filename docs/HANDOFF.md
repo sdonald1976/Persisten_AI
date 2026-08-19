@@ -228,7 +228,7 @@ and had no real conversation data. Everything blocked on those three things was 
 far as it could be, and left with the untested part labelled. **This machine is where those come
 unblocked**, which is the whole reason to move the work here.
 
-Merged to `master` 2026-08-18 (PR #1, from `claude/continue-previous-prompt-w8dksm`).
+Merged to `master` 2026-08-18 (fast-forward from `claude/continue-previous-prompt-w8dksm`).
 951 tests green, and a full six-scenario soak ran first against a live instance with the real
 model roster and a scratch database. Four scenarios green, including the memory and fidelity
 seams this branch touches — supersession worked live (coffee correctly superseded, second project
