@@ -291,3 +291,47 @@ now, because this corpus is frozen the moment its first training run is read:
 
 The evaluation methodology, gates and holdout are `SUPERSESSION_TASK.md`'s and are not restated
 here.
+
+## Phase 5 checkpoint (2026-08-19): the recorded defects fixed at the source, corpus frozen again
+
+Every phase-4 finding above is now an upstream fix with a regression test, and the audit's
+rejection pass confirms it from the data: the phase-5 STRUCTURED corpus passes with **zero
+rejections** (phase 4 lost 36 of 1,000 rows to value artifacts).
+
+- Values are marker-free: corrections-of-corrections land on a real third reading of the fact
+  (`SecondCorrectedPet`), refinement steps down a ladder of real dishes (`FurtherRefinedFood`)
+  with a terminal-safe fallback, `temporary-becomes-permanent` promotes only coffee-domain
+  values, and the counter-filler / " as well" fallbacks are widened real-value pools.
+- The validator accepts natural paraphrase: contractions fold ("can't abide" matches "cannot
+  stand"), a 3+-word value may lose one content word, markers match on word boundaries, and the
+  subject-shift checks are claim-shaped in both directions. New quarantine reasons: task
+  language leaked, fact shifted onto the listener.
+
+Run (7B verbalizer this time; unseeded, so again the artifact is the record and lives only on
+this machine — `artifacts/` stays gitignored):
+
+```powershell
+dotnet run --project tools/Companion.Eval -- --only synthetic --seed 1827 `
+  --people 100 --turns 180 --events 10 --naturalize --naturalize-events 300 `
+  --paraphrases 3 --naturalize-concurrency 2 `
+  --verbalizer-url http://localhost:11434/v1 --verbalizer-model qwen2.5:7b-instruct `
+  --out artifacts/synthetic-life-phase5-naturalized.jsonl `
+  --quarantine artifacts/synthetic-life-phase5-quarantine.jsonl `
+  --structured-out artifacts/synthetic-life-phase5-structured.jsonl `
+  --split-out artifacts/synthetic-life-phase5-naturalized-splits --split-group verbalization
+```
+
+900 attempts, **655 accepted (73 %, from 52 % in phase 4), 245 quarantined** — and the
+quarantine now spends its rejections on semantics rather than on its own strictness:
+value-not-preserved fell from a 24 % rate to 5.7 %, subject-shift false positives from 20 to 1,
+and the largest bucket is 111 genuinely label-breaking COEXIST paraphrases. **All seven labels
+survive into the accepted corpus** (CONTRADICTS 31, DUPLICATE 5 — both were zero in phase 4).
+268 verbalization groups over 94 lives and 39 template families, none mixed, none straddling
+the shipped splits; within-label lexical overlap 0.384 → 0.191. Marker-recoverability of
+CORRECTS fell 100 % → 75 % and UNCERTAIN 100 % → 72 %.
+
+Found by this audit and handled in the rejection pass rather than the pipeline (R6, 14 rows,
+2.1 %): the verbalizer occasionally narrates the simulator's subject id as a name ("Life-0026
+switched to..."). Recorded for iteration 3: strip or alias subject ids in the verbalizer
+prompt, and the DUPLICATE selection cap (18 of 900 attempts) is too tight to feed the class —
+5 accepted DUPLICATE rows is not a trainable signal.

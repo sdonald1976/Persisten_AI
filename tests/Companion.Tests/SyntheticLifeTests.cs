@@ -323,6 +323,31 @@ public class SyntheticLifeTests
         });
     }
 
+    [Fact]
+    public void Fact_values_never_carry_label_markers_or_filler()
+    {
+        var rows = SyntheticLife.GenerateRows(new SyntheticRunRequest(1827, People: 200, TurnsPerPerson: 180, EventsPerPerson: 10));
+
+        Assert.DoesNotContain(rows, r => r.CurrentFact.Value.StartsWith("actually ", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(rows, r => r.CurrentFact.Value.Contains("with extra detail", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(rows, r => r.CurrentFact.Value.EndsWith(" as well", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Coffee_slot_only_ever_holds_coffee_domain_values()
+    {
+        var routines = new[]
+        {
+            "school-run mornings", "night shifts", "hotel breakfasts", "early swims",
+            "late lunches", "weekend shifts", "evening walks",
+        };
+        var rows = SyntheticLife.GenerateRows(new SyntheticRunRequest(1827, People: 200, TurnsPerPerson: 180, EventsPerPerson: 10))
+            .Where(r => r.CurrentFact.Key == "preference.coffee").ToList();
+
+        Assert.NotEmpty(rows);
+        Assert.DoesNotContain(rows, r => routines.Any(x => r.CurrentFact.Value.Contains(x, StringComparison.OrdinalIgnoreCase)));
+    }
+
     [Theory]
     [InlineData("life")]
     [InlineData("template")]

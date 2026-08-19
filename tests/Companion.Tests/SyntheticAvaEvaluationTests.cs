@@ -300,6 +300,76 @@ public class SyntheticAvaEvaluationTests
         Assert.True(selected.Count(r => r.ExpectedLabel is "COEXIST" or "SUPERSEDES") > selected.Count / 2);
     }
 
+    [Fact]
+    public void Validator_accepts_natural_paraphrase_of_multiword_values()
+    {
+        var row = Row("CONTRADICTS");
+        row = row with { CurrentFact = row.CurrentFact with { Value = "cannot stand Perth" } };
+        var verdict = new ConservativeSyntheticVerbalizationValidator()
+            .Validate(row, "Honestly? I can't stand Perth. Though last month I said the opposite, so make of that what you will.");
+
+        Assert.Equal("accepted", verdict.Status);
+    }
+
+    [Fact]
+    public void Validator_accepts_sentence_final_change_marker()
+    {
+        var row = Rows(new SyntheticRunRequest(1827, People: 30, TurnsPerPerson: 180, EventsPerPerson: 10))
+            .First(r => r.ExpectedLabel == "SUPERSEDES" && r.ExpectedMemoryOperation == "REPLACE");
+        row = row with { CurrentFact = row.CurrentFact with { Value = "americano" } };
+        var verdict = new ConservativeSyntheticVerbalizationValidator()
+            .Validate(row, "Think I'm preferring americanos now.");
+
+        Assert.Equal("accepted", verdict.Status);
+    }
+
+    [Fact]
+    public void Validator_narrator_first_person_is_not_a_subject_shift()
+    {
+        var row = Rows(new SyntheticRunRequest(1827, People: 30, TurnsPerPerson: 180, EventsPerPerson: 10))
+            .First(r => r.CurrentFact.SubjectId.StartsWith("other:", StringComparison.Ordinal));
+        row = row with { CurrentFact = row.CurrentFact with { Value = "curry" } };
+        var validator = new ConservativeSyntheticVerbalizationValidator();
+
+        Assert.Equal("accepted",
+            validator.Validate(row, "Nell has been obsessed with curry. I wrote it on page 830 of my notebook.").Status);
+        Assert.Equal("possible subject shift",
+            validator.Validate(row, "I like curry. It went in the notebook on page 830.").Reason);
+    }
+
+    [Fact]
+    public void Validator_flags_fact_shifted_onto_listener()
+    {
+        var row = Row("REFINES");
+        row = row with { CurrentFact = row.CurrentFact with { Value = "salmon nigiri" } };
+        var verdict = new ConservativeSyntheticVerbalizationValidator()
+            .Validate(row, "Your favorite food is salmon nigiri, to be specific about it.");
+
+        Assert.Equal("fact shifted onto the listener", verdict.Reason);
+    }
+
+    [Fact]
+    public void Validator_quarantines_task_language()
+    {
+        var row = Row("CORRECTS");
+        row = row with { CurrentFact = row.CurrentFact with { Value = "three cats" } };
+        var verdict = new ConservativeSyntheticVerbalizationValidator()
+            .Validate(row, "It's three cats, I misspoke. Not a change over time, just fixing the record.");
+
+        Assert.Equal("task language leaked into paraphrase", verdict.Reason);
+    }
+
+    [Fact]
+    public void Validator_lets_duplicate_paraphrases_survive()
+    {
+        var row = Row("DUPLICATE");
+        row = row with { CurrentFact = row.CurrentFact with { Value = "espresso" } };
+        var verdict = new ConservativeSyntheticVerbalizationValidator()
+            .Validate(row, "Still all about that espresso, same as ever.");
+
+        Assert.Equal("accepted", verdict.Status);
+    }
+
     private static SyntheticCorpusRow Row(string label)
         => Rows(new SyntheticRunRequest(
             1827,

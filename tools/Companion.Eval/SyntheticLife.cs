@@ -435,8 +435,10 @@ public sealed record SyntheticPerson(
     IReadOnlyList<string> CoffeePath,
     string InitialFood,
     string RefinedFood,
+    string FurtherRefinedFood,
     string InitialPet,
     string CorrectedPet,
+    string SecondCorrectedPet,
     string Project,
     string Vehicle,
     string OtherFood,
@@ -457,8 +459,14 @@ public sealed record SyntheticPerson(
         };
         var foods = new[] { "steak", "ramen", "mushroom risotto", "sushi", "curry" };
         var refined = new[] { "ribeye steak", "spicy miso ramen", "porcini risotto", "salmon nigiri", "paneer curry" };
+        // A second refinement level, so refining an already-refined value lands on something
+        // genuinely more specific instead of the literal words "with extra detail".
+        var refinedFurther = new[] { "dry-aged ribeye", "spicy miso ramen with a soft egg", "porcini risotto with truffle oil", "fatty tuna nigiri", "paneer tikka curry" };
         var pets = new[] { "a dog named Bo", "two cats", "a corgi called Kanga", "a rescue greyhound" };
         var correctedPets = new[] { "a lurcher named Bo", "three cats", "a spaniel called Kanga", "a whippet mix" };
+        // A third reading of the same pet fact, so a correction OF a correction has a real
+        // target value rather than an "actually "-prefixed copy of the previous one.
+        var secondCorrectedPets = new[] { "a collie cross named Bo", "three cats and a kitten", "a corgi cross called Kanga", "a saluki mix" };
         var projects = new[] { "greenhouse irrigation", "photo archive", "kitchen shelves", "county show talk" };
         var vehicles = new[] { "truck", "bike", "electric car", "old van" };
         var routines = new[] { "school-run mornings", "night shifts", "hotel breakfasts", "early swims" };
@@ -478,8 +486,8 @@ public sealed record SyntheticPerson(
             new SyntheticRelation("coworker", people[5]),
             pets[ix % pets.Length].Contains("cat", StringComparison.Ordinal) ? "cat" : "dog",
             path[0], path,
-            foods[foodIx], refined[foodIx],
-            pets[ix % pets.Length], correctedPets[ix % correctedPets.Length],
+            foods[foodIx], refined[foodIx], refinedFurther[foodIx],
+            pets[ix % pets.Length], correctedPets[ix % correctedPets.Length], secondCorrectedPets[ix % secondCorrectedPets.Length],
             projects[rng.Next(projects.Length)], vehicles[rng.Next(vehicles.Length)],
             foods[(foodIx + 2) % foods.Length], routines[rng.Next(routines.Length)],
             $"page {seed % 997} of my notebook");
@@ -835,6 +843,9 @@ internal static class ScenarioFamilies
                     (Key: "preference.drink.afternoon", Label: "afternoon drink", Value: "sparkling water"),
                     (Key: "preference.snack", Label: "preferred snack", Value: "salted almonds"),
                     (Key: "routine.weekend", Label: "weekend routine", Value: "a Sunday morning walk"),
+                    (Key: "preference.dessert", Label: "preferred dessert", Value: "lemon tart"),
+                    (Key: "hobby.secondary", Label: "second hobby", Value: "sketching"),
+                    (Key: "routine.evening", Label: "evening routine", Value: "reading before bed"),
                 }.Where(x => s.Active(p.Id, x.Key) is null && !s.IsValueActive(p.Id, x.Value)).ToArray();
                 var choice = choices.Length == 0
                     ? (Key: $"preference.extra.{r.Next(100000):00000}", Label: "additional preference", Value: $"notebook choice {r.Next(100000):00000}")
@@ -852,6 +863,9 @@ internal static class ScenarioFamilies
                     (Key: "preference.drink", Value: "sparkling water"),
                     (Key: "preference.drink", Value: "peppermint tea"),
                     (Key: "preference.drink", Value: "orange juice"),
+                    (Key: "preference.drink", Value: "ginger beer"),
+                    (Key: "preference.drink", Value: "iced coffee"),
+                    (Key: "preference.drink", Value: "elderflower cordial"),
                 }.Where(x => !s.IsValueActive(p.Id, x.Value)).ToArray();
                 var choice = choices.Length == 0
                     ? (Key: "preference.drink", Value: $"seasonal drink {r.Next(100000):00000}")
@@ -899,12 +913,12 @@ internal static class ScenarioFamilies
             new[] { "correction", "correction-of-correction" },
             (p, s, r) =>
             {
+                // A correction of a correction lands on a THIRD reading of the same fact — a
+                // real value, never an "actually "-prefixed copy the model can read the label
+                // from without reading the utterance.
                 var current = s.Active(p.Id, "pet.primary")?.Value;
-                var value = current?.StartsWith("actually ", StringComparison.OrdinalIgnoreCase) == true
-                    ? p.InitialPet
-                    : $"actually {p.CorrectedPet}";
-                if (value.Equals(current, StringComparison.OrdinalIgnoreCase))
-                    value = p.InitialPet;
+                var value = new[] { p.SecondCorrectedPet, p.CorrectedPet, p.InitialPet }
+                    .First(x => !x.Equals(current, StringComparison.OrdinalIgnoreCase));
                 return Ev("correction-of-correction", p.Id, "pet.primary", "pet", value,
                     "CORRECTS", "REPLACE", true, "present", "pet.primary",
                     "correction", "correction-of-correction");
@@ -914,13 +928,27 @@ internal static class ScenarioFamilies
             new[] { "refinement", "explicit" },
             (p, s, r) =>
             {
+                // Refinement steps DOWN a ladder of real dishes, never to the literal words
+                // "with extra detail" — which refine nothing. A value can only be refined a
+                // bounded number of times, so the ladder ends the same way temporary-expires
+                // does when its precondition is gone: by emitting a different, valid event.
                 var current = s.Active(p.Id, "preference.food")?.Value ?? p.InitialFood;
-                var value = p.RefinedFood.Equals(current, StringComparison.OrdinalIgnoreCase)
-                    ? $"{p.RefinedFood} with extra detail"
-                    : p.RefinedFood;
-                return Ev("refine-fact", p.Id, "preference.food", "favorite food",
-                    value, "REFINES", "MERGE", true, "present", "preference.food",
-                    "refinement", "explicit");
+                var chain = new[] { p.InitialFood, p.RefinedFood, p.FurtherRefinedFood };
+                var idx = Array.FindIndex(chain, x => x.Equals(current, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0 && idx < chain.Length - 1)
+                    return Ev("refine-fact", p.Id, "preference.food", "favorite food",
+                        chain[idx + 1], "REFINES", "MERGE", true, "present", "preference.food",
+                        "refinement", "explicit");
+                var additional = s.Active(p.Id, "preference.food.additional")?.Value;
+                if (additional is not null && additional.Equals("fresh fruit", StringComparison.OrdinalIgnoreCase))
+                    return Ev("refine-fact", p.Id, "preference.food.additional", "additional favorite food",
+                        "fresh orchard fruit", "REFINES", "MERGE", true, "present", "preference.food.additional",
+                        "refinement", "explicit");
+                var routineChoices = new[] { p.TemporaryRoutine, "late lunches", "weekend shifts", "evening walks" }
+                    .Where(x => !x.Equals(s.Active(p.Id, "routine.temporary")?.Value, StringComparison.OrdinalIgnoreCase)).ToArray();
+                return Ev("temporary-state", p.Id, "routine.temporary", "temporary routine",
+                    Pick(r, routineChoices), "UNCERTAIN", "DO_NOT_PROMOTE", false, "temporary",
+                    "routine.temporary", "temporary-state", "uncertain-duration");
             }),
 
         Family("duplicate-paraphrase", "DUPLICATE", "IGNORE_OR_MERGE", 6, GapKind.Short,
@@ -965,11 +993,11 @@ internal static class ScenarioFamilies
             new[] { "temporary-becomes-permanent" },
             (p, s, r) =>
             {
+                // The promoted value must live in the slot's own domain: a temporary ROUTINE
+                // ("weekend shifts") is not a coffee preference, so the coffee path supplies the
+                // value and the template carries the temporariness.
                 var current = s.Active(p.Id, "preference.coffee")?.Value ?? p.InitialCoffee;
-                var proposed = s.Latest(p.Id, "routine.temporary")?.Value ?? p.CoffeePath.Last();
-                var value = proposed.Equals(current, StringComparison.OrdinalIgnoreCase)
-                    ? NextValue(current, p.CoffeePath)
-                    : proposed;
+                var value = NextValue(current, p.CoffeePath);
                 return Ev("temporary-becomes-permanent", p.Id, "preference.coffee", "coffee preference",
                     value, "SUPERSEDES", "REPLACE", true, "present", "preference.coffee",
                     "temporary-becomes-permanent");
@@ -995,9 +1023,10 @@ internal static class ScenarioFamilies
                     .Where(x => !s.IsValueActive("other:" + x.Role + ":" + x.Name, p.OtherFood))
                     .ToArray();
                 var rel = available.Length == 0 ? Pick(r, p.Relations.ToArray()) : Pick(r, available);
-                var value = s.IsValueActive("other:" + rel.Role + ":" + rel.Name, p.OtherFood)
-                    ? $"{p.OtherFood} as well"
-                    : p.OtherFood;
+                // A repeat visit to the same person gets a DIFFERENT real food, not the stored
+                // value with " as well" bolted on — a suffix is not a fact.
+                var foods = new[] { p.OtherFood, "olive bread", "roast chicken", "lentil soup", "apple crumble" };
+                var value = foods.First(f => !s.IsValueActive("other:" + rel.Role + ":" + rel.Name, f));
                 return Ev("another-person-fact", "other:" + rel.Role + ":" + rel.Name,
                     "preference.food", "favorite food", value, "COEXIST", "STORE_OTHER_SUBJECT",
                     true, "present", "preference.food", "another-person-contamination", "pronoun-reference");
@@ -1007,7 +1036,8 @@ internal static class ScenarioFamilies
             new[] { "comparison", "another-person-contamination", "multiple-candidate-memories" },
             (p, s, r) =>
             {
-                var choices = new[] { p.OtherFood, p.InitialFood, "fresh berries", "dark chocolate" }
+                var choices = new[] { p.OtherFood, p.InitialFood, "fresh berries", "dark chocolate",
+                        "sourdough toast", "roasted vegetables", "poached pears" }
                     .Where(x => !s.IsValueActive(p.Id, x)).ToArray();
                 var value = choices.Length == 0 ? $"seasonal food {r.Next(100000):00000}" : Pick(r, choices);
                 return Ev("self-other-comparison", p.Id, "preference.food.additional", "additional favorite food",
