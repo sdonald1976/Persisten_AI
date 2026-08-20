@@ -456,6 +456,53 @@ unseeded LLM output; `artifacts/` is gitignored for storage reasons, so it exist
 machine. Holdout fits are identical across
 fold modes by construction, and matched exactly — a consistency check the runs passed.
 
+## The phase-5 experiment (2026-08-19): the corpus got healthier and the holdout did not care
+
+Same design as phase 4 — two arms off one fixed simulator (now with the phase-4 value defects
+fixed at source, commit cbe64e9), deterministic surface (783 pair rows) against 7B-naturalized
+surface (504 rows, all seven labels for the first time). Same trainer, gates, holdout. Corpus
+frozen at cbe64e9 before any number below was read.
+
+| template-grouped (unseen surfaces) | p4 structured | p4 naturalized | p5 structured | p5 naturalized |
+|---|---|---|---|---|
+| action F1 | 0.808 | 0.890 | 0.820 | 0.886 |
+| false-supersede | 0.171 | 0.129 | 0.158 | **0.098** |
+| incumbent same rows (F1 / FS) | 0.497 / 0.000 | 0.566 / 0.058 | 0.384 / 0.000 | 0.624 / **0.113** |
+| COEXIST | 0.385 | 0.492 | 0.250 | 0.471 (P=1.000, R=0.308) |
+| UNCERTAIN | 0.606 | 0.000 | 0.520 | 0.400 |
+| DUPLICATE / CONTRADICTS | 1.000 / 1.000 | absent | 1.000 / 1.000 | 1.000 / 1.000 |
+| vs incumbent | indist. | indist. | +0.438 [+0.045, +0.771] beats | +0.258 [−0.002, +0.471] indist. |
+| **holdout** | 2/12 | **5/12** | 3/12 | **3/12** |
+
+**What phase 5 delivered.** Every corpus-health goal: all seven labels trainable, zero value
+artifacts, 73 % verbalizer acceptance, and — for the first time on any corpus — the model's
+false-supersede rate on unseen surfaces sits BELOW the incumbent's on the same rows (0.098
+against 0.113; natural phrasing trips the wording heuristic far more than templates did, which
+is itself a finding about the incumbent). The within-phase control comparison replicates phase
+4's direction: naturalized beats structured on COEXIST (0.471 vs 0.250), false-supersede
+(0.098 vs 0.158) and action F1 — surface diversity transfers, template volume does not, twice
+now.
+
+**What it did not deliver: the holdout fell back to 3/12** from the phase-4 naturalized 5/12,
+and both phase-5 arms land on the same 3. The regression has one visible mechanism — five of
+nine misses now say **DUPLICATE**, a class the phase-4 naturalized corpus did not contain at
+all. Its five accepted rows are all one flavour, project-slot restatements ("still plugging
+away at the photo archive"), which is exactly the ongoing-activity phrasing of the holdout's
+additive COEXIST incidents ("I've started a second allotment plot", "I've taken up piano too")
+— so the class the quarantine finally let through arrived thin enough to be a landmine.
+A two-incident swing on a twelve-row holdout is also within luck; what is NOT luck is that
+COEXIST recall on unseen surfaces is still the disease in every arm (42 of 78 naturalized
+COEXIST rows called SUPERSEDES; precision 1.000, recall 0.308 — when it says coexist it is
+right, it just will not say it).
+
+**For iteration 3, from this evaluation** (recommendations, not patches to this corpus):
+diversify DUPLICATE across slots and raise its selection cap — five rows of one flavour is
+worse than none; keep pushing COEXIST recall, which two corpus generations have not fixed and
+which may simply need real pairs; alias subject ids in the verbalizer prompt (R6); consider
+dropping the notebook-tag noise (still 60 % of accepted rows). And the standing conclusion is
+unchanged: no gate passes, nothing is adopted, and the highest-value data remains real captured
+pairs, which no synthetic iteration substitutes for.
+
 ## Order of work (original, for the record)
 
 1. Pair capture (§7) — it gates the base rate, the adjudication queue, and the real test set.
