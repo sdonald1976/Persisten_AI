@@ -5,6 +5,16 @@ outputs/
 *.gguf
 .venv/
 
+# Exception: the renderer corpus is authored specimens and synthetic scenarios, not
+# harvested conversation. It MUST be versioned — the benchmark fixtures are what every
+# result is measured against, and freeze.py hashes the dataset so that "no changing
+# examples after approval" can be checked rather than promised. A file that exists on
+# one machine cannot be frozen.
+!renderer/fixtures.jsonl
+!renderer/dataset/scenarios/*.jsonl
+!renderer/dataset/candidates.jsonl
+!renderer/dataset/train-*.jsonl
+
 # Python bytecode from the training scripts
 __pycache__/
 *.pyc
