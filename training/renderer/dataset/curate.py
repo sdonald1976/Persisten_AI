@@ -25,7 +25,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-CANDIDATES = ROOT / "candidates.jsonl"
+CANDIDATE_FILES = sorted(ROOT.glob("candidates*.jsonl"))
 SEED = 20260821
 
 # Voice-donor strata: llama3.2:3b won the human vote twice; where the turn is mostly
@@ -44,8 +44,12 @@ DISQUALIFYING = {"thanks-for-x", "i-appreciate", "restates-user", "canned-enthus
                  "assistant-offer", "self-deprecation-filler", "promise-to-improve",
                  "excess-vocatives"}
 
-# utf-8-sig: the .NET StreamWriter stamps a BOM on the first line.
-rows = [json.loads(l) for l in CANDIDATES.read_text(encoding="utf-8-sig").splitlines() if l.strip()]
+# utf-8-sig: the .NET StreamWriter stamps a BOM on the first line. Every candidates
+# file counts — the rescue pass adds draws for scenarios the first pass could not
+# render, and all attempts from every pass compete on equal terms.
+rows = [json.loads(l)
+        for f in CANDIDATE_FILES
+        for l in f.read_text(encoding="utf-8-sig").splitlines() if l.strip()]
 
 # Group every attempt by scenario id.
 by_scenario = defaultdict(list)
@@ -80,6 +84,27 @@ def question_wrong(row, text):
         return "omitted a mandatory question"
     return None
 
+RECALL_MARKER = re.compile(
+    r"\b(last time|remember when|you (told|mentioned|said) (me )?(before|last|earlier)|"
+    r"as (always|usual)|like (you did )?last|the other (day|week)|you always)\b", re.I)
+
+def unsupported_recall(row, text):
+    """Invented shared history. The system prompt forbids it and the round-2 review
+    named it, but no deterministic gate catches the soft form — a plan carrying no
+    memory at all, realized with "last time was the whole canned-goods thing". When
+    the plan supplies nothing to recall and the transcript window does not contain it
+    either, a recall marker is fabrication by definition.
+
+    Curation-only on purpose: adding this to RendererChecks would change the measuring
+    instrument mid-experiment and make new runs incomparable to the recorded baselines.
+    Proposed for the bench suite separately."""
+    if not RECALL_MARKER.search(text):
+        return None
+    supplied = row.get("plan2", "") + " " + " ".join(t["text"] for t in row["transcript"])
+    if re.search(r"PALETTE|SITUATION", row.get("plan2", "")) and len(supplied) > 200:
+        return None  # the plan does give her something to remember; leave it to review
+    return "invented shared history: recalls a past the plan never supplied"
+
 def question_mode(row):
     """plan/2 writes `question = <kind>:<mandatory|optional>` or `question = none`."""
     m = re.search(r"question = (\S+)", row.get("plan2", ""))
@@ -106,7 +131,8 @@ for sid, cands in by_scenario.items():
     for c in cands:
         reasons = list(c["violations"])
         if not reasons:
-            for extra in (contrition_wrong(row, c["text"]), question_wrong(row, c["text"])):
+            for extra in (contrition_wrong(row, c["text"]), question_wrong(row, c["text"]),
+                          unsupported_recall(row, c["text"])):
                 if extra:
                     reasons.append(extra)
         c = dict(c, extraReasons=reasons[len(c["violations"]):], gateFail=reasons)
@@ -259,7 +285,9 @@ buckets = Counter(bucket(n) for n in lengths)
 lines = []
 w = lines.append
 w("# Run-1a dataset audit\n")
-w(f"_Generated from {len(rows)} teacher rows over {len(by_scenario)} scenarios. "
+w(f"_Generated from {len(rows)} teacher rows ({sum(len(c) for c in by_scenario.values())} "
+  f"candidate draws) over {len(by_scenario)} scenarios, across "
+  f"{len(CANDIDATE_FILES)} generation pass(es). "
   f"Nothing trained; nothing in production touched._\n")
 w(f"**Accepted: {len(accepted)}  |  Rejected: {len(rejected)}  |  "
   f"Train {len(train)} / Validation {len(val)} by family**\n")
@@ -384,6 +412,38 @@ else:
 w("")
 w(f"Near-duplicate check across all accepted targets: "
   f"{'FOUND ' + str(len(dupes)) if dupes else 'clean'}.")
+
+w("\n## 12. Findings that need a decision before training\n")
+draws_by_stratum, scen_by_stratum = Counter(), Counter()
+for sid, cands in by_scenario.items():
+    draws_by_stratum[meta[sid]["stratum"]] += len(cands)
+    scen_by_stratum[meta[sid]["stratum"]] += 1
+rows_acc = Counter(r["stratum"] for r in accepted)
+starved = sorted(
+    ((s, rows_acc.get(s, 0), scen_by_stratum[s], draws_by_stratum[s]) for s in scen_by_stratum),
+    key=lambda t: t[1] / t[2])
+w("**Teacher acceptance by stratum** — where the teachers systematically could not "
+  "render the behavior, the corpus is thin precisely where the experiment needs it:\n")
+w("| stratum | accepted / scenarios | draws spent | draws per accepted |")
+w("|---|---|---|---|")
+for s, acc, scen, draws in starved:
+    w(f"| {s} | {acc}/{scen} | {draws} | {draws/max(1,acc):.1f} |")
+w("\nThe two starved strata are the same two defect classes the round-2 review named. "
+  "Both teachers reach for pretrained knowledge when the plan says Ava has not learned "
+  "something, and both tack a question onto a turn the plan closed. Re-sampling has "
+  "reached diminishing returns; the honest options are (a) accept the thinner "
+  "representation, (b) human-author targets for those strata, or (c) accept that these "
+  "two behaviors may need more than run 1a to move. This is a judgment call, not a "
+  "pipeline bug.\n")
+real = sources.get("turnrecord", 0)
+w(f"**Real-derived share is {real}/{len(accepted)} ({100*real/len(accepted):.1f}%), "
+  f"far below the designed 15-25%.** The cause is inventory, not policy: the durable "
+  f"TurnRecords banked so far hold 19 plans, and 14 of them belong to permanently "
+  f"held-out benchmark families (Cheshire, quokka, Epcot, Precious, DON'T BREAK). Of "
+  f"the handful that remain, the gates rejected some. Run 1a is therefore an almost "
+  f"entirely constructed corpus. The fix is time and normal use, not a different "
+  f"pipeline: every conversation now persists a plan, and the share should rise on its "
+  f"own before the 400- and 730-example checkpoints.")
 
 (ROOT / "audit.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 

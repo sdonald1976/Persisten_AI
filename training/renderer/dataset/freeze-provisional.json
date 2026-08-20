@@ -1,0 +1,45 @@
+{
+  "runId": "run-1a",
+  "status": "PROVISIONAL \u2014 awaiting dataset approval",
+  "baseModel": "Qwen/Qwen2.5-3B-Instruct",
+  "baseModelRevision": "PIN AT DOWNLOAD",
+  "repoCommit": "c95c7dcf47e764df647402742517614fe7f39780",
+  "artifacts": {
+    "dataset": {
+      "path": "training/renderer/dataset/train-200.jsonl",
+      "sha256": "7a1d2634436374ec3bf41632db18d155f5d4af49bbc43c9c3abd5c8f04c27e87",
+      "bytes": 263658
+    },
+    "splitManifest": {
+      "path": "training/renderer/dataset/splits.json",
+      "sha256": "74a63a8ca72159d667ee9ce51ddbfadc865f5cb29782517b73714337dd417cbd",
+      "bytes": 3243
+    },
+    "trainingConfig": {
+      "path": "training/renderer/dataset/config-run1a.json",
+      "sha256": "69f966caab45215185c8abfe1faf378b9cfcb3d941e79f5320867a115a3a1cdd",
+      "bytes": 2999
+    },
+    "planSerialization": {
+      "path": "tools/Companion.RendererBench/PlanSerialization.cs",
+      "sha256": "f4a8935d6fcba9d25339708df09fda78e4f1c96407b27691a2619fd651e6816e",
+      "bytes": 8620
+    },
+    "evaluationSuite": {
+      "path": "tools/Companion.RendererBench/RendererChecks.cs",
+      "sha256": "d29239e6a114eaeb8cfaa451e1260e96fecb2d2aa2ffb46cb7c06c4ded83092e",
+      "bytes": 5873
+    },
+    "curationPipeline": {
+      "path": "training/renderer/dataset/curate.py",
+      "sha256": "f795ebdab4f55d911554ffb004953d1494017415cdc80d1ebee12b396ad3cd4e",
+      "bytes": 23710
+    },
+    "heldOutBenchmark": {
+      "path": "training/renderer/fixtures.jsonl",
+      "sha256": "dee97bf8c0ef1b4788c89a6987a4c7a121de0700edc2e2a0f489f2aae852d1a4",
+      "bytes": 13465
+    }
+  },
+  "rule": "No example may change after freeze. If a checkpoint produces an embarrassing failure, the failure is the result."
+}
