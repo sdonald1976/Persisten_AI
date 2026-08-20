@@ -374,3 +374,11 @@ speculative inner life, nothing that cannot say where it came from.
   model's act. Everything else stays shadow; admit-unknown awaits the focal corpus; the
   "Ask me a question" binding-vs-directive collision remains preserved, unresolved
   evidence. 1087 tests green.
+- **2026-08-20 — Phase 2 closed for now; Phase 3 designed.** `PromoteClarifyIntent` is
+  enabled in the normal-use configuration on the experiment's evidence; every other
+  intent stays shadow, the corpus keeps accumulating, and no further Phase-2 tuning
+  happens unless normal use exposes a serious failure. The Phase-3 design — concept
+  knowledge with the epistemic ownership boundary ("the model may understand a concept
+  without Ava claiming to know it") — is recorded in
+  [`CONCEPT_KNOWLEDGE.md`](CONCEPT_KNOWLEDGE.md), awaiting approval before
+  implementation.
