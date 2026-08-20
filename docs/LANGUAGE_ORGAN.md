@@ -360,3 +360,17 @@ speculative inner life, nothing that cannot say where it came from.
   verbatim in `SPECIMENS.md` with the truth/topical/usefulness analysis and the named
   observability gap (turns lack the durable telemetry tool/model calls already have).
   1083 tests green.
+- **2026-08-20 — Hardening, then the first promotion.** Durable `TurnRecord`s close the
+  Epcot observability gap (`/diagnostics/turns/history`; bounded previews; private turns
+  keep structure and lose words; 30-day prune). The typing audit landed:
+  `ConversationMove`, `ResolutionConfidence`, `TurnIntent` are enums, kebab labels
+  derived in one place and pinned at the JSON boundary with property-level converters
+  (the API's global JsonStringEnumConverter outranks type attributes — verified live).
+  The heuristic ledger is recorded above. Then the ONE controlled promotion:
+  `Companion:PromoteClarifyIntent` (off by default). **Live result, qwen3:8b, canonical
+  case: flag off 0/3 asked which sister; flag on 3/3 asked** ("Are you cooking for
+  Beth, Clara, or someone else?"), every rep decision-recorded as
+  `intent.promotion=clarify-injected`. The system-owned intent measurably changed the
+  model's act. Everything else stays shadow; admit-unknown awaits the focal corpus; the
+  "Ask me a question" binding-vs-directive collision remains preserved, unresolved
+  evidence. 1087 tests green.
