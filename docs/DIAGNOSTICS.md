@@ -38,9 +38,12 @@ rewritten every run or quietly weakened until it passes. Exits non-zero, so it c
 | Scenario | The failure it reproduces |
 |---|---|
 | `memory` | Facts stated in one conversation must survive into the next. This is the whole product in one check, and it was false for the entire life of the project. |
+| `fidelity` | The store's verdicts, not the reply's prose: changed facts superseded, questions never stored as facts, open loops owned by the right party. |
 | `register` | A short message gets a short reply, not an interview. |
 | `compound` | Several things in one message stay several things. |
+| `restart` | Continuity across a companion restart. |
 | `long` | A conversation long enough to put the prompt under pressure — is she still herself afterwards? |
+| `context` | A short answer to her own question is read AS that answer ("Additive." after "what kind of magic?"). Judged on the recorded interpretation decision; the model's half is a note. |
 
 Per-turn checks apply to every reply in every scenario, and each guards a fault that reached a real
 conversation: naming herself at the start, narrating gestures she has no body for, annotating her

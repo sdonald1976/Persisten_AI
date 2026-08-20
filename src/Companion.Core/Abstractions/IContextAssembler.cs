@@ -22,5 +22,6 @@ public interface IContextAssembler
         IReadOnlyList<string>? attention = null,
         IReadOnlyList<string>? procedures = null,
         string? capabilities = null,
-        IReadOnlyList<string>? sharedPerspectives = null);
+        IReadOnlyList<string>? sharedPerspectives = null,
+        string? interpretation = null);
 }

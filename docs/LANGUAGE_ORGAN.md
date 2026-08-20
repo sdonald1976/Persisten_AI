@@ -186,3 +186,16 @@ speculative inner life, nothing that cannot say where it came from.
   identity API distinguishes stored overrides from configured defaults, and an empty
   string on `PUT /identity` explicitly clears a field (blanking it was a silent no-op).
   No behavior changed; 1007 tests green.
+- **2026-08-20 — Phase 1, answer-binding slice landed.** `AnswerBindingDetector`: when her
+  previous message ends with a question and the user's reply is a short elliptical fragment
+  (≤6 words, no question of its own), the system binds reply to question. Three effects:
+  an authoritative `## Reading this turn` section in the packet quoting both halves,
+  rendered right after the transcript and never reinterpretable by personality; the
+  retrieval query becomes question + answer instead of a near-anchorless fragment; and an
+  `interpretation` decision (bound/unbound, with the question as reason) on every turn.
+  Whenever a turn follows a hanging question, the rule's verdict is captured under shadow
+  subject `context.binding` — the ToolNudge discipline: its real-world hit rate gets
+  measured, not assumed. New soak scenario `context` reproduces the Additive failure
+  verbatim and faults on the decision record, not the reply prose. The word-count bound
+  exists because the first cut bound "Never mind that — I finally got the irrigation pump
+  running", which is a topic change, not an answer. 1015 tests green.

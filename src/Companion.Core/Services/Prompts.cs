@@ -187,6 +187,16 @@ public static class Prompts
         Define("renderer.recent.header", "Heading over the recent turns.",
             "## Recent conversation");
 
+        Define("renderer.interpretation.header",
+            "Heading over the system's reading of what the user's message is this turn.",
+            "## Reading this turn (authoritative — do not reinterpret)");
+        Define("interpretation.answer-binding",
+            "Injected when the user's short reply answers the question the companion just " +
+            "asked. {answer} {question}",
+            "The user's \"{answer}\" answers the question you just asked: \"{question}\". " +
+            "Respond to it as that answer — do not treat it as a new topic or bend it toward " +
+            "anything else. If you don't know what their answer means, ask them about it.");
+
         Define("renderer.openloops.header", "Heading over unresolved open loops.",
             "## Open loops — unresolved; recall if relevant, don't nag");
 

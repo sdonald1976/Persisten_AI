@@ -17,12 +17,13 @@ public sealed record Result(string Scenario, List<Fault> Faults, List<Turn> Turn
 public static class Scenarios
 {
     public static IReadOnlyList<string> Names =>
-        new[] { "memory", "fidelity", "register", "compound", "restart", "long" };
+        new[] { "memory", "fidelity", "register", "compound", "restart", "long", "context" };
 
     public static async Task<Result> RunAsync(string name, Api api, int promptBudget, int longTurns)
         => name switch
         {
             "memory" => await MemoryAsync(api, promptBudget),
+            "context" => await ContextAsync(api, promptBudget),
             "fidelity" => await FidelityAsync(api, promptBudget),
             "register" => await RegisterAsync(api, promptBudget),
             "compound" => await CompoundAsync(api, promptBudget),
@@ -362,6 +363,55 @@ public static class Scenarios
 
     private static bool Mentions(string text, params string[] words)
         => words.Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// A short answer to her own question is read AS that answer.
+    ///
+    /// The live failure, verbatim: she asked "What's your favorite kind of magic?", the user said
+    /// "Additive.", and the reply reinterpreted "Additive" as being about the relationship — with
+    /// the question sitting right there in the prompt. The fix is system-side (the answer-binding
+    /// rule, docs/LANGUAGE_ORGAN.md Phase 1), so the fault here is judged on the DECISION record,
+    /// which is deterministic; whether the reply then honors the binding is the model's half, and
+    /// is reported as a note either way so model comparisons have something to read.
+    /// </summary>
+    private static async Task<Result> ContextAsync(Api api, int budget)
+    {
+        var faults = new List<Fault>();
+        var turns = new List<Turn>();
+        var notes = new List<string>();
+
+        var conv = await api.StartConversationAsync("soak: context");
+
+        // The model cannot be scripted over HTTP, so invite the question instead. If it declines
+        // to end with one, that is a note, not a fault — the scenario just cannot run this time.
+        var ask = await SayAsync(api, conv,
+            "Ask me one short question about my hobbies. Just the question, nothing else.",
+            turns, faults, budget);
+        if (!ask.Reply.TrimEnd().EndsWith('?'))
+        {
+            notes.Add($"model did not leave a trailing question; binding unmeasurable this run: {Flat(ask.Reply)}");
+            return new Result("context", faults, turns, notes);
+        }
+
+        var answer = await SayAsync(api, conv, "Woodworking.", turns, faults, budget);
+
+        var decisions = answer.Decisions ?? Array.Empty<string>();
+        notes.Add($"decisions: {string.Join("; ", decisions)}");
+        if (!decisions.Contains("interpretation=answers-open-question"))
+        {
+            faults.Add(new Fault(
+                "answer-not-bound",
+                "a one-word reply to her own trailing question was not bound by the system",
+                Flat(ask.Reply)));
+        }
+
+        // The model's half: does the reply actually engage with the answer it was handed?
+        notes.Add(answer.Reply.Contains("woodwork", StringComparison.OrdinalIgnoreCase)
+            ? "reply engaged with the bound answer"
+            : $"reply did not mention the bound answer (model-side; not a fault): {Flat(answer.Reply)}");
+
+        return new Result("context", faults, turns, notes);
+    }
 
     private static async Task<Turn> SayAsync(
         Api api, string conv, string message, List<Turn> turns, List<Fault> faults, int budget)

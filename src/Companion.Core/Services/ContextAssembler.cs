@@ -32,7 +32,8 @@ public sealed class ContextAssembler : IContextAssembler
         IReadOnlyList<string>? attention = null,
         IReadOnlyList<string>? procedures = null,
         string? capabilities = null,
-        IReadOnlyList<string>? sharedPerspectives = null)
+        IReadOnlyList<string>? sharedPerspectives = null,
+        string? interpretation = null)
     {
         var items = new List<ContextItem>();
         var notes = new List<string>();
@@ -90,6 +91,7 @@ public sealed class ContextAssembler : IContextAssembler
             CuriosityQuestion = curiosity,
             MoodNote = companionMood,
             RegisterNote = RegisterAdvisor.Advise(userMessage),
+            InterpretationNote = interpretation,
             FamiliarityNote = familiarity,
             TemporalNote = temporal,
             PreferenceNotes = preferences ?? Array.Empty<string>(),
