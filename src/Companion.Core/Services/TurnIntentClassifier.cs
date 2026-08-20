@@ -41,6 +41,9 @@ public static partial class TurnIntentClassifier
         // Move-grounded intents first â€” these come from working context's read of the turn.
         if (working.Move == ConversationMove.Correction)
             candidates.Add(new(TurnIntent.AcceptCorrection, 0.85, "the message is a correction of something recent"));
+        if (working.Move == ConversationMove.ConfirmsClaim)
+            candidates.Add(new(TurnIntent.Acknowledge, 0.8,
+                "the message emphatically confirms her claim — agreement, not correction"));
         if (working.Move == ConversationMove.AnswersOpenQuestion)
             candidates.Add(new(TurnIntent.RespondToAnswer, 0.85,
                 $"the message answers her question: \"{working.BoundQuestion}\""));

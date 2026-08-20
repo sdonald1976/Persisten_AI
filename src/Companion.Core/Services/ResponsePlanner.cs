@@ -39,6 +39,12 @@ public static class ResponsePlanner
                 working.CorrectionTarget ?? ErrorOwner.Nobody,
                 Clip(userMessage)));
         }
+        if (working.Move == ConversationMove.ConfirmsClaim)
+        {
+            // Emphatic agreement with her claim: no error exists, contrition would be
+            // invented (the Mad Hatter inversion, canonical regression).
+            acks.Add(new Acknowledgment(AckKind.AgreementConfirmed, ErrorOwner.Nobody, Clip(userMessage)));
+        }
         if (working is { Move: ConversationMove.AnswersOpenQuestion, BoundQuestion: { } bound })
         {
             acks.Add(new Acknowledgment(AckKind.AnswerReceived, ErrorOwner.Nobody,
@@ -116,8 +122,16 @@ public static class ResponsePlanner
         };
     }
 
-    private static string Clip(string text) =>
-        text.Length <= MaxTextChars ? text : text[..MaxTextChars];
+    /// <summary>Word-safe clip: never cuts mid-word ("defend the ear"), backs up to the
+    /// last space when one exists in the tail and marks the elision.</summary>
+    private static string Clip(string text)
+    {
+        if (text.Length <= MaxTextChars)
+            return text;
+        var cut = text[..MaxTextChars];
+        var lastSpace = cut.LastIndexOf(' ');
+        return (lastSpace > MaxTextChars / 2 ? cut[..lastSpace] : cut) + "…";
+    }
 
     private static string? ClipOrNull(string? text) =>
         text is null ? null : Clip(text);
@@ -139,6 +153,18 @@ public static partial class PlanFidelity
             return null;
         var shared = ErrorSharing().Match(reply);
         return shared.Success ? $"error-sharing language after a companion-owned correction: \"{shared.Value}\"" : null;
+    }
+
+    /// <summary>Invariant 3's mirror: after emphatic AGREEMENT, apology language claims an
+    /// error that never happened — invented contrition, the Mad Hatter inversion live
+    /// specimen ("I owe a apology for that mix-up!").</summary>
+    public static string? CheckInventedContrition(ResponsePlan plan, string reply)
+    {
+        if (!plan.Acknowledgments.Any(a => a.Kind == AckKind.AgreementConfirmed))
+            return null;
+        var contrition = Contrition().Match(reply);
+        return contrition.Success
+            ? $"apology for a nonexistent error after agreement: \"{contrition.Value}\"" : null;
     }
 
     /// <summary>Invariant 8: shared history exists only in Shared-owner memory. The reply
@@ -175,6 +201,10 @@ public static partial class PlanFidelity
     [GeneratedRegex(@"\b(we both|both of us|we all|we've both|we each)\b[^.!?]*\b(wrong|mistake|mixed|slipped|confused|err)\w*",
         RegexOptions.IgnoreCase)]
     private static partial Regex ErrorSharing();
+
+    [GeneratedRegex(@"\b(sorry|apolog\w+|my (mistake|bad|error)|i (was wrong|mixed (it|that) up|misspoke|owe .{0,12}apology)|forgive me)\b",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex Contrition();
 
     [GeneratedRegex(@"\b(remember (when|that time) we|that time we (went|did|had|tried)|like when we (went|did|had|tried)|we used to (go|do|have))\b",
         RegexOptions.IgnoreCase)]

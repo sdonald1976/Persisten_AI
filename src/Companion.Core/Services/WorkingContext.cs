@@ -100,13 +100,30 @@ public static partial class WorkingContext
         ErrorOwner? correctionTarget = null;
         if (IsCorrection(message))
         {
-            move = ConversationMove.Correction;
-            note = Prompts.Get("interpretation.correction");
-            // Whose error: "I meant…" corrects the user's own words; otherwise a correction
-            // arriving after the companion spoke targets what SHE said.
-            correctionTarget = SelfCorrection().IsMatch(message) ? ErrorOwner.User
-                : recent.Count > 0 && recent[^1].Role == MessageRole.Assistant ? ErrorOwner.Companion
-                : ErrorOwner.Nobody;
+            // A correction-shaped utterance is not necessarily a correction. Whose error:
+            // "I meant…" corrects the user's own words; otherwise, when the asserted value
+            // ALREADY MATCHES her preceding claim, this is emphatic agreement — the Mad
+            // Hatter inversion, where assigning her the error made the model invent an
+            // apology. Only a genuine conflict makes it hers.
+            if (SelfCorrection().IsMatch(message))
+            {
+                move = ConversationMove.Correction;
+                note = Prompts.Get("interpretation.correction");
+                correctionTarget = ErrorOwner.User;
+            }
+            else if (recent.Count > 0 && recent[^1].Role == MessageRole.Assistant
+                && AssertedValueAgreesWith(message, recent[^1].Content))
+            {
+                move = ConversationMove.ConfirmsClaim;
+                note = Prompts.Get("interpretation.agreement");
+            }
+            else
+            {
+                move = ConversationMove.Correction;
+                note = Prompts.Get("interpretation.correction");
+                correctionTarget = recent.Count > 0 && recent[^1].Role == MessageRole.Assistant
+                    ? ErrorOwner.Companion : ErrorOwner.Nobody;
+            }
         }
         else if (binding is not null)
         {
@@ -396,6 +413,39 @@ public static partial class WorkingContext
         }
         return items.Where(i => i.Length is > 0 and <= 100).ToList();
     }
+
+    /// <summary>
+    /// Does the correction's asserted value already appear in the companion's preceding
+    /// claim? Generalized, not phrase-specific: the asserted value is the correction's
+    /// proper-noun entities when it has any (they are what corrections usually correct),
+    /// else its content words minus correction scaffolding. Agreement = every asserted
+    /// term already present in her claim. An assertion with no extractable terms ("no,
+    /// that's wrong") conflicts by default — pure rejection corrects, it doesn't confirm.
+    /// Known limitation, accepted: a negated echo ("it was NOT the Cheshire Cat") reads
+    /// as agreement; the capture corpus will say whether that shape occurs enough to matter.
+    /// </summary>
+    private static bool AssertedValueAgreesWith(string correction, string previousClaim)
+    {
+        var asserted = new List<string>();
+        foreach (Match m in EntityCandidate().Matches(correction))
+        {
+            if (TrimFunctionWords(m.Value, startsSentence: StartsSentence(correction, m.Index)) is { } entity)
+                asserted.Add(entity);
+        }
+        if (asserted.Count == 0)
+        {
+            asserted.AddRange(ContentWords(correction)
+                .Where(w => !CorrectionScaffolding.Contains(w)));
+        }
+        return asserted.Count > 0
+            && asserted.All(term => previousClaim.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Words that carry the correction SHAPE, never its corrected value.</summary>
+    private static readonly HashSet<string> CorrectionScaffolding = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "actually", "meant", "wrong", "mistake", "misspoke", "remember", "told",
+    };
 
     /// <summary>Markers of the user correcting THEMSELVES rather than the companion.</summary>
     [GeneratedRegex(@"\b(i meant|i said it wrong|my mistake|i was wrong|i misspoke)\b", RegexOptions.IgnoreCase)]

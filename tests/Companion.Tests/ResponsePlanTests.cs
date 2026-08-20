@@ -60,6 +60,49 @@ public class ResponsePlanTests
     }
 
     [Fact]
+    public void CANONICAL_TheMadHatterInversion_IsAgreement_NotCorrection()
+    {
+        // She was RIGHT; the correction-shaped reply agrees with her. No error exists,
+        // ErrorOwner never becomes Companion, and contrition would be invented — the live
+        // specimen where the model apologized for a mix-up that never happened.
+        var recent = new[]
+        {
+            U("Who said 'We're all mad here'?"),
+            A("That's the Cheshire Cat's famous line from Alice in Wonderland!"),
+        };
+
+        var plan = Plan(recent, "No, it was actually the Cheshire Cat.");
+
+        Assert.DoesNotContain(plan.Acknowledgments, a => a.Kind == AckKind.CorrectionAccepted);
+        var ack = Assert.Single(plan.Acknowledgments, a => a.Kind == AckKind.AgreementConfirmed);
+        Assert.Equal(ErrorOwner.Nobody, ack.ErrorOwner);
+        Assert.Equal(TurnIntent.Acknowledge, plan.Act);
+
+        // The mirror tripwire: apology after agreement is invented contrition.
+        Assert.NotNull(PlanFidelity.CheckInventedContrition(plan,
+            "Ah, you're absolutely right — I owe an apology for that mix-up!"));
+        Assert.Null(PlanFidelity.CheckInventedContrition(plan,
+            "Exactly — glad we're on the same page about that one!"));
+    }
+
+    [Fact]
+    public void AGenuineConflict_WithGeneralContent_IsStillACorrection()
+    {
+        // Generalized, not phrase-specific: the asserted value ("acrylic") is absent from
+        // her claim ("glass"), so the conflict is real and the error is hers.
+        var recent = new[]
+        {
+            U("The baubles keep falling."),
+            A("Glass baubles can be so fragile — maybe wrap them?"),
+        };
+
+        var plan = Plan(recent, "No, actually they're acrylic, not glass.");
+
+        var ack = Assert.Single(plan.Acknowledgments, a => a.Kind == AckKind.CorrectionAccepted);
+        Assert.Equal(ErrorOwner.Companion, ack.ErrorOwner);
+    }
+
+    [Fact]
     public void ASelfCorrection_AssignsTheErrorToTheUser()
     {
         var recent = new[] { U("Plant the oak by the gate."), A("Oak by the gate — noted.") };
@@ -187,6 +230,77 @@ public class ResponsePlanTests
             "An axe is a tool used for chopping or splitting wood.");
 
         Assert.Contains(plan.Acknowledgments, a => a.Kind == AckKind.FactTaught);
+    }
+
+    // ---- the narrow promotion: correction acknowledgments only, conflict-verified ----
+
+    private static async Task<(TestHost host, Guid conv)> SeededCorrectionSessionAsync(
+        bool promote, string assistantClaim)
+    {
+        var host = new TestHost(Now, configureOptions: o => o.PromoteResponsePlan = promote);
+        using var scope = host.CreateScope();
+        var conversations = scope.ServiceProvider.GetRequiredService<IConversationStore>();
+        var conv = (await conversations.StartConversationAsync(UserId, "t", "mock", "test")).Id;
+        await conversations.AddMessageAsync(new Message
+        {
+            Id = Guid.NewGuid(), ConversationId = conv, UserId = UserId,
+            Role = MessageRole.User, Content = "Who said 'We're all mad here'?", Timestamp = Now.AddMinutes(-2),
+        });
+        await conversations.AddMessageAsync(new Message
+        {
+            Id = Guid.NewGuid(), ConversationId = conv, UserId = UserId,
+            Role = MessageRole.Assistant, Content = assistantClaim, Timestamp = Now.AddMinutes(-1),
+        });
+        return (host, conv);
+    }
+
+    [Fact]
+    public async Task PromotedPlan_InjectsTheOwnedCorrectionLine_ForAGenuineCorrection()
+    {
+        var (host, conv) = await SeededCorrectionSessionAsync(promote: true,
+            "That's the Mad Hatter's famous line!");
+        await using var _ = host;
+        using var scope = host.CreateScope();
+
+        var trace = await scope.ServiceProvider.GetRequiredService<ICompanion>()
+            .RespondAsync(UserId, conv, "No, it was actually the Cheshire Cat.");
+
+        Assert.Contains("You made the error here", trace.Packet.Render());
+        var turn = host.Services.GetRequiredService<ITurnTraceLog>().Recent(UserId, 1).Single();
+        Assert.Equal("correction-owned-injected",
+            turn.Decisions.Single(d => d.Stage == "plan.promotion").Verdict);
+    }
+
+    [Fact]
+    public async Task PromotedPlan_InjectsNothing_ForTheAgreementInversion()
+    {
+        var (host, conv) = await SeededCorrectionSessionAsync(promote: true,
+            "That's the Cheshire Cat's famous line!");
+        await using var _ = host;
+        using var scope = host.CreateScope();
+
+        var trace = await scope.ServiceProvider.GetRequiredService<ICompanion>()
+            .RespondAsync(UserId, conv, "No, it was actually the Cheshire Cat.");
+
+        Assert.DoesNotContain("You made the error here", trace.Packet.Render());
+        // The agreement reading reaches the packet instead — no contrition instruction.
+        Assert.Contains("confirmation, not a correction", trace.Packet.Render());
+        var turn = host.Services.GetRequiredService<ITurnTraceLog>().Recent(UserId, 1).Single();
+        Assert.DoesNotContain(turn.Decisions, d => d.Stage == "plan.promotion");
+    }
+
+    [Fact]
+    public async Task WithTheFlagOff_AGenuineCorrection_GetsNoOwnedLine()
+    {
+        var (host, conv) = await SeededCorrectionSessionAsync(promote: false,
+            "That's the Mad Hatter's famous line!");
+        await using var _ = host;
+        using var scope = host.CreateScope();
+
+        var trace = await scope.ServiceProvider.GetRequiredService<ICompanion>()
+            .RespondAsync(UserId, conv, "No, it was actually the Cheshire Cat.");
+
+        Assert.DoesNotContain("You made the error here", trace.Packet.Render());
     }
 
     // ---- shadow discipline: recorded everywhere, packet byte-identical ----
