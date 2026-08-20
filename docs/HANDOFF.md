@@ -183,9 +183,16 @@ raise it before adding autonomy that widens what she produces unprompted.
 
 - **The language-organ plan is the main line of work** — [`LANGUAGE_ORGAN.md`](LANGUAGE_ORGAN.md)
   (2026-08-20): make the chat model progressively less responsible for *being* Ava.
-  Eight phases, approved; Phase 0 (decision observability) first. Read it before
+  Eight phases, approved; Phases 0–5 are built and closed. Read it before
   touching the turn pipeline, personality, or knowledge — it records which subsystems
   are already system-owned and must be extended rather than rebuilt.
+  - **Current work: the Language Organ project** — [`RENDERER.md`](RENDERER.md). The
+    renderer contract (`ResponsePlan` + transcript → utterance) is measured, the plan/2
+    serialization is adopted for bench work, and two blind human reviews picked the
+    finalists. **Awaiting approval: the run-1a QLoRA dataset** —
+    `training/renderer/dataset/audit.md` plus the two review packages. Nothing has been
+    trained and production Ava is untouched; `PromoteKnowledgeBoundary` and
+    `PromoteResponsePlan` remain off.
 - **Content gate — built, and the decision left is whether to enforce it.** `IReplyGate` /
   `LlmReplyGate`, off by default, and when switched on it defaults to **shadow**: it judges every
   reply, records the verdict at `/diagnostics/shadow?subject=safety.gate`, and changes nothing. It

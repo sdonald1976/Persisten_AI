@@ -189,8 +189,38 @@ presentation, not the models. plan/2 (mechanical third-person acknowledgment fac
 non-speakable control, separated payloads, keyword style) is adopted as the canonical
 model-facing serialization for all further bench work — production remains untouched.
 
+## Round 2 and the training decision (2026-08-20)
+
+Round-2 blind review on the plan/2 outputs of the three finalists (judgments verbatim
+in `training/renderer/review/human-judgments-round2-2026-08-20.md`) reproduced round 1
+exactly where it counts: **llama3.2:3b took the human vote again (5.5), qwen2.5:3b was
+second (4.5), and qwen2.5:1.5b took ~zero for the second time** — a voice ceiling, not
+a prompting artifact. The Pareto front is two 3Bs: qwen fidelity-led (10/11, 9% CLR,
+zero artifacts), llama voice-led. Seven defect classes survive prompting — unauthorized
+embellishment, assistant fluff and unnecessary questions, excess contrition,
+perspective/agency leakage, epistemic leakage, omission of required content, occasional
+unnatural phrasing — all of them SFT-shaped, which is what closes the no-training phase.
+
+The experiment that follows is specified in
+[`../training/renderer/QLORA_DESIGN.md`](../training/renderer/QLORA_DESIGN.md):
+Qwen2.5-3B-Instruct + plan/2, ~200 examples for run 1a, thirteen behavioral strata,
+positives-only SFT, family-level splits with the entire agreement-inversion family
+permanently held out, and eight predeclared gates — including the one that matters
+most, that a fidelity win with a dead voice is a failed experiment.
+
+The **dataset pipeline lives in `training/renderer/dataset/`**: authored scenarios →
+`tools/Companion.DatasetGen` (teacher candidates + gates + sludge flags, full lineage)
+→ `curate.py` (curation, splits, audit, review packages) → `freeze.py` (hashes).
+`tools/Companion.RendererBench/PlanSerialization.cs` and `RendererChecks.cs` are now
+shared source: the bench, the generator, and the tests compile the same file, so the
+training pairs and the evaluation prompts cannot drift apart. `RendererContractTests`
+pins both.
+
 ## Status
 
 - **2026-08-20** — project started: audit, serialization, harness, corpus, shortlist
   recorded; baseline run complete (table above); raw transcripts in
   `training/renderer/baseline-*.md`. No training, no production changes.
+- **2026-08-20** — two blind review rounds complete; plan/2 adopted; QLoRA experiment 1
+  designed and approved with ten amendments; run-1a dataset built and audited. Still
+  nothing trained, production still untouched.

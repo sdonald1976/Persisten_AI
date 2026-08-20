@@ -170,7 +170,51 @@ the same seed; if 200 shows nothing or regressions, stop and re-examine the data
 before spending another token. Approval needed on: this design, the generated dataset
 (with its 10% human-review sample), and the family split manifest.
 
+## 11. Approved amendments (2026-08-20)
+
+The design was approved with ten amendments, which supersede the sections above
+wherever they differ:
+
+1. **Build only what run 1a needs.** The 200 → 400 → 730 curve stands, but only the
+   200-example dataset gets generated now, made as good as it can reasonably be.
+   Family/schema infrastructure is built so later expansion is deterministic.
+2. **The false-correction family stays wholly out of training** — including
+   paraphrases smuggled into other families. The real question is whether error
+   ownership, perspective stability, ordinary agreement, and proportionate
+   acknowledgment, each trained separately, compose into correct behavior on the
+   canonical inversion the model has never seen. (Implemented as a leakage check:
+   no training row pairs an `agreement-confirmed` plan with a correction-shaped
+   user message.)
+3. **Teachers propose language; they do not define Ava's voice.** Every row records
+   source plan, family, teacher model, raw candidate, gate results, accept/reject,
+   final target, whether a human edited it, and the style/register that licensed the
+   realization — lineage for tracing any verbal tic back to its origin.
+4. **Gates are not the definition of good.** Passing every fidelity gate makes a
+   candidate *eligible for review*, nothing more. Assistant sludge is rejected even
+   when semantically perfect, and the named tics ("Thanks for clarifying", "That
+   makes sense", "I appreciate you telling me", reflexive end-questions, restating
+   the user, excess vocatives, formulaic apology, canned enthusiasm) are tracked
+   **statistically across the corpus**, not just spotted case by case.
+5. **Silence by omission is a trained skill.** Plans carrying multiple `MayUse`
+   palette items whose correct realization uses none, and optional questions whose
+   correct realization asks nothing, get meaningful representation:
+   available ≠ mention.
+6. **Length must emerge from content.** Fragments, one-liners, ordinary two-to-three
+   sentence replies, and the occasional genuinely longer answer all appear. The
+   objective is not a terse Ava.
+7. **The post-training unseen test gets stronger**: at least one new family authored
+   after training, without looking at the model's failures, composing primitives the
+   renderer has met individually but never together.
+8. **A dataset audit package precedes run 1a** (eleven reports, plus a random 10%
+   human-review sample and a separate targeted hard-strata sample, kept apart so the
+   random sample stays random). Review is of ResponsePlan → target, never the target
+   alone.
+9. **Freeze on approval**: dataset, split manifest, plan/2 serialization, base model
+   id, training config, and evaluation suite are hashed. No editing examples because
+   a checkpoint embarrassed us. Failures become results.
+10. **Stop before the first gradient step** until the audit passes review.
+
 ## Status
 
-- **2026-08-20** — design recorded, awaiting approval. Nothing generated, nothing
-  trained, production untouched.
+- **2026-08-20** — design approved with the ten amendments above. Dataset
+  construction and audit under way; nothing trained, production untouched.
