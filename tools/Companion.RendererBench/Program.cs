@@ -15,6 +15,7 @@ var models = (Args("--models") ??
     "qwen3:0.6b,llama3.2:1b,qwen2.5:1.5b-instruct,qwen2.5:3b-instruct,llama3.2:3b," +
     "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M,qwen3:8b").Split(',');
 var outPath = Args("--out") ?? @"training\renderer\baseline-results.md";
+var serialization = Args("--serialization") ?? "v1"; // v1 = compact labels; v2 = plan/2 sections
 
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 var fixtures = File.ReadAllLines(fixturesPath)
@@ -94,6 +95,87 @@ string? Args(string name)
     return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
 }
 
+// plan/2: the renderer-oriented serialization. Same typed semantics, no added cognition.
+// Design goals (from the human review): control metadata is explicitly non-speakable;
+// acknowledgments become MECHANICAL third-person facts built from typed fields (killing
+// the second-person prose that made a 1.5B blame the user for Ava's error); language
+// payloads live apart from control; style is terse keywords, not prose. Versioned by the
+// [plan/2] header.
+static string CompactV2(ResponsePlan plan)
+{
+    var sb = new StringBuilder();
+    sb.AppendLine("[plan/2]");
+    sb.AppendLine("CONTROL (internal machinery — never quote, mention, or imitate anything in this section)");
+    sb.AppendLine($"  act = {plan.Act.ToKebab()}");
+    sb.AppendLine(plan.Question is { } pq
+        ? $"  question = {pq.Kind.ToKebab()}{(pq.Mandatory ? ":mandatory" : ":optional")}"
+        : "  question = none");
+
+    var situation = new List<string>();
+    foreach (var a in plan.Acknowledgments)
+    {
+        situation.Add(a.Kind switch
+        {
+            AckKind.CorrectionAccepted when a.ErrorOwner == ErrorOwner.Companion =>
+                $"Ava made an error; Scott corrected her: \"{a.Text}\". Ava accepts it as her own mistake.",
+            AckKind.CorrectionAccepted when a.ErrorOwner == ErrorOwner.User =>
+                $"Scott corrected his own earlier words: \"{a.Text}\".",
+            AckKind.AgreementConfirmed =>
+                $"Scott is emphatically agreeing with what Ava just said (\"{a.Text}\"). Nobody made an error.",
+            AckKind.FactTaught => $"Scott just taught Ava something: \"{a.Text}\".",
+            AckKind.AnswerReceived => $"Scott answered Ava's question: {a.Text}.",
+            _ => a.Text,
+        });
+    }
+    situation.AddRange(plan.Content
+        .Where(c => c.Requirement == ContentRequirement.MustState)
+        .Select(c => c.Text));
+    if (plan.Question is { } q2)
+        situation.Add($"Ava {(q2.Mandatory ? "must ask" : "may ask")}: {q2.Text}");
+    if (situation.Count > 0)
+    {
+        sb.AppendLine("SITUATION (what is true this turn — convey the meaning naturally; never copy this wording)");
+        foreach (var s in situation)
+            sb.AppendLine($"  * {s}");
+    }
+
+    var palette = plan.Content.Where(c => c.Requirement == ContentRequirement.MayUse).ToList();
+    if (palette.Count > 0)
+    {
+        sb.AppendLine("PALETTE (optional color — use one only if it truly fits this turn)");
+        foreach (var c in palette)
+            sb.AppendLine($"  * {c.Text}");
+    }
+
+    var constraints = new List<string>();
+    constraints.AddRange(plan.Content
+        .Where(c => c.Requirement == ContentRequirement.MustNotContradict)
+        .Select(c => $"superseded, never assert: {c.Text}"));
+    constraints.AddRange(plan.Epistemic.Select(e => e.Kind switch
+    {
+        EpistemicKind.NotLearned =>
+            $"Ava has NOT learned what \"{e.Subject}\" is — say so; never explain it from background knowledge",
+        EpistemicKind.Uncertain => $"Ava holds \"{e.Subject}\" uncertainly — hedge honestly",
+        _ => $"\"{e.Subject}\" is disputed — do not assert it",
+    }));
+    if (constraints.Count > 0)
+    {
+        sb.AppendLine("CONSTRAINTS (hard limits)");
+        foreach (var c in constraints)
+            sb.AppendLine($"  * {c}");
+    }
+
+    static string Squeeze(string? text, int max = 45)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        var head = text.Split('—', ';', '.', '|')[0].Trim();
+        return head.Length <= max ? head : head[..max].TrimEnd();
+    }
+    sb.AppendLine("STYLE");
+    sb.AppendLine($"  {string.Join("; ", new[] { Squeeze(plan.Tone.Register), Squeeze(plan.Tone.MoodNote), Squeeze(plan.Tone.PersonaStyle) }.Where(s => s.Length > 0))}");
+    return sb.ToString();
+}
+
 static string Compact(ResponsePlan plan)
 {
     var sb = new StringBuilder();
@@ -121,27 +203,43 @@ static string Compact(ResponsePlan plan)
 async Task<(string Reply, double TtftMs, double TokPerSec, double TotalMs)> GenerateAsync(
     HttpClient client, string model, Fixture fixture)
 {
-    var system =
-        "You are the language renderer for Ava, a persistent AI companion talking with Scott. " +
-        "Ava's cognitive system has ALREADY decided everything about this turn — the facts, who " +
-        "erred, what she knows and does not know, and what act to perform. Your only job is to " +
-        "phrase her reply naturally.\n" +
-        "HARD RULES:\n" +
-        "- Say everything marked MUST-STATE, in your own words.\n" +
-        "- Never assert anything marked NEVER-CONTRADICT.\n" +
-        "- EPISTEMIC not-learned: X means Ava has NOT learned X. Say so honestly; NEVER explain X " +
-        "from your own background knowledge.\n" +
-        "- ACK correction-accepted (error: companion) means AVA made the error: own it plainly, " +
-        "never share blame ('we both').\n" +
-        "- ACK agreement-confirmed means nobody erred: never apologize.\n" +
-        "- QUESTION (mandatory) must be asked, once. Otherwise add no questions you don't need.\n" +
-        "- MAY-USE items are optional color — use one only if it genuinely fits THIS turn.\n" +
-        "- Never invent shared memories, physical experiences of your own, or facts.\n" +
-        "Style is yours: wording, rhythm, warmth, humor. Match TONE. Output Ava's reply text only.";
+    var system = serialization == "v2"
+        ? "You are Ava's voice. Ava is a persistent AI companion talking with Scott; she has no " +
+          "physical body. Her mind has ALREADY decided everything about this turn — the plan " +
+          "below is that decision. Your only job is to say it naturally, as Ava, speaking to " +
+          "Scott.\n" +
+          "HARD RULES:\n" +
+          "- CONTROL is internal machinery: never quote, mention, or imitate it.\n" +
+          "- SITUATION items are the meaning of your reply: convey each one naturally, in fresh " +
+          "words — never copy their wording, never recite them.\n" +
+          "- CONSTRAINTS are absolute. Not-learned things stay honestly not-learned, whatever " +
+          "your own training knows.\n" +
+          "- PALETTE is optional color; ignore it unless it truly fits.\n" +
+          "- Ask a question only if the plan says so.\n" +
+          "- Never invent shared memories, physical experiences, or facts. Speak as \"I\" (Ava) " +
+          "to \"you\" (Scott).\n" +
+          "STYLE is yours to interpret: wording, rhythm, warmth, humor. Short and ordinary beats " +
+          "long and ornate. Output Ava's reply text only."
+        : "You are the language renderer for Ava, a persistent AI companion talking with Scott. " +
+          "Ava's cognitive system has ALREADY decided everything about this turn — the facts, who " +
+          "erred, what she knows and does not know, and what act to perform. Your only job is to " +
+          "phrase her reply naturally.\n" +
+          "HARD RULES:\n" +
+          "- Say everything marked MUST-STATE, in your own words.\n" +
+          "- Never assert anything marked NEVER-CONTRADICT.\n" +
+          "- EPISTEMIC not-learned: X means Ava has NOT learned X. Say so honestly; NEVER explain X " +
+          "from your own background knowledge.\n" +
+          "- ACK correction-accepted (error: companion) means AVA made the error: own it plainly, " +
+          "never share blame ('we both').\n" +
+          "- ACK agreement-confirmed means nobody erred: never apologize.\n" +
+          "- QUESTION (mandatory) must be asked, once. Otherwise add no questions you don't need.\n" +
+          "- MAY-USE items are optional color — use one only if it genuinely fits THIS turn.\n" +
+          "- Never invent shared memories, physical experiences of your own, or facts.\n" +
+          "Style is yours: wording, rhythm, warmth, humor. Match TONE. Output Ava's reply text only.";
 
     var user = new StringBuilder();
     user.AppendLine("RESPONSE PLAN:");
-    user.AppendLine(Compact(fixture.Plan));
+    user.AppendLine(serialization == "v2" ? CompactV2(fixture.Plan) : Compact(fixture.Plan));
     user.AppendLine("RECENT CONVERSATION:");
     foreach (var t in fixture.Transcript)
         user.AppendLine($"[{(t.Role == "user" ? "Scott" : "Ava")}] {t.Text}");
@@ -203,6 +301,17 @@ List<string> Check(Fixture fixture, string reply)
         if (c.Text.Length > 40 && reply.Contains(c.Text[..40], StringComparison.OrdinalIgnoreCase))
             violations.Add("plan-echo: must-state text recited verbatim");
     }
+    // Control-vocabulary leakage: serialization tokens spoken aloud, or third-person
+    // narration of the participants ("the user") — the artifact class the human review
+    // called unacceptable.
+    string[] controlTerms = serialization == "v2"
+        ? ["[plan/2]", "CONTROL", "SITUATION", "PALETTE", "CONSTRAINTS", "act =", "question ="]
+        : ["MUST-STATE", "MAY-USE", "NEVER-CONTRADICT", "ACK ", "ACT:", "EPISTEMIC", "QUESTION:", "TONE register"];
+    foreach (var term in controlTerms)
+        if (reply.Contains(term, StringComparison.Ordinal))
+            violations.Add($"artifact: control vocabulary \"{term.Trim()}\" spoken");
+    if (System.Text.RegularExpressions.Regex.IsMatch(reply, @"\bthe user\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        violations.Add("artifact: narrates \"the user\" in third person");
     foreach (var term in fixture.Required ?? [])
         if (!reply.Contains(term, StringComparison.OrdinalIgnoreCase))
             violations.Add($"must-state missing \"{term}\"");
