@@ -12,7 +12,7 @@ outputs/
 # one machine cannot be frozen.
 !renderer/fixtures.jsonl
 !renderer/dataset/scenarios/*.jsonl
-!renderer/dataset/candidates.jsonl
+!renderer/dataset/candidates*.jsonl
 !renderer/dataset/train-*.jsonl
 
 # Python bytecode from the training scripts
