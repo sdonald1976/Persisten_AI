@@ -1,0 +1,61 @@
+{
+  "seed": 20260821,
+  "sealed": "DO NOT OPEN BEFORE JUDGING",
+  "key": {
+    "cheshire-genuine": {
+      "A": "qwen2.5:3b-instruct",
+      "B": "llama3.2:3b",
+      "C": "qwen2.5:1.5b-instruct"
+    },
+    "cheshire-inversion": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "qwen2.5:3b-instruct",
+      "C": "llama3.2:3b"
+    },
+    "hatter-muddle": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "llama3.2:3b",
+      "C": "qwen2.5:3b-instruct"
+    },
+    "rabbit-hole": {
+      "A": "qwen2.5:3b-instruct",
+      "B": "qwen2.5:1.5b-instruct",
+      "C": "llama3.2:3b"
+    },
+    "dont-break": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "llama3.2:3b",
+      "C": "qwen2.5:3b-instruct"
+    },
+    "quokka-unknown": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "qwen2.5:3b-instruct",
+      "C": "llama3.2:3b"
+    },
+    "axe-known": {
+      "A": "llama3.2:3b",
+      "B": "qwen2.5:3b-instruct",
+      "C": "qwen2.5:1.5b-instruct"
+    },
+    "epcot-pizza": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "qwen2.5:3b-instruct",
+      "C": "llama3.2:3b"
+    },
+    "embodiment": {
+      "A": "qwen2.5:3b-instruct",
+      "B": "qwen2.5:1.5b-instruct",
+      "C": "llama3.2:3b"
+    },
+    "precious-palette": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "qwen2.5:3b-instruct",
+      "C": "llama3.2:3b"
+    },
+    "clarify-sisters": {
+      "A": "llama3.2:3b",
+      "B": "qwen2.5:1.5b-instruct",
+      "C": "qwen2.5:3b-instruct"
+    }
+  }
+}
