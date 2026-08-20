@@ -164,6 +164,41 @@ phase lands inside the existing pipeline.
 - Touching the reply-gate default — enforcement remains an open decision recorded in
   `HANDOFF.md`, and this plan does not preempt it.
 
+## Preserved specimens
+
+### The Epcot pizza turn (2026-08-20, normal use, chat model qwen-family)
+
+The user's turn, verbatim: *"Most of the food I don't eat. I just try to get wasted"* —
+after establishing that Epcot is their favorite park **because** they drink around the
+world. Ava's reply: *"…Though I'm curious: do you ever sneak in a bite of pizza or spicy
+snack to balance things out…"* — reintroducing the user's stored pizza/spicy preference
+into a turn whose entire content was "I don't eat the food."
+
+Kept because it separates three properties this architecture must stop conflating:
+
+- **Truth** — the pizza/spicy memory is VALID. The user does like it. Nothing in the
+  store is wrong, and no store-side fix applies.
+- **Topical similarity** — the memory is linguistically ABOUT food, and the message is
+  about food. Every similarity signal (embedding, keyword) legitimately fires. The
+  relevance floor did its job as designed.
+- **Turn usefulness** — the memory is USELESS here, and worse: the message *negates* its
+  topic ("don't eat"), so surfacing it invites exactly the follow-up the user just
+  declined. Usefulness is a third axis neither of the other two measures.
+
+Status of the trace: the exchange ran on the OTHER machine; this box's store holds no
+pizza memory and the packet-level record is unrecoverable — the diagnostics ring keeps
+five turns, in memory, per process. Which names the observability gap precisely: **tool
+calls and model calls get durable telemetry rows; turns do not.** The smallest fix is a
+durable, pruned per-turn record (traceId, message preview, retrieved content + score +
+topical, decisions) in the DiagnosticsRecords pattern — an observability change, not a
+retrieval change. Until it exists, `CognitiveModels:Capture` provides partial durable
+coverage (the turn.intent rows carry move, top topical, and the message).
+
+Deliberately NOT patched in Phase 2: the fix direction (a negation-aware usefulness
+signal, or packet-side downranking of memories whose topic the message negates) is a
+retrieval-consumer decision that needs its own evidence pass. Focal coverage does not
+catch this case and was not expected to — the memory IS focal-relevant; it is useful-less.
+
 ## Relationship to the vision doc
 
 `PERSISTENT_COMPANION_VISION.md` bans "abstract cognitive subsystems." This plan was
@@ -281,3 +316,21 @@ speculative inner life, nothing that cannot say where it came from.
   one more shadow iteration (promote request-directive to selectable, build the
   focal-entity relevance signal, teach the ordinal resolver prose enumerations) before
   any controlled promotion. 1078 tests green.
+- **2026-08-20 — Phase 2 iteration 2 (still shadow).** The three recommendations landed
+  and validated live: `request-directive` is selectable (0.7 — above the topic-shape
+  readings, below answer-question so "can you…?" stays an answer) and fired correctly on
+  live directives, model complying each time; focal coverage ships as an observed-only
+  feature (`FocalCoverage` on the ring, `|focal=` in captures) and **separated known from
+  unknown on live data where topical could not** — carburetor covered / treehouse
+  uncovered with retrieval returning records for both; the enumeration parser handles
+  prose alternatives (or-boundary primary, commas split only into short parallel nouns —
+  the descriptive-comma bug is pinned) plus emoji-decorated trailing questions, and
+  resolved "the second one" against qwen's flowing two-option reply live. The canonical
+  clarify specimen reproduced a THIRD time (system clarify 0.75; model hedged plural,
+  never asked which). New finding for the corpus: "Ask me a question." after her own
+  trailing question BINDS as an elliptical answer and respond-to-answer (0.85) outranks
+  request-directive (0.70) — a genuine precedence collision ("ask Beth" can truly answer
+  "who should I invite?"), recorded, not reflex-patched. The Epcot specimen is preserved
+  verbatim in `SPECIMENS.md` with the truth/topical/usefulness analysis and the named
+  observability gap (turns lack the durable telemetry tool/model calls already have).
+  1083 tests green.

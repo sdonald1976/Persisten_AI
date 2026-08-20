@@ -94,7 +94,14 @@ public static partial class AnswerBindingDetector
     /// </summary>
     public static string? TrailingQuestion(string text)
     {
-        var trimmed = text.TrimEnd();
+        // Trim trailing decoration before looking for the question mark: qwen-family models
+        // sign off with emoji ("…which do you prefer? 🍽️"), and a question is no less open
+        // for being decorated. Letters and digits stop the trim — real prose after the '?'
+        // means the question was talked past.
+        var end = text.Length;
+        while (end > 0 && text[end - 1] != '?' && !char.IsLetterOrDigit(text[end - 1]))
+            end--;
+        var trimmed = text[..end];
         if (trimmed.Length == 0 || trimmed[^1] != '?')
             return null;
 

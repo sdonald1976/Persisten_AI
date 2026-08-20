@@ -71,7 +71,8 @@ public class TurnIntentTests
         Assert.Contains(intent.Candidates, c => c.Intent == TurnIntentClassifier.Intents.AnswerQuestion);
     }
 
-    // ---- request/directive: evidence, never selection ----
+    // ---- request/directive: promoted to selectable on the 2026-08-20 evidence (6/6
+    // consistent signature; the model performed the requested act 6/6 times) ----
 
     [Theory]
     [InlineData("Ask me a question.")]
@@ -80,14 +81,22 @@ public class TurnIntentTests
     [InlineData("Give me two choices.")]
     [InlineData("Don't answer that yet.")]
     [InlineData("Remind me what we were discussing.")]
-    public void ADirective_IsRecordedAsEvidence_AndNeverSelected(string message)
+    public void ADirective_IsSelected(string message)
     {
         var intent = Classify(new[] { A("Morning!") }, message);
+        Assert.Equal(TurnIntentClassifier.Intents.RequestDirective, intent.Intent);
+    }
 
+    [Fact]
+    public void AQuestionFormRequest_IsAnswerQuestion_WithDirectiveCompeting()
+    {
+        // "Can you…?" is answered by performing it — answer-question already says so, and
+        // the directive candidate rides behind as the shape's record.
+        var intent = Classify(new[] { A("Morning!") }, "Can you remind me what we discussed?");
+
+        Assert.Equal(TurnIntentClassifier.Intents.AnswerQuestion, intent.Intent);
         Assert.Contains(intent.Candidates,
             c => c.Intent == TurnIntentClassifier.Intents.RequestDirective);
-        Assert.NotEqual(TurnIntentClassifier.Intents.RequestDirective, intent.Intent);
-        Assert.True(TurnIntentClassifier.LooksDirective(message));
     }
 
     [Theory]

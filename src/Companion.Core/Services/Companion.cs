@@ -390,6 +390,7 @@ public sealed class Companion : ICompanion
             Verdict = intent.Intent,
             Reason = intent.Reason,
         });
+        var focal = RelevanceSignals.Focal(promptText, outcome.Selected);
 
         // When the query was rewritten and capture is on, also retrieve with the RAW message
         // and trace both result sets — the before/after evidence for whether resolution
@@ -638,7 +639,8 @@ public sealed class Companion : ICompanion
                         Input = SecretDetector.LooksLikeSecret(extractionSource.Content)
                             ? null
                             : $"[{working.Move}|topical={topTopical:F2}" +
-                              $"{(TurnIntentClassifier.LooksDirective(extractionSource.Content) ? "|directive" : "")}] " +
+                              $"{(TurnIntentClassifier.LooksDirective(extractionSource.Content) ? "|directive" : "")}" +
+                              $"{(focal is null ? "" : focal.Covered ? "|focal=covered" : "|focal=uncovered")}] " +
                               extractionSource.Content,
                     }, ct);
                 }
@@ -712,6 +714,7 @@ public sealed class Companion : ICompanion
             Decisions = decisions,
             WorkingContext = working,
             Intent = intent,
+            Focal = focal,
             RetrievedWithRawQuery = rawQueryRetrieved,
             ContextSections = PresentSections(packet),
             DetectedProject = projectContext.ResolvedProjectName,
