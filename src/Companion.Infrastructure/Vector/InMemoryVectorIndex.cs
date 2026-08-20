@@ -121,11 +121,22 @@ public sealed class InMemoryVectorIndex : IVectorIndex, IVectorIndexMaintenance
                     .Select(m => new { m.Id, m.Embedding })
                     .ToListAsync(ct);
 
+                // Concept assertions index only while ACTIVE: a superseded definition is
+                // history, not something to surface as her current knowledge.
+                var concepts = await db.ConceptAssertions
+                    .Where(a => a.UserId == userId
+                        && a.Status == MemoryStatus.Active
+                        && a.Embedding != null)
+                    .Select(a => new { a.Id, a.Embedding })
+                    .ToListAsync(ct);
+
                 _vectors.Clear();
                 foreach (var m in semantic)
                     _vectors[m.Id] = m.Embedding!;
                 foreach (var m in episodic)
                     _vectors[m.Id] = m.Embedding!;
+                foreach (var a in concepts)
+                    _vectors[a.Id] = a.Embedding!;
 
                 _loaded = true;
                 logger.LogDebug("Vector index cold-loaded {Count} embeddings for user {UserId}",

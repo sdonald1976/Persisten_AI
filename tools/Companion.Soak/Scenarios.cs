@@ -17,13 +17,14 @@ public sealed record Result(string Scenario, List<Fault> Faults, List<Turn> Turn
 public static class Scenarios
 {
     public static IReadOnlyList<string> Names =>
-        new[] { "memory", "fidelity", "register", "compound", "restart", "long", "context" };
+        new[] { "memory", "fidelity", "register", "compound", "restart", "long", "context", "knowledge" };
 
     public static async Task<Result> RunAsync(string name, Api api, int promptBudget, int longTurns)
         => name switch
         {
             "memory" => await MemoryAsync(api, promptBudget),
             "context" => await ContextAsync(api, promptBudget),
+            "knowledge" => await KnowledgeAsync(api, promptBudget),
             "fidelity" => await FidelityAsync(api, promptBudget),
             "register" => await RegisterAsync(api, promptBudget),
             "compound" => await CompoundAsync(api, promptBudget),
@@ -459,6 +460,49 @@ public static class Scenarios
             : $"canonical clarify: model answered without asking (the canonical disagreement): {Flat(cook.Reply)}");
 
         return new Result("context", faults, turns, notes);
+    }
+
+    /// <summary>
+    /// The epistemic ownership boundary (docs/CONCEPT_KNOWLEDGE.md): a taught concept is
+    /// answered from Ava's store with provenance; an untaught one is honestly not-learned,
+    /// however well the model understands it. System decisions are faulted (deterministic);
+    /// whether the model then respects the boundary in prose is noted — a violation is
+    /// recorded evidence, never a reason to weaken the epistemic model.
+    /// </summary>
+    private static async Task<Result> KnowledgeAsync(Api api, int budget)
+    {
+        var faults = new List<Fault>();
+        var turns = new List<Turn>();
+        var notes = new List<string>();
+
+        var conv = await api.StartConversationAsync("soak: knowledge");
+
+        var teach = await SayAsync(api, conv,
+            "An axe is a tool used for chopping or splitting wood.", turns, faults, budget);
+        if (!(teach.Decisions ?? Array.Empty<string>()).Contains("knowledge.taught=axe"))
+            faults.Add(new Fault("teaching-missed",
+                "an explicit definitional teaching did not create concept knowledge", Flat(teach.Reply)));
+
+        var known = await SayAsync(api, conv, "Do you know what an axe is?", turns, faults, budget);
+        if (!(known.Decisions ?? Array.Empty<string>()).Contains("knowledge.lookup=axe:known"))
+            faults.Add(new Fault("known-not-found",
+                "a taught concept did not look up as known", Flat(known.Reply)));
+        notes.Add("axe reply: " + Flat(known.Reply));
+
+        var unknown = await SayAsync(api, conv, "Do you know what a quokka is?", turns, faults, budget);
+        if (!(unknown.Decisions ?? Array.Empty<string>()).Contains("knowledge.lookup=quokka:unknown"))
+            faults.Add(new Fault("unknown-not-honest",
+                "an untaught concept did not look up as unknown", Flat(unknown.Reply)));
+        // The model's half: does the reply respect the boundary? "wallaby"/"marsupial"
+        // content presented as her own knowledge is the violation to record.
+        var explained = unknown.Reply.Contains("wallaby", StringComparison.OrdinalIgnoreCase)
+            || unknown.Reply.Contains("marsupial", StringComparison.OrdinalIgnoreCase)
+            || unknown.Reply.Contains("Australia", StringComparison.OrdinalIgnoreCase);
+        notes.Add(explained
+            ? "BOUNDARY VIOLATION (model-side, recorded): explained the quokka from pretrained knowledge: " + Flat(unknown.Reply)
+            : "quokka reply respected the boundary: " + Flat(unknown.Reply));
+
+        return new Result("knowledge", faults, turns, notes);
     }
 
     /// <summary>The working-context evidence for one turn, written into the scenario notes.</summary>

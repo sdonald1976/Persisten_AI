@@ -33,6 +33,7 @@ public sealed class Companion : ICompanion
     private readonly IShadowRecorder _shadow;
     private readonly ICognitiveCapture _capture;
     private readonly IDiagnosticsStore? _diagnostics;
+    private readonly IConceptKnowledge? _concepts;
     private readonly IPersonalityService _personality;
     private readonly IMemoryPipeline _pipeline;
     private readonly IProjectUpdater _projectUpdater;
@@ -90,13 +91,15 @@ public sealed class Companion : ICompanion
         IOptions<SafetyOptions>? safety = null,
         IShadowRecorder? shadow = null,
         ICognitiveCapture? capture = null,
-        IDiagnosticsStore? diagnostics = null)
+        IDiagnosticsStore? diagnostics = null,
+        IConceptKnowledge? concepts = null)
     {
         _gate = gate ?? new AlwaysOpenGate();
         _safety = safety?.Value ?? new SafetyOptions();
         _shadow = shadow ?? new NoShadowRecorder();
         _capture = capture ?? new NoCognitiveCapture();
         _diagnostics = diagnostics;
+        _concepts = concepts;
         _conversations = conversations;
         _projectContext = projectContext;
         _pending = pending;
@@ -401,7 +404,39 @@ public sealed class Companion : ICompanion
         // one instruction preferring a short clarifying question over guessing. Narrowest
         // possible authority: one intent, one condition, one line, its own flag, off by
         // default, measured by the canonical soak stage. Nothing else is promoted.
-        if (_options.PromoteClarifyIntent && intent.Intent == TurnIntent.Clarify)
+        // 4b. The epistemic question (Phase 3): "do you know what X is?" is answered by the
+        // SYSTEM from her concept store, never silently by the model's pretraining. The
+        // lookup and its verdict are always recorded; the authoritative packet line rides
+        // behind its own promotion flag, same discipline as clarify.
+        ConceptLookupResult? knowledge = null;
+        if (_concepts is not null && KnowledgeQuestionDetector.Detect(promptText) is { } askedTerm)
+        {
+            knowledge = await _concepts.LookupAsync(userId, askedTerm, ct);
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "knowledge.lookup", Decider = "rule",
+                Verdict = $"{ConceptKnowledge.Canonical(askedTerm)}:{knowledge.Familiarity.ToKebab()}",
+                Reason = knowledge.Definition,
+            });
+            if (_options.PromoteKnowledgeBoundary && interpretationNote is null)
+            {
+                interpretationNote = knowledge.Familiarity == ConceptFamiliarity.Known
+                    ? Prompts.Format("knowledge.known",
+                        ("term", knowledge.Term), ("definition", knowledge.Definition ?? ""),
+                        ("source", identityProjection.UserName ?? "the user"),
+                        ("date", $"{knowledge.LearnedAt:MMM d}"))
+                    : Prompts.Format("knowledge.unknown", ("term", askedTerm));
+                decisions.Add(new DecisionRecord
+                {
+                    Stage = "knowledge.promotion", Decider = "config",
+                    Verdict = knowledge.Familiarity == ConceptFamiliarity.Known
+                        ? "known-injected" : "unknown-injected",
+                });
+            }
+        }
+
+        if (_options.PromoteClarifyIntent && intent.Intent == TurnIntent.Clarify
+            && interpretationNote is null)
         {
             interpretationNote = Prompts.Format("intent.clarify",
                 ("marker", working.ReferenceMarkers.FirstOrDefault() ?? "their reference"));
@@ -620,6 +655,31 @@ public sealed class Companion : ICompanion
                 await _procedures.ApplyRevisionAsync(userId, extractionSource, now, ct);
                 await _procedures.AddOrUpdateFromTeachingAsync(userId, conversationId, extractionSource, now, ct);
                 await CaptureCommitmentAsync(userId, response, assistantMsg.Id, now, ct);
+
+                // Explicit teaching becomes Ava-owned world knowledge — user message only,
+                // high-precision detector, evidence-bound (docs/CONCEPT_KNOWLEDGE.md). Inside
+                // this gate deliberately: a turn not allowed durable derived memory is not
+                // allowed durable knowledge either.
+                if (_concepts is not null)
+                {
+                    var taught = await _concepts.LearnFromAsync(userId, extractionSource, lexicon, ct);
+                    if (taught is not null)
+                    {
+                        decisions.Add(new DecisionRecord
+                        {
+                            Stage = "knowledge.taught", Decider = "rule",
+                            Verdict = ConceptKnowledge.Canonical(taught),
+                        });
+                    }
+                    // Every loose-copular sentence the detector rejected is a labeled
+                    // negative for the future corpus — broadening happens on data, never
+                    // on intuition.
+                    if (TeachingDetector.LooseShape(extractionSource.Content))
+                    {
+                        await Shadow.CaptureAsync(_shadow, "knowledge.teaching", taught is not null,
+                            extractionSource.Content, ct);
+                    }
+                }
 
                 // Corpus capture, last and deliberately inside this gate: a turn that is not
                 // allowed to produce durable memory is not allowed to produce durable training
@@ -863,6 +923,7 @@ public sealed class Companion : ICompanion
         If(packet.Project is not null, "project");
         If(packet.OpenLoops.Count > 0, "openLoops");
         If(packet.Memories.Count > 0, "memories");
+        If(packet.LearnedKnowledge.Count > 0, "knowledge");
         If(packet.PreferenceNotes.Count > 0, "preferences");
         If(!string.IsNullOrWhiteSpace(packet.ToolResults), "toolResults");
         return sections;

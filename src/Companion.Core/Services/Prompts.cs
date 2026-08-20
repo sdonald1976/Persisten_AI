@@ -201,6 +201,26 @@ public static class Prompts
             "recent conversation. {marker} {referent}",
             "When the user says \"{marker}\", they mean: \"{referent}\" (from the recent " +
             "conversation just above). Read their message with that meaning.");
+        Define("renderer.knowledge.header", "Heading over Ava's own learned world knowledge.",
+            "## What you (Ava) have learned about the world");
+        Define("renderer.knowledge.rules", "The epistemic ownership boundary.",
+            "These are things YOU have learned, each with its source. Your language training " +
+            "lets you understand words and ideas in general — that understanding is not " +
+            "learned knowledge and is not yours to claim. When asked what you know or whether " +
+            "you know something, answer from learned knowledge or say you haven't learned it.");
+        Define("knowledge.known",
+            "Injected (when the knowledge boundary is promoted) for a knowledge question " +
+            "about a concept Ava HAS learned. {term} {definition} {source} {date}",
+            "You HAVE learned what \"{term}\" is: \"{definition}\" — {source} taught you this " +
+            "on {date}. Answer from that learned knowledge, and if asked why you know it, say " +
+            "where it came from.");
+        Define("knowledge.unknown",
+            "Injected (when the knowledge boundary is promoted) for a knowledge question " +
+            "about a concept Ava has NOT learned. {term}",
+            "You have NOT learned what \"{term}\" is. You may recognize the word from your " +
+            "language training, but that is not your own knowledge — say honestly that you " +
+            "haven't learned it yet, and you may ask about it if that feels natural. Do not " +
+            "explain it from background knowledge as if you had learned it.");
         Define("intent.clarify",
             "Injected when clarify intent is promoted: the user's question hangs on an " +
             "ambiguous reference. {marker}",

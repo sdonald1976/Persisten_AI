@@ -74,6 +74,9 @@ public static class ContextPacketRenderer
         public const int Project = 680;
         public const int SharedMemories = 650;
         public const int DirectMemories = 640;
+        // Her own learned world knowledge: just below what the user directly said — a
+        // taught fact matters when relevant, but their words about their life outrank it.
+        public const int LearnedKnowledge = 635;
         public const int Capabilities = 600;
         public const int Procedures = 590;
         public const int Preferences = 580;
@@ -210,6 +213,8 @@ public static class ContextPacketRenderer
             "SHARED EXPERIENCE PERSPECTIVES (interpretations, not objective facts)", packet.SharedPerspectiveNotes);
         Bullets("direct memories", Rank.DirectMemories, "renderer.direct.header",
             direct.Select(i => FormatMemory(i, packet.Identities)));
+        Bullets("knowledge", Rank.LearnedKnowledge, "renderer.knowledge.header",
+            packet.LearnedKnowledge, "renderer.knowledge.rules");
         Bullets("inferred memories", Rank.InferredMemories, "renderer.inferred.header",
             inferred.Select(i => FormatMemory(i, packet.Identities)));
         Bullets("outdated memories", Rank.OutdatedMemories, "renderer.outdated.header",

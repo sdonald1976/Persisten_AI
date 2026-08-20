@@ -155,6 +155,15 @@ public sealed class CompanionOptions
     /// </summary>
     public bool PromoteClarifyIntent { get; set; }
 
+    /// <summary>
+    /// The knowledge-boundary promotion (docs/CONCEPT_KNOWLEDGE.md §3): when on, a direct
+    /// epistemic question ("do you know what an axe is?") gets one authoritative packet
+    /// line answering from Ava's concept store — she HAS learned it (with provenance) or
+    /// has NOT (and must not present pretrained understanding as her own). Off by default:
+    /// same promotion discipline as clarify, measured before trusted.
+    /// </summary>
+    public bool PromoteKnowledgeBoundary { get; set; }
+
     /// <summary>Hard ceiling on tool executions in one turn (identical repeats stop earlier).</summary>
     public int MaxToolCallsPerTurn { get; set; } = 3;
 

@@ -44,6 +44,8 @@ public static class DependencyInjection
         // Stores (authoritative) + vector index (derived).
         services.AddScoped<IConversationStore, ConversationStore>();
         services.AddScoped<IMemoryStore, MemoryStore>();
+        services.AddScoped<IConceptStore, ConceptStore>();
+        services.AddScoped<IConceptKnowledge, ConceptKnowledge>();
         services.AddScoped<IProjectStore, ProjectStore>();
         services.AddScoped<IProfileStore, ProfileStore>();
         services.AddScoped<IFeedbackStore, FeedbackStore>();
