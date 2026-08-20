@@ -201,6 +201,10 @@ public static class Prompts
             "recent conversation. {marker} {referent}",
             "When the user says \"{marker}\", they mean: \"{referent}\" (from the recent " +
             "conversation just above). Read their message with that meaning.");
+        Define("curiosity.gap.unknown-concept",
+            "The question a promoted unknown-concept knowledge gap asks. {subject}",
+            "What's a {subject}? It came up once and I realized I've never actually " +
+            "learned what it is.");
         Define("renderer.knowledge.header", "Heading over Ava's own learned world knowledge.",
             "## What you (Ava) have learned about the world");
         Define("renderer.knowledge.rules", "The epistemic ownership boundary.",

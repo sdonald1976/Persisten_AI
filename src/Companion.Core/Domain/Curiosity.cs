@@ -15,6 +15,11 @@ public sealed class Curiosity
     /// <summary>The reflection pass this question arose from (provenance).</summary>
     public Guid ReflectionId { get; set; }
 
+    /// <summary>When gap-sourced: the knowledge gap this question pursues (provenance to
+    /// the observed epistemic state, beyond the pass that promoted it). Null for
+    /// reflection-born curiosities.</summary>
+    public Guid? GapId { get; set; }
+
     /// <summary>The question itself, phrased as the companion would ask it.</summary>
     public string Question { get; set; } = default!;
 

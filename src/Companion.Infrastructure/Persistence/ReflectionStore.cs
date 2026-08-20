@@ -11,6 +11,14 @@ public sealed class ReflectionStore : IReflectionStore
 
     public ReflectionStore(CompanionDbContext db) => _db = db;
 
+    public async Task AddCuriosityAsync(Curiosity curiosity, CancellationToken ct = default)
+    {
+        if (curiosity.Id == Guid.Empty)
+            curiosity.Id = Guid.NewGuid();
+        _db.Curiosities.Add(curiosity);
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task AddAsync(
         Reflection reflection, IReadOnlyList<Curiosity> curiosities, CancellationToken ct = default)
     {

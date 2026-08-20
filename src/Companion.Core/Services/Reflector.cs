@@ -69,6 +69,7 @@ public sealed class Reflector : IReflector
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Reflector> _logger;
+    private readonly GapPromoter? _gapPromoter;
 
     public Reflector(
         IConversationStore conversations,
@@ -86,8 +87,10 @@ public sealed class Reflector : IReflector
         IEmbeddingModel embeddings,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
-        ILogger<Reflector> logger)
+        ILogger<Reflector> logger,
+        GapPromoter? gapPromoter = null)
     {
+        _gapPromoter = gapPromoter;
         _conversations = conversations;
         _reflections = reflections;
         _projects = projects;
@@ -195,6 +198,22 @@ public sealed class Reflector : IReflector
 
         // Curiosities the conversation answered close with satisfaction instead of silence.
         var satisfied = await MarkSettledAsync(userId, dto.Settled, held, ct);
+
+        // Knowledge gaps get their one shot at becoming a question here, in the same
+        // cadence that mints every other curiosity — recording a gap was never a promise
+        // to ask, and this separate, capped decision is where asking is earned
+        // (docs/KNOWLEDGE_GAPS.md §4). Failures never break the reflection.
+        if (_gapPromoter is not null)
+        {
+            try
+            {
+                await _gapPromoter.PromoteAsync(userId, reflection.Id, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Gap promotion failed for {UserId}; the reflection stands.", userId);
+            }
+        }
 
         _logger.LogInformation(
             "Reflected for {UserId} over {Messages} messages: {Kind}, {Curiosities} new curiosities, " +

@@ -47,6 +47,7 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<ToolCallRecord> ToolCalls => Set<ToolCallRecord>();
     public DbSet<TurnRecord> TurnRecords => Set<TurnRecord>();
     public DbSet<Concept> Concepts => Set<Concept>();
+    public DbSet<KnowledgeGap> KnowledgeGaps => Set<KnowledgeGap>();
     public DbSet<ConceptAlias> ConceptAliases => Set<ConceptAlias>();
     public DbSet<ConceptAssertion> ConceptAssertions => Set<ConceptAssertion>();
     public DbSet<ShadowComparison> ShadowComparisons => Set<ShadowComparison>();
@@ -81,6 +82,17 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Code).HasMaxLength(40);
             // Read newest-first per user.
             e.HasIndex(x => new { x.UserId, x.Timestamp });
+        });
+
+        b.Entity<KnowledgeGap>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Subject).HasMaxLength(200);
+            e.Property(x => x.ResolutionNote).HasMaxLength(300);
+            // Dedupe path: one live gap per (kind, subject); status path for the sweeps.
+            e.HasIndex(x => new { x.UserId, x.Kind, x.Subject });
+            e.HasIndex(x => new { x.UserId, x.Status });
         });
 
         b.Entity<Concept>(e =>
