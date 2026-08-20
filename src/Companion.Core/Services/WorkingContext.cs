@@ -55,19 +55,24 @@ public static partial class WorkingContext
         // (query rewritten, nothing asserted to the model); or resolve from something exact
         // like an enumerated item (query rewritten AND the packet told). Only the last earns
         // an authoritative note — being wrong in the packet is worse than being silent.
-        string? marker = null, referent = null;
+        string? marker = null, referent = null, resolutionConfidence = null;
+        Message? sourceMessage = null;
         var assertive = false;
         if (OrdinalReference().Match(message) is { Success: true } ordinal)
         {
             marker = ordinal.Value;
             referent = ResolveOrdinal(ordinal.Groups["which"].Value, recent);
             assertive = referent is not null;
+            resolutionConfidence = referent is null ? null : "exact";
+            sourceMessage = referent is null ? null : recent.LastOrDefault(m => m.Role == MessageRole.Assistant);
             markers.Add(marker);
         }
         else if (ThatOneReference().Match(message) is { Success: true } thatOne)
         {
             marker = thatOne.Value;
             referent = entities.FirstOrDefault();
+            resolutionConfidence = referent is null ? null : "guess";
+            sourceMessage = FindMention(recent, referent);
             markers.Add(marker);
         }
         else if (PersonPronoun().Match(message) is { Success: true } pronoun)
@@ -75,15 +80,24 @@ public static partial class WorkingContext
             // Prefer entities the USER introduced: the first live run resolved "her" to a name
             // lifted from the companion's own reply while the person the user had just named
             // sat one message earlier. People the user brings up are who their pronouns mean.
+            // With exactly ONE user-introduced candidate in the window the choice is not a
+            // guess — there is nobody else it could visibly mean; more than one, and picking
+            // the newest is retrieval-grade only.
             marker = pronoun.Value;
             referent = (userEntities.FirstOrDefault() ?? entities.FirstOrDefault());
+            resolutionConfidence = referent is null ? null
+                : userEntities.Count == 1 && referent == userEntities[0] ? "unambiguous" : "guess";
+            sourceMessage = FindMention(recent, referent);
             markers.Add(marker);
         }
         else if (SaidBefore().Match(message) is { Success: true } before)
         {
             marker = before.Value;
-            referent = PreviousSubstantiveUserMessage(recent);
+            var previous = PreviousSubstantiveUserMessage(recent);
+            referent = previous is null ? null : Clip(previous.Content.Trim());
             assertive = referent is not null;
+            resolutionConfidence = referent is null ? null : "exact";
+            sourceMessage = previous;
             markers.Add(marker);
         }
 
@@ -143,6 +157,9 @@ public static partial class WorkingContext
             ReferenceMarkers = markers,
             Move = move,
             ResolvedReference = referent,
+            ResolutionConfidence = resolutionConfidence,
+            ReferentSourceMessageId = sourceMessage?.Id,
+            ReferentSourceExcerpt = sourceMessage is null ? null : Clip(sourceMessage.Content.Trim()),
             BoundQuestion = boundQuestion,
             RawQuery = userMessage,
             RetrievalQuery = query,
@@ -350,11 +367,16 @@ public static partial class WorkingContext
         return Array.Empty<string>();
     }
 
-    private static string? PreviousSubstantiveUserMessage(IReadOnlyList<Message> recent)
-    {
-        var msg = recent.LastOrDefault(m => m.Role == MessageRole.User && m.Content.Trim().Length >= 20);
-        return msg is null ? null : Clip(msg.Content.Trim());
-    }
+    private static Message? PreviousSubstantiveUserMessage(IReadOnlyList<Message> recent)
+        => recent.LastOrDefault(m => m.Role == MessageRole.User && m.Content.Trim().Length >= 20);
+
+    /// <summary>The newest message that mentions the referent, preferring the user's own —
+    /// the provenance target when a fact is later stored through this resolution.</summary>
+    private static Message? FindMention(IReadOnlyList<Message> recent, string? referent)
+        => referent is null ? null
+            : recent.LastOrDefault(m => m.Role == MessageRole.User
+                  && m.Content.Contains(referent, StringComparison.OrdinalIgnoreCase))
+              ?? recent.LastOrDefault(m => m.Content.Contains(referent, StringComparison.OrdinalIgnoreCase));
 
     // ---- move helpers ----
 

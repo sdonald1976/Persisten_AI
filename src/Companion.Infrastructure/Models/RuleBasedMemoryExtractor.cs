@@ -13,7 +13,8 @@ namespace Companion.Infrastructure.Models;
 public sealed partial class RuleBasedMemoryExtractor : IMemoryExtractor
 {
     public Task<IReadOnlyList<MemoryCandidate>> ExtractAsync(
-        string userId, IReadOnlyList<Message> exchange, CancellationToken ct = default)
+        string userId, IReadOnlyList<Message> exchange,
+        ReferenceResolution? resolution = null, CancellationToken ct = default)
     {
         var candidates = new List<MemoryCandidate>();
 

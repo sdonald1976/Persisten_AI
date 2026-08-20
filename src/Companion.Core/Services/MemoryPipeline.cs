@@ -59,10 +59,15 @@ public sealed class MemoryPipeline : IMemoryPipeline
     }
 
     public async Task<MemoryExtractionResult> ProcessAsync(
-        string userId, IReadOnlyList<Message> exchange, CancellationToken ct = default)
+        string userId, IReadOnlyList<Message> exchange,
+        ReferenceResolution? resolution = null, CancellationToken ct = default)
     {
-        // 1. Generate.
-        var raw = await _extractor.ExtractAsync(userId, exchange, ct);
+        // 1. Generate. A consumable resolution is handed to the extractor so candidates state
+        // the resolved meaning ("dinner for Beth") instead of the unresolved surface ("dinner
+        // for her"). A guess is never shown to the extractor — it acts only as the veto
+        // signal below.
+        var consumable = resolution is { Consumable: true };
+        var raw = await _extractor.ExtractAsync(userId, exchange, consumable ? resolution : null, ct);
         if (raw.Count == 0)
             return MemoryExtractionResult.Empty;
 
@@ -83,6 +88,17 @@ public sealed class MemoryPipeline : IMemoryPipeline
             .GroupBy(m => m.Id)
             .ToDictionary(g => g.Key, g => g.First().Content ?? string.Empty);
 
+        // The message that INTRODUCED a resolved referent is citable evidence too: a fact
+        // stored as "dinner for Beth" from the words "dinner for her" should point at both the
+        // current utterance and the one that named Beth. Registered here so the evidence
+        // validation below accepts the extra citation attached per-candidate further down.
+        if (consumable && resolution is { SourceMessageId: { } srcId, SourceExcerpt: { } srcText }
+            && !validMessageIds.Contains(srcId))
+        {
+            validMessageIds.Add(srcId);
+            messageText[srcId] = srcText;
+        }
+
         // The user's own words this turn, for the deterministic reads that need the phrasing rather
         // than the extracted fact — chiefly whether a new value replaces an old one or joins it.
         var userSaid = exchange
@@ -98,8 +114,54 @@ public sealed class MemoryPipeline : IMemoryPipeline
             _personality.Identity(profile).Name, _personality.Compose(profile));
 
         var decisions = new List<MemoryDecision>(batch.Count);
-        foreach (var candidate in batch)
+        foreach (var proposed in batch)
         {
+            var candidate = proposed;
+
+            // A pronoun stored as if it were a person's name is garbage with a database row —
+            // the live specimen was "planning a small dinner for someone named her". When no
+            // consumable resolution exists, the fact is unknowable, not misspellable; rejected
+            // rather than "cleaned up", because there is nothing true to clean it up into.
+            if (UnresolvedReferentGuard.IsPronounAsPerson(candidate))
+            {
+                _logger.LogInformation(
+                    "Rejected a candidate memory for {UserId}: treats an unresolved pronoun as a person.", userId);
+                decisions.Add(Reject(candidate, UnresolvedReferentGuard.Explanation));
+                continue;
+            }
+
+            // An AMBIGUOUS reference this turn means any new person-name in a candidate is
+            // somebody's invention — the user said a pronoun the system could not pin, so a
+            // name here came from the model (in the first live run, from the chat model's own
+            // guess in its reply, which the extractor then cited against the user's pronoun
+            // sentence). Refused: the person the fact is about is exactly the thing nobody
+            // knows.
+            if (!consumable && resolution is not null
+                && UnresolvedReferentGuard.NamesSomeoneTheUserDidNot(candidate, userSaid) is { } inventedName)
+            {
+                _logger.LogInformation(
+                    "Rejected a candidate memory for {UserId}: names \"{Name}\" while the user's reference is ambiguous.",
+                    userId, inventedName);
+                decisions.Add(Reject(candidate,
+                    $"names \"{inventedName}\" — the user said an ambiguous pronoun and never named them this turn"));
+                continue;
+            }
+
+            // When the candidate states the resolved referent, attach the naming utterance as
+            // additional evidence — provenance for BOTH what was said now and where the name
+            // came from.
+            if (consumable && resolution is { SourceMessageId: { } sourceId, SourceExcerpt: not null }
+                && ReferencesResolvedName(candidate, resolution.Referent)
+                && candidate.Evidence.All(e => e.MessageId != sourceId))
+            {
+                candidate = candidate with
+                {
+                    Evidence = candidate.Evidence
+                        .Append(new CandidateEvidence(sourceId, resolution.SourceExcerpt))
+                        .ToList(),
+                };
+            }
+
             // Privacy guard: never persist obvious credentials, even if the model proposed them.
             if (LooksLikeSecret(candidate))
             {
@@ -383,6 +445,10 @@ public sealed class MemoryPipeline : IMemoryPipeline
             Similarity: similarity,
             IncumbentOutcome: outcome), ct);
     }
+
+    private static bool ReferencesResolvedName(MemoryCandidate candidate, string referent)
+        => candidate.Content.Contains(referent, StringComparison.OrdinalIgnoreCase)
+           || (candidate.Value?.Contains(referent, StringComparison.OrdinalIgnoreCase) ?? false);
 
     private static bool IsSameSlot(MemoryCandidate candidate, SemanticMemory memory)
         => MemoryNormalizer.SemanticSlotKey(candidate.Subject, candidate.Predicate)

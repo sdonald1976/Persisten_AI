@@ -105,7 +105,8 @@ public class RoleplayGuardTests
         private readonly IReadOnlyList<MemoryCandidate> _candidates;
         public FixedExtractor(IReadOnlyList<MemoryCandidate> candidates) => _candidates = candidates;
         public Task<IReadOnlyList<MemoryCandidate>> ExtractAsync(
-            string userId, IReadOnlyList<Message> exchange, CancellationToken ct = default)
+            string userId, IReadOnlyList<Message> exchange,
+            ReferenceResolution? resolution = null, CancellationToken ct = default)
             => Task.FromResult(_candidates);
     }
 

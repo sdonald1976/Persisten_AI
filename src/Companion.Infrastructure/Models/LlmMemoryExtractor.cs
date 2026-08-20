@@ -26,7 +26,8 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
     }
 
     public async Task<IReadOnlyList<MemoryCandidate>> ExtractAsync(
-        string userId, IReadOnlyList<Message> exchange, CancellationToken ct = default)
+        string userId, IReadOnlyList<Message> exchange,
+        ReferenceResolution? resolution = null, CancellationToken ct = default)
     {
         var userMessages = exchange.Where(m => m.Role == MessageRole.User).ToList();
         if (userMessages.Count == 0)
@@ -35,6 +36,19 @@ public sealed class LlmMemoryExtractor : IMemoryExtractor
         var transcript = new StringBuilder();
         foreach (var m in exchange)
             transcript.AppendLine($"{m.Role}: {m.Content}");
+
+        // The system's resolved reading of a reference in the user's message. Stated to the
+        // model so extracted facts carry the real name instead of the pronoun; the evidence
+        // requirement is restated because excerpts must remain the user's verbatim words —
+        // this note is interpretation, not quotable source text.
+        if (resolution is not null)
+        {
+            transcript.AppendLine(
+                $"[Reference resolution, system-verified: in the user's message, " +
+                $"\"{resolution.Marker}\" refers to \"{resolution.Referent}\". State extracted " +
+                $"facts using the resolved name. Evidence excerpts must still quote the user's " +
+                $"original words exactly.]");
+        }
 
         // Decoded against a schema, not merely asked for JSON: the fields the pipeline makes
         // decisions on are enums, so the model cannot invent a fresh predicate per phrasing. See

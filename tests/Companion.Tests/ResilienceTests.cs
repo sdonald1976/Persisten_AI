@@ -57,7 +57,8 @@ public class ResilienceTests
     private sealed class ExplodingPipeline : IMemoryPipeline
     {
         public Task<MemoryExtractionResult> ProcessAsync(
-            string userId, IReadOnlyList<Message> exchange, CancellationToken ct = default)
+            string userId, IReadOnlyList<Message> exchange,
+            ReferenceResolution? resolution = null, CancellationToken ct = default)
             => throw new InvalidOperationException("extraction model returned garbage");
     }
 

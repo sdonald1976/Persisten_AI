@@ -9,6 +9,10 @@ namespace Companion.Core.Abstractions;
 /// </summary>
 public interface IMemoryPipeline
 {
+    /// <param name="resolution">The turn's consumable reference resolution, when working
+    /// context produced one sound enough for durable memory (see
+    /// <see cref="ReferenceResolution"/>) — guesses are never passed here.</param>
     Task<MemoryExtractionResult> ProcessAsync(
-        string userId, IReadOnlyList<Message> exchange, CancellationToken ct = default);
+        string userId, IReadOnlyList<Message> exchange,
+        ReferenceResolution? resolution = null, CancellationToken ct = default);
 }

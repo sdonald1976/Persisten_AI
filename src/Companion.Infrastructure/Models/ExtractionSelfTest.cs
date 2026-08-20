@@ -48,7 +48,7 @@ public sealed class ExtractionSelfTest
                 Turn(userId, MessageRole.Assistant, Reply),
             };
 
-            var candidates = await extractor.ExtractAsync(userId, exchange, ct);
+            var candidates = await extractor.ExtractAsync(userId, exchange, resolution: null, ct);
             if (candidates.Count > 0)
             {
                 _logger.LogInformation(

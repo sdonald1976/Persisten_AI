@@ -11,6 +11,7 @@ public sealed class StubExtractor : IMemoryExtractor
     public StubExtractor(params MemoryCandidate[] candidates) => _candidates = candidates;
 
     public Task<IReadOnlyList<MemoryCandidate>> ExtractAsync(
-        string userId, IReadOnlyList<Message> exchange, CancellationToken ct = default)
+        string userId, IReadOnlyList<Message> exchange,
+        ReferenceResolution? resolution = null, CancellationToken ct = default)
         => Task.FromResult(_candidates);
 }
