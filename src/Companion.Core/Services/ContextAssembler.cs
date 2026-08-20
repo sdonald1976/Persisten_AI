@@ -13,6 +13,10 @@ public sealed class ContextAssembler : IContextAssembler
 {
     private readonly CompanionOptions _options;
 
+    /// <summary>World knowledge is a garnish on the packet, never the plate: at most this
+    /// many learned assertions per turn, so knowledge cannot crowd out biography.</summary>
+    private const int MaxLearnedKnowledge = 2;
+
     public ContextAssembler(IOptions<CompanionOptions> options) => _options = options.Value;
 
     public ContextPacket Assemble(
@@ -36,6 +40,7 @@ public sealed class ContextAssembler : IContextAssembler
         string? interpretation = null)
     {
         var items = new List<ContextItem>();
+        var learned = new List<string>();
         var notes = new List<string>();
         var diagnostics = new List<string>();
         var budget = _options.MemoryTokenBudget;
@@ -43,6 +48,20 @@ public sealed class ContextAssembler : IContextAssembler
 
         foreach (var result in retrieved)
         {
+            // Ava-owned world knowledge renders in its own labeled section with provenance,
+            // never mixed into biography — and capped small so it cannot crowd it.
+            if (result.Memory is ConceptAssertion assertion)
+            {
+                if (learned.Count < MaxLearnedKnowledge)
+                {
+                    var who = identities?.UserName ?? "the user";
+                    learned.Add($"{assertion.NormalizedText} — {who} taught you this on " +
+                        $"{assertion.FirstObserved:MMM d}.");
+                    diagnostics.Add($"{result.Source}: [learned] {Truncate(assertion.NormalizedText)}");
+                }
+                continue;
+            }
+
             var text = result.Memory.Content;
             if (ConflictsWithAuthoritativeIdentity(result.Memory, identities))
             {
@@ -92,6 +111,7 @@ public sealed class ContextAssembler : IContextAssembler
             MoodNote = companionMood,
             RegisterNote = RegisterAdvisor.Advise(userMessage),
             InterpretationNote = interpretation,
+            LearnedKnowledge = learned,
             FamiliarityNote = familiarity,
             TemporalNote = temporal,
             PreferenceNotes = preferences ?? Array.Empty<string>(),

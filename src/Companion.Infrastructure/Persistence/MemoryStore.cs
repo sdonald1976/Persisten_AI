@@ -53,7 +53,13 @@ public sealed class MemoryStore : IMemoryStore
                 && m.Status != MemoryStatus.Candidate)
             .ToListAsync(ct);
 
-        return semantic.Cast<IMemory>().Concat(episodic).ToList();
+        // Concept assertions ride along as MemoryKind.Concept, ACTIVE only — a superseded
+        // definition is history to a curator, but never current knowledge to a retriever.
+        var concepts = await _db.ConceptAssertions
+            .Where(a => a.UserId == userId && a.Status == MemoryStatus.Active)
+            .ToListAsync(ct);
+
+        return semantic.Cast<IMemory>().Concat(episodic).Concat(concepts).ToList();
     }
 
     /// <summary>
@@ -117,7 +123,33 @@ public sealed class MemoryStore : IMemoryStore
             })
             .ToListAsync(ct);
 
-        return semantic.Cast<IMemory>().Concat(episodic).ToList();
+        // Active concept knowledge scores alongside memories (embedding-free projection,
+        // same as above; the vector index holds the vectors).
+        var concepts = await _db.ConceptAssertions
+            .AsNoTracking()
+            .Where(a => a.UserId == userId && a.Status == MemoryStatus.Active)
+            .Select(a => new ConceptAssertion
+            {
+                Id = a.Id,
+                UserId = a.UserId,
+                ConceptId = a.ConceptId,
+                Relation = a.Relation,
+                TargetConceptId = a.TargetConceptId,
+                Value = a.Value,
+                NormalizedText = a.NormalizedText,
+                Origin = a.Origin,
+                Confidence = a.Confidence,
+                Importance = a.Importance,
+                Validity = a.Validity,
+                Status = a.Status,
+                SupersededById = a.SupersededById,
+                FirstObserved = a.FirstObserved,
+                LastConfirmed = a.LastConfirmed,
+                CreatedAt = a.CreatedAt,
+            })
+            .ToListAsync(ct);
+
+        return semantic.Cast<IMemory>().Concat(episodic).Concat(concepts).ToList();
     }
 
     public async Task<SemanticMemory?> GetSemanticAsync(Guid id, string userId, CancellationToken ct = default)

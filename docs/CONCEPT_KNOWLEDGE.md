@@ -222,3 +222,17 @@ only through `IMemory`, already labeled by `Kind` and `Owner` at every consumer.
 ## Status
 
 - **2026-08-20** — design recorded; awaiting approval before implementation.
+- **2026-08-20 — minimal slice implemented and live-validated.** Everything in §7 landed:
+  domain + migration, the high-precision `TeachingDetector` (with the negative suite —
+  "an axe is sitting in my garage", "an axe is expensive", "my axe is dull" and friends
+  all teach nothing, and every rejected loose-copular sentence is captured under
+  `knowledge.teaching` as a labeled negative), `ConceptKnowledge`/`ConceptLookup`, the
+  packet section, decision stages, `PromoteKnowledgeBoundary` (off by default), and the
+  permanent soak stage. **Live against qwen3:8b, flag on, all system checks clean.**
+  Taught: "axe" minted with Origin=Taught, confidence 0.95, evidence citing the teaching
+  sentence verbatim. Asked: *"Yes, I learned that an axe is a tool used for chopping or
+  splitting wood from you on August 20."* Negative control: *"I haven't learned what a
+  quokka is yet — though I recognize the word from my training, that's not something
+  I've studied."* — the boundary articulated in her own words, no pretrained facts
+  presented as hers. No violation to record this run; the soak stage notes one whenever
+  it happens. 1114 tests green.

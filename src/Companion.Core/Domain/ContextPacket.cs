@@ -74,6 +74,14 @@ public sealed record ContextPacket
     public string? InterpretationNote { get; init; }
 
     /// <summary>
+    /// Ava-OWNED world knowledge relevant to this turn, each line with its provenance
+    /// ("An axe is a tool… — Scott taught you this on Aug 20"). Distinct from memories
+    /// about the user and from the model's pretrained understanding — see
+    /// docs/CONCEPT_KNOWLEDGE.md.
+    /// </summary>
+    public IReadOnlyList<string> LearnedKnowledge { get; init; } = Array.Empty<string>();
+
+    /// <summary>
     /// Where the relationship actually is (tenure + real interaction depth) — calibrates how
     /// casual, teasing, and shorthand she's allowed to be. Never recited back.
     /// </summary>

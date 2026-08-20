@@ -46,6 +46,9 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<ModelCallRecord> ModelCalls => Set<ModelCallRecord>();
     public DbSet<ToolCallRecord> ToolCalls => Set<ToolCallRecord>();
     public DbSet<TurnRecord> TurnRecords => Set<TurnRecord>();
+    public DbSet<Concept> Concepts => Set<Concept>();
+    public DbSet<ConceptAlias> ConceptAliases => Set<ConceptAlias>();
+    public DbSet<ConceptAssertion> ConceptAssertions => Set<ConceptAssertion>();
     public DbSet<ShadowComparison> ShadowComparisons => Set<ShadowComparison>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
@@ -78,6 +81,36 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Code).HasMaxLength(40);
             // Read newest-first per user.
             e.HasIndex(x => new { x.UserId, x.Timestamp });
+        });
+
+        b.Entity<Concept>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.CanonicalName).HasMaxLength(120);
+            e.Property(x => x.DisplayName).HasMaxLength(120);
+            // Exact epistemic lookup: one concept per name per user.
+            e.HasIndex(x => new { x.UserId, x.CanonicalName }).IsUnique();
+        });
+
+        b.Entity<ConceptAlias>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Alias).HasMaxLength(120);
+            e.HasIndex(x => new { x.UserId, x.Alias });
+        });
+
+        b.Entity<ConceptAssertion>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            e.Property(x => x.Value).HasMaxLength(500);
+            e.Property(x => x.NormalizedText).HasMaxLength(500);
+            // Evidence rows are persisted separately, same as memories (polymorphic link).
+            e.Ignore(x => x.Evidence);
+            ConfigureEmbedding(e.Property(x => x.Embedding));
+            e.HasIndex(x => new { x.UserId, x.ConceptId });
         });
 
         b.Entity<TurnRecord>(e =>

@@ -5,6 +5,10 @@ public enum MemoryKind
 {
     Semantic,
     Episodic,
+
+    /// <summary>Ava-owned world knowledge (a ConceptAssertion) — what SHE has learned,
+    /// with provenance, as opposed to biography about the user. See docs/CONCEPT_KNOWLEDGE.md.</summary>
+    Concept,
 }
 
 /// <summary>
