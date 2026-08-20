@@ -6,6 +6,27 @@ namespace Companion.Core.Domain;
 public sealed record OpenQuestionState(string Question, int MessagesAgo);
 
 /// <summary>
+/// The turn's reference resolution as extraction needs to know it. "exact" (an enumerated
+/// item, the user's own prior message) and "unambiguous" (a pronoun with exactly one
+/// user-introduced candidate) are CONSUMABLE: the extractor is told, and the stored fact
+/// cites both the current utterance and the one that introduced the referent. "guess" is the
+/// opposite of consumable — it is a warning: the user's message contains a reference the
+/// system could not pin, so a candidate that names a person the user did not name this turn
+/// is somebody's invention (the first live run proved whose: the chat model's own reply
+/// guessed a name and the extractor laundered it into a fact). The extractor never sees a
+/// guess; the pipeline uses it to veto.
+/// </summary>
+public sealed record ReferenceResolution(
+    string Marker,
+    string Referent,
+    string Confidence,
+    Guid? SourceMessageId,
+    string? SourceExcerpt)
+{
+    public bool Consumable => Confidence is "exact" or "unambiguous";
+}
+
+/// <summary>
 /// The system's explicit representation of what is happening in the current conversation,
 /// derived deterministically from the recent transcript each turn. This is WORKING state, not
 /// memory: it is computed, used, traced, and discarded — recent dialogue stays dialogue, and
@@ -42,6 +63,19 @@ public sealed record WorkingContextState
     /// <summary>What a detected reference resolved to, when it did ("the second one" → the
     /// enumerated item's text). Null when nothing resolved.</summary>
     public string? ResolvedReference { get; init; }
+
+    /// <summary>How the referent was chosen: "exact" (parsed from an enumeration or the user's
+    /// own words), "unambiguous" (a pronoun with exactly one user-introduced candidate), or
+    /// "guess" (newest plausible entity). Null when nothing resolved. Extraction consumes only
+    /// the first two; retrieval may use all three.</summary>
+    public string? ResolutionConfidence { get; init; }
+
+    /// <summary>The message that introduced the referent, when identifiable — provenance for
+    /// any durable fact extracted through this resolution.</summary>
+    public Guid? ReferentSourceMessageId { get; init; }
+
+    /// <summary>Bounded text of that source message.</summary>
+    public string? ReferentSourceExcerpt { get; init; }
 
     /// <summary>The question the current turn answered, when <see cref="Move"/> says it did.</summary>
     public string? BoundQuestion { get; init; }

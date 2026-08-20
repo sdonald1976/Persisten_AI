@@ -1,4 +1,4 @@
-using Companion.Core.Abstractions;
+﻿using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Companion.Infrastructure;
 using Companion.Infrastructure.Seeding;
@@ -13,13 +13,13 @@ namespace Companion.Eval;
 /// diffs the resulting store against what the generator said should be there.
 ///
 /// It does not generate replies. Extraction can only cite the user's own messages as evidence, so
-/// the companion's side of the conversation has almost no bearing on what is stored — and it costs
+/// the companion's side of the conversation has almost no bearing on what is stored â€” and it costs
 /// about seventy-seven of the eighty seconds a turn takes. Dropping it is what turns "a life an
 /// hour" into "a life a minute", and the part actually under test, the 7B extractor and the
 /// validate-before-store pipeline, is untouched and real.
 ///
-/// The reply-shaped faults — interrogation, a leaked scratchpad, answering as though the user's
-/// allotment were hers — are invisible here by construction, and stay the soak harness's job on the
+/// The reply-shaped faults â€” interrogation, a leaked scratchpad, answering as though the user's
+/// allotment were hers â€” are invisible here by construction, and stay the soak harness's job on the
 /// model that actually produces them.
 /// </summary>
 public sealed class LifeRunner : IAsyncDisposable
@@ -71,7 +71,7 @@ public sealed class LifeRunner : IAsyncDisposable
     /// <summary>Feeds one life through the pipeline and returns how the store ended up.</summary>
     public async Task<LifeResult> RunAsync(Life life, CancellationToken ct = default)
     {
-        // A user per life, so lives cannot contaminate each other — the whole store is scoped by
+        // A user per life, so lives cannot contaminate each other â€” the whole store is scoped by
         // user id in the query itself, which is what makes this safe to do in one database.
         var userId = $"{CompanionSeeder.DemoUserId}-{life.Name}";
         var conversationId = Guid.NewGuid();
@@ -97,7 +97,7 @@ public sealed class LifeRunner : IAsyncDisposable
 
             try
             {
-                await pipeline.ProcessAsync(userId, new[] { message }, ct);
+                await pipeline.ProcessAsync(userId, new[] { message }, resolution: null, ct);
             }
             catch (Exception ex)
             {
@@ -125,7 +125,7 @@ public sealed record LifeResult(Life Life, IReadOnlyList<SemanticMemory> Stored,
 {
     /// <summary>
     /// Checks each expectation against the store. Matching is on the predicate plus a distinctive
-    /// keyword rather than the exact sentence, because the extractor legitimately paraphrases — the
+    /// keyword rather than the exact sentence, because the extractor legitimately paraphrases â€” the
     /// question is whether the right fact is in the right slot, not whether it chose our wording.
     /// </summary>
     public IEnumerable<Mismatch> Check()
@@ -157,7 +157,7 @@ public sealed record LifeResult(Life Life, IReadOnlyList<SemanticMemory> Stored,
     }
 
     /// <summary>
-    /// Everything the store actually holds that could plausibly be the fact in question — the same
+    /// Everything the store actually holds that could plausibly be the fact in question â€” the same
     /// predicate, or any predicate whose value mentions the keyword.
     ///
     /// Without this a mismatch says only that something is wrong, and the interesting part is

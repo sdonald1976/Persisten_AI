@@ -220,3 +220,20 @@ speculative inner life, nothing that cannot say where it came from.
   yet fed to the memory pipeline (recorded as a Phase-2-adjacent candidate); and the
   first live turn's reply contained a Chinese token, a qwen3 quirk the filters don't
   touch. 1029 tests green.
+- **2026-08-20 — Phase 1 boundary closed: resolutions reach extraction; guesses cannot.**
+  `ReferenceResolution` flows from working context into the memory pipeline. Exact and
+  unambiguous resolutions are CONSUMED: the extractor is told ("in the user's message,
+  'her' refers to 'Beth'; evidence must still quote the user's original words"), and the
+  stored fact carries dual provenance — verified live, "The user is making dinner for
+  Beth." cites both "I'm making dinner for her." and "My sister Beth is visiting on
+  Saturday." Guesses are the opposite of consumable — a warning: `UnresolvedReferentGuard`
+  rejects pronoun-as-person facts ("someone named her" — live specimen #1), dangling
+  object pronouns ("knitting a scarf for her." — live specimen #2, quieter garbage caught
+  by this validation), and, on ambiguous turns, candidates naming a person the user did
+  not name (live specimen #3, the worst one: the chat model's reply GUESSED a name for an
+  ambiguous pronoun and the extractor laundered it into a fact cited against the user's
+  own pronoun sentence). All three specimens are pinned as regression tests verbatim.
+  Final live run: unambiguous → `consumed-unambiguous`, dual-evidence fact; ambiguous
+  (two cousins, "pie for her") → `withheld-guess`, candidate rejected, store clean.
+  Anticipation/project capture still read surface text — recorded as follow-up, not
+  wired this pass. 1047 tests green.

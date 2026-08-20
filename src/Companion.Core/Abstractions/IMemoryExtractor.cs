@@ -9,6 +9,10 @@ namespace Companion.Core.Abstractions;
 /// </summary>
 public interface IMemoryExtractor
 {
+    /// <param name="resolution">A system-verified reading of a reference in the user's
+    /// message ("her" → Beth), so candidates state the resolved meaning instead of the
+    /// unresolved surface text. Evidence must still cite the user's original words.</param>
     Task<IReadOnlyList<MemoryCandidate>> ExtractAsync(
-        string userId, IReadOnlyList<Message> exchange, CancellationToken ct = default);
+        string userId, IReadOnlyList<Message> exchange,
+        ReferenceResolution? resolution = null, CancellationToken ct = default);
 }

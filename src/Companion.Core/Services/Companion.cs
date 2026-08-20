@@ -346,6 +346,30 @@ public sealed class Companion : ICompanion
         var retrievalQuery = working.RetrievalQuery;
         var interpretationNote = working.InterpretationNote;
 
+        // The resolution as extraction needs to know it. Exact/unambiguous resolutions are
+        // consumed (the extractor is told, the fact cites both utterances); a guess is passed
+        // as a WARNING only — the extractor never sees it, and the pipeline uses it to refuse
+        // candidates that name a person the user did not name this turn. A guessed referent
+        // must not become an authoritative fact because retrieval found it useful — and
+        // neither must the chat model's own conversational guess.
+        ReferenceResolution? extractionResolution =
+            working is { ResolvedReference: { } refValue, ResolutionConfidence: { } refConfidence }
+                ? new ReferenceResolution(
+                    working.ReferenceMarkers.FirstOrDefault() ?? "", refValue,
+                    refConfidence, working.ReferentSourceMessageId,
+                    working.ReferentSourceExcerpt)
+                : null;
+        if (extractionResolution is not null)
+        {
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "reference.extraction", Decider = "rule",
+                Verdict = extractionResolution.Consumable
+                    ? $"consumed-{extractionResolution.Confidence}" : "withheld-guess",
+                Reason = $"{working.ReferenceMarkers.FirstOrDefault()} -> {working.ResolvedReference}",
+            });
+        }
+
         // 4. Retrieve relevant memories, boosted by the resolved project — searching what the
         // message MEANS (question + answer, reference + referent), not just what it says.
         var outcome = await _retriever.RetrieveAsync(userId, retrievalQuery, projectContext.ResolvedProjectName, ct);
@@ -550,7 +574,7 @@ public sealed class Companion : ICompanion
             // (Skipped for private AND in-character turns — fiction never reaches the fact store.)
             if (extractFacts)
             {
-                extraction = await _pipeline.ProcessAsync(userId, exchange, ct);
+                extraction = await _pipeline.ProcessAsync(userId, exchange, extractionResolution, ct);
                 updates = await _projectUpdater.ApplyAsync(userId, exchange, extraction, projectContext, ct);
 
                 // A commitment the companion just made ("I'll check in tomorrow") becomes a

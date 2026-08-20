@@ -1,4 +1,4 @@
-using Companion.Core;
+﻿using Companion.Core;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Companion.Core.Services;
@@ -16,18 +16,18 @@ namespace Companion.Eval;
 /// The pipeline on its own, with no model of any kind in the loop.
 ///
 /// Tier 1 sends a sentence and lets the real 7B decide what to extract, which costs about four and
-/// a half seconds a message — fine for hundreds, seven days for ten thousand. Tier 0 hands the
+/// a half seconds a message â€” fine for hundreds, seven days for ten thousand. Tier 0 hands the
 /// pipeline the candidate a <em>correct</em> extractor would have produced and asks only what the
 /// pipeline does with it. No network, no GPU, microseconds.
 ///
 /// The speed is the smaller half of the point. Running both tiers separates two questions this
 /// project has repeatedly conflated:
 ///
-///   Tier 0 fails  →  the pipeline mishandles a correct candidate. A rule is wrong.
-///   Tier 0 passes, Tier 1 fails  →  the rule is right and extraction did not produce the input.
+///   Tier 0 fails  â†’  the pipeline mishandles a correct candidate. A rule is wrong.
+///   Tier 0 passes, Tier 1 fails  â†’  the rule is right and extraction did not produce the input.
 ///
-/// Every bug found today lived in the first category — slot keys, cardinality, subject attribution,
-/// duplicate absorption — and each was hunted through eighty-second turns that could not tell the
+/// Every bug found today lived in the first category â€” slot keys, cardinality, subject attribution,
+/// duplicate absorption â€” and each was hunted through eighty-second turns that could not tell the
 /// two apart.
 ///
 /// What it deliberately cannot answer: whether the thresholds are right. The mock embedding is
@@ -44,7 +44,7 @@ public sealed class Tier0Runner : IAsyncDisposable
     {
         // Mock provider: MockEmbeddingModel is deterministic and in-process, so a run is
         // reproducible and costs nothing. Shared-cache in-memory SQLite keeps the real store,
-        // because the store's own behaviour — scoping, statuses, revisions — is under test too.
+        // because the store's own behaviour â€” scoping, statuses, revisions â€” is under test too.
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Models:Provider"] = "Mock" })
             .Build();
@@ -84,7 +84,7 @@ public sealed class Tier0Runner : IAsyncDisposable
             await conversations.AddMessageAsync(message, ct);
 
             // The candidate is built here rather than extracted, with its evidence pointing at the
-            // message just stored — which is what the pipeline's provenance checks require, and
+            // message just stored â€” which is what the pipeline's provenance checks require, and
             // what makes this a test of the pipeline rather than of the extractor.
             var candidate = step.Candidate with
             {
@@ -100,7 +100,7 @@ public sealed class Tier0Runner : IAsyncDisposable
                 Options.Create(RuleOnly()),
                 clock, NullLogger<MemoryPipeline>.Instance);
 
-            await pipeline.ProcessAsync(userId, new[] { message }, ct);
+            await pipeline.ProcessAsync(userId, new[] { message }, resolution: null, ct);
         }
 
         var stored = (await store.GetRetrievableMemoriesAsync(userId, ct)).OfType<SemanticMemory>().ToList();
@@ -128,14 +128,15 @@ public sealed class Tier0Runner : IAsyncDisposable
 
     public ValueTask DisposeAsync() => _services.DisposeAsync();
 
-    /// <summary>Returns exactly the candidate the scenario specified — the whole point of the tier.</summary>
+    /// <summary>Returns exactly the candidate the scenario specified â€” the whole point of the tier.</summary>
     private sealed class FixedExtractor : IMemoryExtractor
     {
         private readonly MemoryCandidate _candidate;
         public FixedExtractor(MemoryCandidate candidate) => _candidate = candidate;
 
         public Task<IReadOnlyList<MemoryCandidate>> ExtractAsync(
-            string userId, IReadOnlyList<Message> exchange, CancellationToken ct = default)
+            string userId, IReadOnlyList<Message> exchange,
+            ReferenceResolution? resolution = null, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<MemoryCandidate>>(new[] { _candidate });
     }
 }
@@ -157,7 +158,7 @@ public sealed record Tier0Result(PipelineScenario Scenario, IReadOnlyList<Semant
         foreach (var want in Scenario.Expected)
         {
             // Whole-value equality, not substring. Tier 0 supplies the values itself, so they are
-            // known exactly — and substring matching reported a correct result as a failure
+            // known exactly â€” and substring matching reported a correct result as a failure
             // twenty-six times: asked whether "Scott" was still current, it found "Scott Donald"
             // and said yes. Tier 1 keeps substring matching, because there the extractor
             // paraphrases and the exact wording is not ours to predict.
