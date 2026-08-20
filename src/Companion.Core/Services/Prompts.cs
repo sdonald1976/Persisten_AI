@@ -201,6 +201,12 @@ public static class Prompts
             "recent conversation. {marker} {referent}",
             "When the user says \"{marker}\", they mean: \"{referent}\" (from the recent " +
             "conversation just above). Read their message with that meaning.");
+        Define("intent.clarify",
+            "Injected when clarify intent is promoted: the user's question hangs on an " +
+            "ambiguous reference. {marker}",
+            "The user's question depends on \"{marker}\", which could mean more than one " +
+            "thing in this conversation. Ask ONE short clarifying question instead of " +
+            "guessing — do not answer as if you know which one they mean.");
         Define("interpretation.correction",
             "Injected when the user's message is a correction of something recent.",
             "The user is correcting something from the recent conversation. Their newest " +

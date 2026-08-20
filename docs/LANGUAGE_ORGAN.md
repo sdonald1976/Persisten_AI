@@ -164,6 +164,32 @@ phase lands inside the existing pipeline.
 - Touching the reply-gate default — enforcement remains an open decision recorded in
   `HANDOFF.md`, and this plan does not preempt it.
 
+## The typing line, and the heuristic ledger (2026-08-20 audit)
+
+**Strings represent language. Types represent cognition.** `ConversationMove`,
+`ResolutionConfidence`, and `TurnIntent` are enums; the kebab labels every diagnostic,
+capture row, and dashboard reads ("answers-open-question", "clarify") are derived
+mechanically in one place (`CognitionLabels.ToKebab`) and serialize identically to
+before — the typing changed the inside, not the boundary.
+
+The regex/lexical heuristics, classified rather than purged:
+
+1. **Durable deterministic invariants/guards** — earned by a production failure, cheap,
+   and not expected to be replaced: `UnresolvedReferentGuard`'s three patterns, the
+   reaction-token exclusion in binding, list-line/ordinal parsing, sentence-start logic,
+   the secret detector, whole-word focal matching.
+2. **Provisional natural-language heuristics under measurement** — each has a capture
+   trail and is presumed wrong until the corpus says otherwise: correction markers,
+   directive shape, offering/lead-in cues, first-person-share, interjections,
+   progress-question, the entity capitalization heuristic, pronoun preference order.
+3. **Lexical growth that points at a future generalized mechanism** — four hand-kept
+   word lists now do shallow lexical semantics in three files (WorkingContext's
+   stopwords + function words, RelevanceSignals' scaffolding, the classifier's cue
+   sets). Each is individually defensible; together they are the same shape ToolNudge
+   was. When the captured corpora are large enough, the honest successor is a small
+   local model through the existing `ICognitiveModel` seam, adopted by measurement —
+   the SPECIALIST_MODELS discipline, not a bigger word list.
+
 ## Preserved specimens
 
 ### The Epcot pizza turn (2026-08-20, normal use, chat model qwen-family)

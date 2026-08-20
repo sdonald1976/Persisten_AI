@@ -1,67 +1,25 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Companion.Core.Domain;
 
 namespace Companion.Core.Services;
 
 /// <summary>
 /// Classifies what Ava should DO this turn, deterministically, from the working-context read
-/// and this turn's retrieval — it consumes <see cref="WorkingContextState"/> rather than
+/// and this turn's retrieval â€” it consumes <see cref="WorkingContextState"/> rather than
 /// re-deriving any of it. No model call: the ToolNudge lesson says a deterministic rule and a
 /// small model are BOTH presumed wrong until captured data says otherwise, and the cheap one
 /// should be measured first.
 ///
 /// The vocabulary is small and grounded in observed conversational needs, not a speech-act
 /// taxonomy. Selection requires a confidence bar; below it the answer is "unknown", which
-/// means "continue naturally" — preferred over a confidently wrong classification, because in
+/// means "continue naturally" â€” preferred over a confidently wrong classification, because in
 /// shadow a wrong "unknown" costs a corpus row while a wrong intent would one day cost a turn.
 /// </summary>
 public static partial class TurnIntentClassifier
 {
-    /// <summary>The closed vocabulary. Each names an act, never prose or tone.</summary>
-    public static class Intents
-    {
-        /// <summary>The user asked something; answer it.</summary>
-        public const string AnswerQuestion = "answer-question";
-
-        /// <summary>The user shared information; receive it — no question owed back.</summary>
-        public const string Acknowledge = "acknowledge";
-
-        /// <summary>The user just answered a question Ava asked; engage with their answer.</summary>
-        public const string RespondToAnswer = "respond-to-answer";
-
-        /// <summary>Understanding is genuinely blocked (an ambiguous reference the reply
-        /// depends on); ask one short clarifying question.</summary>
-        public const string Clarify = "clarify";
-
-        /// <summary>The thread continues; stay with it.</summary>
-        public const string ContinueTopic = "continue-topic";
-
-        /// <summary>The user corrected something; accept the correction.</summary>
-        public const string AcceptCorrection = "accept-correction";
-
-        /// <summary>The user changed the subject; follow them, don't drag the old topic back.</summary>
-        public const string FollowTopicChange = "follow-topic-change";
-
-        /// <summary>The user asked about something Ava has no data on (their unseen life, an
-        /// empty retrieval); say so instead of inventing.</summary>
-        public const string AdmitUnknown = "admit-unknown";
-
-        /// <summary>No rule cleared the bar; continue naturally.</summary>
-        public const string Unknown = "unknown";
-
-        /// <summary>The user issued a request/directive ("ask me a question", "tell me about
-        /// X", "don't answer that yet"); perform the requested act. Selectable since the
-        /// 2026-08-20 evidence run: as an evidence-only candidate it fired on 6 of 6
-        /// directives with an identical signature (follow-topic-change 0.60 winning,
-        /// request-directive 0.55 behind) while the model performed the requested act 6 of 6
-        /// times — one general act, clearly real, previously mislabeled. Deliberately ONE
-        /// intent for all commands; it never grows per-verb variants.</summary>
-        public const string RequestDirective = "request-directive";
-    }
-
     /// <summary>Above follow-topic-change/acknowledge (a directive outranks the topic-shape
-    /// reading of the same words), below answer-question (a question-form request — "can you
-    /// remind me…?" — is answered by performing it, and answer-question already says so).</summary>
+    /// reading of the same words), below answer-question (a question-form request â€” "can you
+    /// remind meâ€¦?" â€” is answered by performing it, and answer-question already says so).</summary>
     private const double DirectiveConfidence = 0.7;
 
     /// <summary>Below this, the selection is "unknown" rather than the best weak guess.</summary>
@@ -75,65 +33,65 @@ public static partial class TurnIntentClassifier
         var candidates = new List<IntentCandidate>();
 
         // Added in every branch (an imperative can carry a question mark: "Can you remind
-        // me…?" — there, answer-question outranks it and answering IS performing).
+        // meâ€¦?" â€” there, answer-question outranks it and answering IS performing).
         if (LooksDirective(message))
-            candidates.Add(new(Intents.RequestDirective, DirectiveConfidence,
-                "imperative/request shape — perform the requested act"));
+            candidates.Add(new(TurnIntent.RequestDirective, DirectiveConfidence,
+                "imperative/request shape â€” perform the requested act"));
 
-        // Move-grounded intents first — these come from working context's read of the turn.
-        if (working.Move == WorkingContext.Moves.Correction)
-            candidates.Add(new(Intents.AcceptCorrection, 0.85, "the message is a correction of something recent"));
-        if (working.Move == WorkingContext.Moves.AnswersOpenQuestion)
-            candidates.Add(new(Intents.RespondToAnswer, 0.85,
+        // Move-grounded intents first â€” these come from working context's read of the turn.
+        if (working.Move == ConversationMove.Correction)
+            candidates.Add(new(TurnIntent.AcceptCorrection, 0.85, "the message is a correction of something recent"));
+        if (working.Move == ConversationMove.AnswersOpenQuestion)
+            candidates.Add(new(TurnIntent.RespondToAnswer, 0.85,
                 $"the message answers her question: \"{working.BoundQuestion}\""));
 
         if (isQuestion)
         {
-            if (working.ResolutionConfidence == "guess" || working is { ReferenceMarkers.Count: > 0, ResolvedReference: null })
+            if (working.ResolutionConfidence == ResolutionConfidence.Guess || working is { ReferenceMarkers.Count: > 0, ResolvedReference: null })
             {
-                // The question depends on a reference the system could not pin — answering
+                // The question depends on a reference the system could not pin â€” answering
                 // means guessing, and one short question is cheaper than a wrong answer.
-                candidates.Add(new(Intents.Clarify, 0.75,
+                candidates.Add(new(TurnIntent.Clarify, 0.75,
                     $"the question depends on \"{working.ReferenceMarkers.FirstOrDefault()}\", which is ambiguous here"));
-                candidates.Add(new(Intents.AnswerQuestion, 0.5, "it is still a question"));
+                candidates.Add(new(TurnIntent.AnswerQuestion, 0.5, "it is still a question"));
             }
             else if (ProgressQuestion().IsMatch(message) && memoriesRetrieved == 0)
             {
                 // Asking how something of theirs is going, with nothing retrieved to answer
                 // from: the honest act is admitting she can't see it. The documented failure
                 // is three paragraphs of invented compost layers.
-                candidates.Add(new(Intents.AdmitUnknown, 0.7,
+                candidates.Add(new(TurnIntent.AdmitUnknown, 0.7,
                     "a progress question with nothing retrieved to answer from"));
-                candidates.Add(new(Intents.AnswerQuestion, 0.4, "it is still a question"));
+                candidates.Add(new(TurnIntent.AnswerQuestion, 0.4, "it is still a question"));
             }
             else
             {
-                candidates.Add(new(Intents.AnswerQuestion, 0.8, "the user asked a question"));
+                candidates.Add(new(TurnIntent.AnswerQuestion, 0.8, "the user asked a question"));
             }
         }
         else
         {
             if (Interjection().IsMatch(message)
-                && working.Move != WorkingContext.Moves.AnswersOpenQuestion)
+                && working.Move != ConversationMove.AnswersOpenQuestion)
             {
                 // "ok" / "lol" with no question of hers in play carries no act to classify.
                 // Deliberately nothing added: unknown is the honest label.
             }
             else if (FirstPersonShare().IsMatch(message))
             {
-                candidates.Add(new(Intents.Acknowledge, 0.7, "the user is sharing something of their own"));
+                candidates.Add(new(TurnIntent.Acknowledge, 0.7, "the user is sharing something of their own"));
             }
 
-            if (working.Move is WorkingContext.Moves.ContinuesThread or WorkingContext.Moves.ResolvesReference)
-                candidates.Add(new(Intents.ContinueTopic, 0.65, "the thread continues"));
-            if (working.Move == WorkingContext.Moves.NewTopic && !Interjection().IsMatch(message))
-                candidates.Add(new(Intents.FollowTopicChange, 0.6, "the subject changed; follow it"));
+            if (working.Move is ConversationMove.ContinuesThread or ConversationMove.ResolvesReference)
+                candidates.Add(new(TurnIntent.ContinueTopic, 0.65, "the thread continues"));
+            if (working.Move == ConversationMove.NewTopic && !Interjection().IsMatch(message))
+                candidates.Add(new(TurnIntent.FollowTopicChange, 0.6, "the subject changed; follow it"));
 
             // An ambiguous reference in a STATEMENT does not block replying, so clarify is
-            // offered as a competing candidate only — the shadow data will say whether it
+            // offered as a competing candidate only â€” the shadow data will say whether it
             // deserves more.
-            if (working.ResolutionConfidence == "guess")
-                candidates.Add(new(Intents.Clarify, 0.5,
+            if (working.ResolutionConfidence == ResolutionConfidence.Guess)
+                candidates.Add(new(TurnIntent.Clarify, 0.5,
                     $"\"{working.ReferenceMarkers.FirstOrDefault()}\" is ambiguous, though a reply doesn't require resolving it"));
         }
 
@@ -144,11 +102,11 @@ public static partial class TurnIntentClassifier
         {
             return new TurnIntentState
             {
-                Intent = Intents.Unknown,
+                Intent = TurnIntent.Unknown,
                 Confidence = top?.Confidence ?? 0.0,
                 Reason = top is null
-                    ? "no rule matched — continue naturally"
-                    : $"best candidate ({top.Intent}) below the bar — continue naturally",
+                    ? "no rule matched â€” continue naturally"
+                    : $"best candidate ({top.Intent.ToKebab()}) below the bar â€” continue naturally",
                 Candidates = ordered,
             };
         }
@@ -163,11 +121,11 @@ public static partial class TurnIntentClassifier
     }
 
     /// <summary>An imperative or polite-request shape. Public because the capture path tags
-    /// inputs with it — the corpus that decides whether request/directive joins the
+    /// inputs with it â€” the corpus that decides whether request/directive joins the
     /// vocabulary needs the flag on every turn, not only the ones this file classified.</summary>
     public static bool LooksDirective(string message) => DirectiveShape().IsMatch(message.Trim());
 
-    /// <summary>Bare-verb openers and polite requests. One general shape on purpose — the
+    /// <summary>Bare-verb openers and polite requests. One general shape on purpose â€” the
     /// instruction is to find out whether ONE request act is warranted, not to grow a
     /// taxonomy of commands.</summary>
     [GeneratedRegex(
@@ -178,7 +136,7 @@ public static partial class TurnIntentClassifier
         RegexOptions.IgnoreCase)]
     private static partial Regex DirectiveShape();
 
-    /// <summary>"How's X coming along / going" — a status question about the user's own world.</summary>
+    /// <summary>"How's X coming along / going" â€” a status question about the user's own world.</summary>
     [GeneratedRegex(@"\b(how('s| is| are| was| did)\b|coming along|any progress|going (with|on with))",
         RegexOptions.IgnoreCase)]
     private static partial Regex ProgressQuestion();
@@ -190,3 +148,5 @@ public static partial class TurnIntentClassifier
         RegexOptions.IgnoreCase)]
     private static partial Regex Interjection();
 }
+
+

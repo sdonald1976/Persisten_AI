@@ -90,12 +90,40 @@ public sealed class DiagnosticsStore : IDiagnosticsStore
             .ToList();
     }
 
+    public async Task RecordTurnAsync(TurnRecord record, CancellationToken ct = default)
+    {
+        try
+        {
+            using var scope = _scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
+            db.TurnRecords.Add(record);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Failed to record turn {TraceId}; the turn itself is unaffected.", record.Id);
+        }
+    }
+
+    public async Task<IReadOnlyList<TurnRecord>> GetRecentTurnsAsync(
+        string userId, int count, CancellationToken ct = default)
+    {
+        using var scope = _scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
+        return await db.TurnRecords.AsNoTracking()
+            .Where(t => t.UserId == userId)
+            .OrderByDescending(t => t.Timestamp)
+            .Take(Math.Clamp(count, 1, 200))
+            .ToListAsync(ct);
+    }
+
     public async Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
     {
         using var scope = _scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
         var models = await db.ModelCalls.Where(c => c.Timestamp < olderThan).ExecuteDeleteAsync(ct);
         var tools = await db.ToolCalls.Where(t => t.Timestamp < olderThan).ExecuteDeleteAsync(ct);
-        return models + tools;
+        var turnRows = await db.TurnRecords.Where(t => t.Timestamp < olderThan).ExecuteDeleteAsync(ct);
+        return models + tools + turnRows;
     }
 }

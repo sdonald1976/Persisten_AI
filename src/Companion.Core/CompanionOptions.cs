@@ -145,6 +145,16 @@ public sealed class CompanionOptions
     /// </summary>
     public bool EnableToolUse { get; set; } = true;
 
+    /// <summary>
+    /// The ONE promoted turn intent (language-organ Phase 2): when on, a turn the classifier
+    /// selects as clarify — a question hanging on ambiguity the system could not resolve —
+    /// puts one authoritative line in the packet preferring a short clarifying question over
+    /// guessing. Off by default; every other intent stays shadow-only. Promoted on three live
+    /// specimens where the system said clarify and the model answered anyway; the canonical
+    /// soak stage measures whether this flag actually changes that.
+    /// </summary>
+    public bool PromoteClarifyIntent { get; set; }
+
     /// <summary>Hard ceiling on tool executions in one turn (identical repeats stop earlier).</summary>
     public int MaxToolCallsPerTurn { get; set; } = 3;
 

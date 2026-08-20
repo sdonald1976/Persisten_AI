@@ -1,4 +1,4 @@
-using Companion.Core.Domain;
+﻿using Companion.Core.Domain;
 using Companion.Core.Services;
 using Xunit;
 
@@ -6,8 +6,8 @@ namespace Companion.Tests;
 
 /// <summary>
 /// The working-context read (language-organ Phase 1): multi-turn scenarios at 1, 3, 5, and
-/// 10 turns, phrased the way a person actually refers back — "the second one", "yeah", "her",
-/// "what I said before" — plus the negative cases, which matter as much: an old hanging
+/// 10 turns, phrased the way a person actually refers back â€” "the second one", "yeah", "her",
+/// "what I said before" â€” plus the negative cases, which matter as much: an old hanging
 /// question must not hijack a new topic, and mid-sentence "actually" is not a correction.
 /// All pure-function: transcripts in, explicit state out, no host, no models.
 /// </summary>
@@ -25,11 +25,11 @@ public class WorkingContextTests
 
         var state = WorkingContext.Read(recent, "yeah");
 
-        Assert.Equal(WorkingContext.Moves.AnswersOpenQuestion, state.Move);
+        Assert.Equal(ConversationMove.AnswersOpenQuestion, state.Move);
         Assert.Equal("Want me to keep track of the seed order for you?", state.BoundQuestion);
         Assert.Contains("seed order", state.RetrievalQuery);
         Assert.NotNull(state.InterpretationNote);
-        Assert.Empty(state.OpenQuestions); // just answered — no longer open
+        Assert.Empty(state.OpenQuestions); // just answered â€” no longer open
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public class WorkingContextTests
 
         var state = WorkingContext.Read(recent, "The second one.");
 
-        Assert.Equal(WorkingContext.Moves.AnswersOpenQuestion, state.Move);
+        Assert.Equal(ConversationMove.AnswersOpenQuestion, state.Move);
         Assert.Equal("the raised beds", state.ResolvedReference);
         Assert.Contains("the raised beds", state.RetrievalQuery);
         Assert.Contains("the raised beds", state.InterpretationNote);
@@ -53,10 +53,10 @@ public class WorkingContextTests
 
         var state = WorkingContext.Read(recent, "Let's go with the last one.");
 
-        Assert.Equal(WorkingContext.Moves.ResolvesReference, state.Move);
+        Assert.Equal(ConversationMove.ResolvesReference, state.Move);
         Assert.Equal("birch", state.ResolvedReference);
         Assert.Contains("birch", state.RetrievalQuery);
-        Assert.NotNull(state.InterpretationNote); // exact resolution — assertive
+        Assert.NotNull(state.InterpretationNote); // exact resolution â€” assertive
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class WorkingContextTests
 
         var state = WorkingContext.Read(recent, "The second one.");
 
-        Assert.Equal(WorkingContext.Moves.ContinuesThread, state.Move);
+        Assert.Equal(ConversationMove.ContinuesThread, state.Move);
         Assert.Null(state.ResolvedReference);
         Assert.Null(state.InterpretationNote);
         Assert.Equal(state.RawQuery, state.RetrievalQuery);
@@ -136,8 +136,8 @@ public class WorkingContextTests
 
         var state = WorkingContext.Read(recent, "Additive.");
 
-        // No binding — the question is three messages old, not the turn being answered.
-        Assert.Equal(WorkingContext.Moves.NewTopic, state.Move);
+        // No binding â€” the question is three messages old, not the turn being answered.
+        Assert.Equal(ConversationMove.NewTopic, state.Move);
         Assert.Null(state.BoundQuestion);
         Assert.Null(state.InterpretationNote);
         Assert.Equal("Additive.", state.RetrievalQuery);
@@ -170,14 +170,14 @@ public class WorkingContextTests
         var recent = new[]
         {
             U("My sister Beth is visiting next week."),
-            A("That's lovely — how long will she stay?"),
+            A("That's lovely â€” how long will she stay?"),
             U("About ten days."),
             A("Plenty of time for the garden tour then."),
         };
 
         var state = WorkingContext.Read(recent, "I'm planning a dinner for her.");
 
-        Assert.Equal(WorkingContext.Moves.ResolvesReference, state.Move);
+        Assert.Equal(ConversationMove.ResolvesReference, state.Move);
         Assert.Equal("Beth", state.ResolvedReference);
         Assert.Contains("Beth", state.RetrievalQuery);
         Assert.Contains("Beth", state.SalientEntities);
@@ -189,8 +189,8 @@ public class WorkingContextTests
     public void Her_PrefersThePersonTheUserIntroduced_OverNamesInHerOwnReply()
     {
         // Verbatim from the first live qwen3 run: the companion's reply led with
-        // "Will Precious get to meet Beth…", and "her" resolved to "Will Precious" — an
-        // auxiliary verb plus the dog's name, lifted from her own message — while the sister
+        // "Will Precious get to meet Bethâ€¦", and "her" resolved to "Will Precious" â€” an
+        // auxiliary verb plus the dog's name, lifted from her own message â€” while the sister
         // the user had just introduced sat one message earlier.
         var recent = new[]
         {
@@ -210,15 +210,15 @@ public class WorkingContextTests
         var recent = new[]
         {
             U("The tomatoes in the north bed are showing blight on the lower leaves."),
-            A("Noted — I'll keep an eye on the forecast with you."),
+            A("Noted â€” I'll keep an eye on the forecast with you."),
         };
 
         var state = WorkingContext.Read(recent, "Can you remind me what I said before about the tomatoes?");
 
-        Assert.Equal(WorkingContext.Moves.ResolvesReference, state.Move);
+        Assert.Equal(ConversationMove.ResolvesReference, state.Move);
         Assert.Contains("blight", state.ResolvedReference);
         Assert.Contains("blight", state.RetrievalQuery);
-        Assert.NotNull(state.InterpretationNote); // their own words — assertive
+        Assert.NotNull(state.InterpretationNote); // their own words â€” assertive
     }
 
     // ---- 10 turns back: the window boundary, honestly ----
@@ -245,7 +245,7 @@ public class WorkingContextTests
         Assert.Null(state.ResolvedReference);
         Assert.Null(state.InterpretationNote);
         Assert.Equal(state.RawQuery, state.RetrievalQuery);
-        Assert.Equal(WorkingContext.Moves.ContinuesThread, state.Move);
+        Assert.Equal(ConversationMove.ContinuesThread, state.Move);
     }
 
     // ---- corrections ----
@@ -256,12 +256,12 @@ public class WorkingContextTests
         var recent = new[]
         {
             U("Plant the oak by the gate."),
-            A("Oak by the gate — noted."),
+            A("Oak by the gate â€” noted."),
         };
 
         var state = WorkingContext.Read(recent, "Actually, I meant the maple, not the oak.");
 
-        Assert.Equal(WorkingContext.Moves.Correction, state.Move);
+        Assert.Equal(ConversationMove.Correction, state.Move);
         Assert.NotNull(state.InterpretationNote);
     }
 
@@ -272,7 +272,7 @@ public class WorkingContextTests
 
         var state = WorkingContext.Read(recent, "It's actually holding up well out there.");
 
-        Assert.NotEqual(WorkingContext.Moves.Correction, state.Move);
+        Assert.NotEqual(ConversationMove.Correction, state.Move);
     }
 
     // ---- topic and entities ----
@@ -306,3 +306,4 @@ public class WorkingContextTests
         Assert.DoesNotContain("Scott", state.SalientEntities);
     }
 }
+

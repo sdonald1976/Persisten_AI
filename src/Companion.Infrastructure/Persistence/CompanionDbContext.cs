@@ -45,6 +45,7 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<CapabilityDescriptor> Capabilities => Set<CapabilityDescriptor>();
     public DbSet<ModelCallRecord> ModelCalls => Set<ModelCallRecord>();
     public DbSet<ToolCallRecord> ToolCalls => Set<ToolCallRecord>();
+    public DbSet<TurnRecord> TurnRecords => Set<TurnRecord>();
     public DbSet<ShadowComparison> ShadowComparisons => Set<ShadowComparison>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
@@ -76,6 +77,29 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Arguments).HasMaxLength(2000);
             e.Property(x => x.Code).HasMaxLength(40);
             // Read newest-first per user.
+            e.HasIndex(x => new { x.UserId, x.Timestamp });
+        });
+
+        b.Entity<TurnRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(200);
+            // Bounded previews — nulled entirely on private/sensitive turns (the writer owns
+            // that rule); caps keep an accident cheap, same policy as ShadowComparison.Input.
+            e.Property(x => x.UserPreview).HasMaxLength(300);
+            e.Property(x => x.AssistantPreview).HasMaxLength(300);
+            e.Property(x => x.Move).HasMaxLength(40);
+            e.Property(x => x.ResolvedReference).HasMaxLength(200);
+            e.Property(x => x.ResolutionConfidence).HasMaxLength(20);
+            e.Property(x => x.BoundQuestion).HasMaxLength(300);
+            e.Property(x => x.RetrievalQuery).HasMaxLength(500);
+            e.Property(x => x.Intent).HasMaxLength(40);
+            e.Property(x => x.IntentRunnerUp).HasMaxLength(60);
+            e.Property(x => x.Retrieved).HasMaxLength(2000);
+            e.Property(x => x.FocalTerms).HasMaxLength(300);
+            e.Property(x => x.Decisions).HasMaxLength(1000);
+            e.Property(x => x.ModelUsed).HasMaxLength(200);
+            // Read newest-first per user; pruned below a time cutoff.
             e.HasIndex(x => new { x.UserId, x.Timestamp });
         });
 

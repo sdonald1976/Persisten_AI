@@ -1,4 +1,4 @@
-using Companion.Core.Abstractions;
+﻿using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Companion.Core.Services;
 using Companion.Infrastructure.Models;
@@ -13,7 +13,7 @@ namespace Companion.Tests;
 /// <summary>
 /// The Phase-1 extraction boundary: resolved conversational references flow into durable
 /// memory; unresolved ones are refused rather than stored as garbage. The reference failure is
-/// real and verbatim — the store once gained "The user is planning a small dinner for someone
+/// real and verbatim â€” the store once gained "The user is planning a small dinner for someone
 /// named her." while working context knew perfectly well who "her" was. Expected durable
 /// meaning: dinner is for Beth, with provenance to BOTH the dinner utterance and the message
 /// that introduced Beth. Guessed resolutions never reach extraction at all.
@@ -35,17 +35,17 @@ public class ReferenceExtractionTests
     [Theory]
     [InlineData("The user is planning a small dinner for someone named her.")] // live specimen #1
     [InlineData("The user has a friend, someone called him.")]
-    [InlineData("The user is knitting a scarf for her.")]                      // live specimen #2 — quieter garbage
+    [InlineData("The user is knitting a scarf for her.")]                      // live specimen #2 â€” quieter garbage
     [InlineData("The user went hiking with him.")]
     public void PronounAsPerson_IsRefused(string content)
         => Assert.True(UnresolvedReferentGuard.IsPronounAsPerson(
             new MemoryCandidate { Kind = MemoryKind.Semantic, Content = content }));
 
     [Theory]
-    [InlineData("The user named her dog Precious.")]        // pronoun + real object — legitimate
-    [InlineData("The user is making dinner for Beth.")]     // resolved — legitimate
+    [InlineData("The user named her dog Precious.")]        // pronoun + real object â€” legitimate
+    [InlineData("The user is making dinner for Beth.")]     // resolved â€” legitimate
     [InlineData("Someone called Herman lives next door.")]  // 'her' inside a name must not trip
-    [InlineData("The user walks her dog every morning.")]   // possessive + noun — legitimate
+    [InlineData("The user walks her dog every morning.")]   // possessive + noun â€” legitimate
     [InlineData("The user is knitting a scarf for her sister Beth.")] // pronoun followed by its noun
     public void RealSentences_AreNotRefused(string content)
         => Assert.False(UnresolvedReferentGuard.IsPronounAsPerson(
@@ -90,9 +90,9 @@ public class ReferenceExtractionTests
         var pipeline = ActivatorUtilities.CreateInstance<MemoryPipeline>(
             scope.ServiceProvider, new StubExtractor(laundered));
 
-        // The system's own resolution was a guess (two candidates in the window) — withheld
+        // The system's own resolution was a guess (two candidates in the window) â€” withheld
         // from the extractor, active as a veto.
-        var guess = new ReferenceResolution("her", "Elin", "guess", null, null);
+        var guess = new ReferenceResolution("her", "Elin", ResolutionConfidence.Guess, null, null);
         var result = await pipeline.ProcessAsync(UserId, new[] { pieMsg }, guess);
 
         var decision = Assert.Single(result.Decisions);
@@ -125,7 +125,7 @@ public class ReferenceExtractionTests
         var state = WorkingContext.Read(new[] { beth, reply }, "I'm making dinner for her.");
 
         Assert.Equal("Beth", state.ResolvedReference);
-        Assert.Equal("unambiguous", state.ResolutionConfidence);
+        Assert.Equal(ResolutionConfidence.Unambiguous, state.ResolutionConfidence);
         Assert.Equal(beth.Id, state.ReferentSourceMessageId);
         Assert.Contains("Beth is visiting", state.ReferentSourceExcerpt);
     }
@@ -145,7 +145,7 @@ public class ReferenceExtractionTests
         var state = WorkingContext.Read(recent, "I'm making dinner for her.");
 
         Assert.NotNull(state.ResolvedReference); // retrieval may still use the newest guess
-        Assert.Equal("guess", state.ResolutionConfidence);
+        Assert.Equal(ResolutionConfidence.Guess, state.ResolutionConfidence);
     }
 
     // ---- the pipeline consumes a sound resolution, with dual provenance ----
@@ -177,7 +177,7 @@ public class ReferenceExtractionTests
             scope.ServiceProvider, new StubExtractor(candidate));
 
         var resolution = new ReferenceResolution(
-            "her", "Beth", "unambiguous", bethMsg.Id, bethMsg.Content);
+            "her", "Beth", ResolutionConfidence.Unambiguous, bethMsg.Id, bethMsg.Content);
         var result = await pipeline.ProcessAsync(UserId, new[] { dinnerMsg }, resolution);
 
         var decision = Assert.Single(result.Decisions);
@@ -210,7 +210,7 @@ public class ReferenceExtractionTests
         var pipeline = ActivatorUtilities.CreateInstance<MemoryPipeline>(
             scope.ServiceProvider, new StubExtractor(garbage));
 
-        // No resolution arrived (a guess, or nothing) — the fact is unknowable, not storable.
+        // No resolution arrived (a guess, or nothing) â€” the fact is unknowable, not storable.
         var result = await pipeline.ProcessAsync(UserId, new[] { dinnerMsg });
 
         var decision = Assert.Single(result.Decisions);
@@ -233,12 +233,12 @@ public class ReferenceExtractionTests
         };
 
         await extractor.ExtractAsync(UserId, new[] { msg },
-            new ReferenceResolution("her", "Beth", "unambiguous", Guid.NewGuid(), "My sister Beth is visiting."));
+            new ReferenceResolution("her", "Beth", ResolutionConfidence.Unambiguous, Guid.NewGuid(), "My sister Beth is visiting."));
         var prompt = Assert.Single(chat.UserMessages);
         Assert.Contains("\"her\" refers to \"Beth\"", prompt);
         Assert.Contains("original words", prompt);
 
-        // And without a resolution, no note — the model is never told about machinery it
+        // And without a resolution, no note â€” the model is never told about machinery it
         // shouldn't be thinking about.
         chat.Enqueue("[]");
         await extractor.ExtractAsync(UserId, new[] { msg });
@@ -268,7 +268,7 @@ public class ReferenceExtractionTests
         }
 
         var turn = host.Services.GetRequiredService<ITurnTraceLog>().Recent(UserId, 1).Single();
-        Assert.Equal("guess", turn.WorkingContext!.ResolutionConfidence);
+        Assert.Equal(ResolutionConfidence.Guess, turn.WorkingContext!.ResolutionConfidence);
         Assert.Equal("withheld-guess",
             turn.Decisions.Single(d => d.Stage == "reference.extraction").Verdict);
 
@@ -284,3 +284,5 @@ public class ReferenceExtractionTests
             || m.Content.Contains("named her", StringComparison.OrdinalIgnoreCase));
     }
 }
+
+

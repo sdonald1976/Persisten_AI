@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Companion.Core.Domain;
 
 namespace Companion.Core.Services;
@@ -7,27 +7,17 @@ namespace Companion.Core.Services;
 /// Reads the recent transcript into an explicit <see cref="WorkingContextState"/>: what
 /// questions are hanging, what is being discussed, which entities are salient, what the user's
 /// references point at, what kind of turn this is, and what retrieval should therefore search
-/// for. Everything here is deterministic string work over the messages already in hand — no
+/// for. Everything here is deterministic string work over the messages already in hand â€” no
 /// model calls, no storage, no new prompt sections beyond the one interpretation note.
 ///
 /// The rules are deliberately conservative (the ToolNudge lesson: heuristics score 0.778 on
 /// the phrasings their author imagined and 0.087 on real ones), and their verdicts are recorded
 /// per turn and captured for corpus review, so the real hit rate gets measured, not assumed.
-/// A wrong CLASSIFICATION costs little — a note is only asserted on the confident shapes, and
+/// A wrong CLASSIFICATION costs little â€” a note is only asserted on the confident shapes, and
 /// the retrieval query falls back to the raw message whenever nothing resolves.
 /// </summary>
 public static partial class WorkingContext
 {
-    /// <summary>Moves, as the stable strings the diagnostics ring reports.</summary>
-    public static class Moves
-    {
-        public const string AnswersOpenQuestion = "answers-open-question";
-        public const string ResolvesReference = "resolves-reference";
-        public const string Correction = "correction";
-        public const string ContinuesThread = "continues-thread";
-        public const string NewTopic = "new-topic";
-    }
-
     private const int MaxOpenQuestions = 3;
     private const int MaxEntities = 5;
     private const int MaxReferentChars = 160;
@@ -51,11 +41,12 @@ public static partial class WorkingContext
 
         // Reference resolution, most specific first. Resolution, classification, and
         // ASSERTION are three different confidence bars: a marker can be detected and fail to
-        // resolve (classified only); resolve from a guess like "her" → most recent entity
+        // resolve (classified only); resolve from a guess like "her" â†’ most recent entity
         // (query rewritten, nothing asserted to the model); or resolve from something exact
         // like an enumerated item (query rewritten AND the packet told). Only the last earns
-        // an authoritative note — being wrong in the packet is worse than being silent.
-        string? marker = null, referent = null, resolutionConfidence = null;
+        // an authoritative note â€” being wrong in the packet is worse than being silent.
+        string? marker = null, referent = null;
+        ResolutionConfidence? resolutionConfidence = null;
         Message? sourceMessage = null;
         var assertive = false;
         if (OrdinalReference().Match(message) is { Success: true } ordinal)
@@ -63,7 +54,7 @@ public static partial class WorkingContext
             marker = ordinal.Value;
             referent = ResolveOrdinal(ordinal.Groups["which"].Value, recent);
             assertive = referent is not null;
-            resolutionConfidence = referent is null ? null : "exact";
+            resolutionConfidence = referent is null ? null : Domain.ResolutionConfidence.Exact;
             sourceMessage = referent is null ? null : recent.LastOrDefault(m => m.Role == MessageRole.Assistant);
             markers.Add(marker);
         }
@@ -71,7 +62,7 @@ public static partial class WorkingContext
         {
             marker = thatOne.Value;
             referent = entities.FirstOrDefault();
-            resolutionConfidence = referent is null ? null : "guess";
+            resolutionConfidence = referent is null ? null : Domain.ResolutionConfidence.Guess;
             sourceMessage = FindMention(recent, referent);
             markers.Add(marker);
         }
@@ -81,12 +72,12 @@ public static partial class WorkingContext
             // lifted from the companion's own reply while the person the user had just named
             // sat one message earlier. People the user brings up are who their pronouns mean.
             // With exactly ONE user-introduced candidate in the window the choice is not a
-            // guess — there is nobody else it could visibly mean; more than one, and picking
+            // guess â€” there is nobody else it could visibly mean; more than one, and picking
             // the newest is retrieval-grade only.
             marker = pronoun.Value;
             referent = (userEntities.FirstOrDefault() ?? entities.FirstOrDefault());
             resolutionConfidence = referent is null ? null
-                : userEntities.Count == 1 && referent == userEntities[0] ? "unambiguous" : "guess";
+                : userEntities.Count == 1 && referent == userEntities[0] ? Domain.ResolutionConfidence.Unambiguous : Domain.ResolutionConfidence.Guess;
             sourceMessage = FindMention(recent, referent);
             markers.Add(marker);
         }
@@ -96,24 +87,24 @@ public static partial class WorkingContext
             var previous = PreviousSubstantiveUserMessage(recent);
             referent = previous is null ? null : Clip(previous.Content.Trim());
             assertive = referent is not null;
-            resolutionConfidence = referent is null ? null : "exact";
+            resolutionConfidence = referent is null ? null : Domain.ResolutionConfidence.Exact;
             sourceMessage = previous;
             markers.Add(marker);
         }
 
         // ---- classify the move, highest-precedence first ----
-        string move;
+        ConversationMove move;
         string? note = null, boundQuestion = null;
         var query = userMessage;
 
         if (IsCorrection(message))
         {
-            move = Moves.Correction;
+            move = ConversationMove.Correction;
             note = Prompts.Get("interpretation.correction");
         }
         else if (binding is not null)
         {
-            move = Moves.AnswersOpenQuestion;
+            move = ConversationMove.AnswersOpenQuestion;
             boundQuestion = binding.Question;
             query = referent is null
                 ? $"{binding.Question} {binding.Answer}"
@@ -126,7 +117,7 @@ public static partial class WorkingContext
         }
         else if (referent is not null)
         {
-            move = Moves.ResolvesReference;
+            move = ConversationMove.ResolvesReference;
             query = $"{userMessage} {referent}";
             note = assertive
                 ? Prompts.Format("interpretation.reference",
@@ -138,11 +129,11 @@ public static partial class WorkingContext
             // A detected-but-unresolved reference, or real word overlap with the last
             // exchange: the thread continues, but nothing is confidently known beyond that,
             // so classify without asserting a note.
-            move = Moves.ContinuesThread;
+            move = ConversationMove.ContinuesThread;
         }
         else
         {
-            move = Moves.NewTopic;
+            move = ConversationMove.NewTopic;
         }
 
         // A question the current turn just answered is no longer open.
@@ -171,7 +162,7 @@ public static partial class WorkingContext
 
     /// <summary>
     /// Trailing questions from the companion's messages in the window that no later user
-    /// message addressed — by elliptical binding or by sharing two content words with the
+    /// message addressed â€” by elliptical binding or by sharing two content words with the
     /// question. Newest first. This tells the system (not yet the prompt) what she has asked
     /// and is still owed; surfacing it in the packet is a separate decision with a nag risk.
     /// </summary>
@@ -218,7 +209,7 @@ public static partial class WorkingContext
     /// <summary>
     /// Capitalized tokens (and runs of them: "Marsh Lane") that don't open a sentence, newest
     /// first, excluding the two speakers and calendar words, tagged with who said them. A crude
-    /// proper-noun read — its misses cost nothing (no resolution happens), and its hits give
+    /// proper-noun read â€” its misses cost nothing (no resolution happens), and its hits give
     /// "her" and "that one" something concrete to point at.
     /// </summary>
     private static IReadOnlyList<(string Value, MessageRole Source)> SalientEntities(
@@ -256,8 +247,8 @@ public static partial class WorkingContext
     }
 
     /// <summary>
-    /// Sheds capitalized function words from the front of a candidate ("Will Precious" →
-    /// "Precious" — the first live run resolved a pronoun to that auxiliary-plus-name), and
+    /// Sheds capitalized function words from the front of a candidate ("Will Precious" â†’
+    /// "Precious" â€” the first live run resolved a pronoun to that auxiliary-plus-name), and
     /// rejects sentence-case single words at sentence starts, which are indistinguishable from
     /// ordinary prose. Null when nothing survives.
     /// </summary>
@@ -274,9 +265,9 @@ public static partial class WorkingContext
             return null;
 
         // A single sentence-case word opening a sentence is indistinguishable from prose
-        // ("Beth arrived" vs "Suddenly it rained") — reject it. A multi-word run there is a
+        // ("Beth arrived" vs "Suddenly it rained") â€” reject it. A multi-word run there is a
         // real name ("Beth Miller called"), and a run whose auxiliary was shed keeps the rest
-        // ("Will Precious get to…" → "Precious").
+        // ("Will Precious get toâ€¦" â†’ "Precious").
         if (startsSentence && dropped == 0 && tokens.Count == 1)
             return null;
 
@@ -284,7 +275,7 @@ public static partial class WorkingContext
     }
 
     /// <summary>Capitalized words that open questions and clauses, not name anything. The cost
-    /// of listing "Will" is a person named Will at a sentence head — accepted: a missed entity
+    /// of listing "Will" is a person named Will at a sentence head â€” accepted: a missed entity
     /// resolves nothing, while a false one misdirected a pronoun in the first live run.</summary>
     private static readonly HashSet<string> FunctionWords = new(StringComparer.Ordinal)
     {
@@ -345,8 +336,8 @@ public static partial class WorkingContext
         if (lines.Count >= 2)
             return lines;
 
-        // A trailing question offering alternatives ("coffee, tea, or chocolate?" — or the
-        // prose kind, "a pumpkin risotto…, or a sheet pan chicken…?").
+        // A trailing question offering alternatives ("coffee, tea, or chocolate?" â€” or the
+        // prose kind, "a pumpkin risottoâ€¦, or a sheet pan chickenâ€¦?").
         if (AnswerBindingDetector.TrailingQuestion(text) is { } question
             && question.Contains(" or ", StringComparison.OrdinalIgnoreCase))
         {
@@ -375,12 +366,12 @@ public static partial class WorkingContext
     /// Splits an offering into its alternatives. " or " is the primary boundary; a comma
     /// splits further ONLY when every comma segment is short (parallel nouns: "coffee, tea"),
     /// because a long segment means the comma was descriptive prose ("a risotto for a creamy,
-    /// comforting meal") — the first cut of this split turned that comma into an "option"
+    /// comforting meal") â€” the first cut of this split turned that comma into an "option"
     /// called "comforting meal", live.
     /// </summary>
     private static List<string> SplitAlternatives(string text)
     {
-        // Keep only what follows a colon lead-in ("Which do you prefer: coffee…").
+        // Keep only what follows a colon lead-in ("Which do you prefer: coffeeâ€¦").
         var colon = text.LastIndexOf(':');
         if (colon >= 0 && colon + 1 < text.Length)
             text = text[(colon + 1)..];
@@ -412,7 +403,7 @@ public static partial class WorkingContext
     private static Message? PreviousSubstantiveUserMessage(IReadOnlyList<Message> recent)
         => recent.LastOrDefault(m => m.Role == MessageRole.User && m.Content.Trim().Length >= 20);
 
-    /// <summary>The newest message that mentions the referent, preferring the user's own —
+    /// <summary>The newest message that mentions the referent, preferring the user's own â€”
     /// the provenance target when a fact is later stored through this resolution.</summary>
     private static Message? FindMention(IReadOnlyList<Message> recent, string? referent)
         => referent is null ? null
@@ -430,7 +421,7 @@ public static partial class WorkingContext
     {
         var lower = message.ToLowerInvariant();
         return lower.StartsWith("actually,") || lower.StartsWith("actually ")
-            || lower.StartsWith("no, ") || lower.StartsWith("no - ") || lower.StartsWith("no — ")
+            || lower.StartsWith("no, ") || lower.StartsWith("no - ") || lower.StartsWith("no â€” ")
             || lower.StartsWith("wait, ") || lower.StartsWith("wait - ")
             || lower.Contains("i meant") || lower.Contains("i didn't say") || lower.Contains("that's not what i");
     }
@@ -452,7 +443,7 @@ public static partial class WorkingContext
             .ToList();
 
     private static string Clip(string text)
-        => text.Length <= MaxReferentChars ? text : text[..MaxReferentChars] + "…";
+        => text.Length <= MaxReferentChars ? text : text[..MaxReferentChars] + "â€¦";
 
     private static readonly HashSet<string> Stopwords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -480,7 +471,7 @@ public static partial class WorkingContext
     [GeneratedRegex(@"\bwhat i (said|told you|mentioned) (before|earlier)\b", RegexOptions.IgnoreCase)]
     private static partial Regex SaidBefore();
 
-    [GeneratedRegex(@"^\s*(?:[-*•]|\d+[.)])\s+(?<item>.+)$")]
+    [GeneratedRegex(@"^\s*(?:[-*â€¢]|\d+[.)])\s+(?<item>.+)$")]
     private static partial Regex ListItem();
 
     [GeneratedRegex(@"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b")]
@@ -492,3 +483,5 @@ public static partial class WorkingContext
     [GeneratedRegex(@"[a-zA-Z']+")]
     private static partial Regex Word();
 }
+
+

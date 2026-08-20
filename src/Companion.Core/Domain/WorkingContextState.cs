@@ -19,11 +19,11 @@ public sealed record OpenQuestionState(string Question, int MessagesAgo);
 public sealed record ReferenceResolution(
     string Marker,
     string Referent,
-    string Confidence,
+    ResolutionConfidence Confidence,
     Guid? SourceMessageId,
     string? SourceExcerpt)
 {
-    public bool Consumable => Confidence is "exact" or "unambiguous";
+    public bool Consumable => Confidence is ResolutionConfidence.Exact or ResolutionConfidence.Unambiguous;
 }
 
 /// <summary>
@@ -53,22 +53,17 @@ public sealed record WorkingContextState
     /// ("the second one", "her", "what I said before"), as detected.</summary>
     public IReadOnlyList<string> ReferenceMarkers { get; init; } = Array.Empty<string>();
 
-    /// <summary>
-    /// What this turn IS, as a stable string: "answers-open-question", "resolves-reference",
-    /// "correction", "continues-thread", or "new-topic". Strings rather than an enum because
-    /// the primary consumers are the diagnostics ring and its JSON readers.
-    /// </summary>
-    public required string Move { get; init; }
+    /// <summary>What this turn IS. Typed — a move is cognition, not language — while every
+    /// JSON/diagnostic boundary still reads the kebab label ("answers-open-question").</summary>
+    public required ConversationMove Move { get; init; }
 
     /// <summary>What a detected reference resolved to, when it did ("the second one" → the
     /// enumerated item's text). Null when nothing resolved.</summary>
     public string? ResolvedReference { get; init; }
 
-    /// <summary>How the referent was chosen: "exact" (parsed from an enumeration or the user's
-    /// own words), "unambiguous" (a pronoun with exactly one user-introduced candidate), or
-    /// "guess" (newest plausible entity). Null when nothing resolved. Extraction consumes only
-    /// the first two; retrieval may use all three.</summary>
-    public string? ResolutionConfidence { get; init; }
+    /// <summary>How the referent was chosen. Null when nothing resolved. Extraction consumes
+    /// only Exact/Unambiguous; retrieval may use all three.</summary>
+    public ResolutionConfidence? ResolutionConfidence { get; init; }
 
     /// <summary>The message that introduced the referent, when identifiable — provenance for
     /// any durable fact extracted through this resolution.</summary>

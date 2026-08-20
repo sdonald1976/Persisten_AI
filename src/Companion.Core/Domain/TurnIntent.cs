@@ -1,7 +1,7 @@
 namespace Companion.Core.Domain;
 
 /// <summary>One intent the classifier considered, with why and how strongly.</summary>
-public sealed record IntentCandidate(string Intent, double Confidence, string Reason);
+public sealed record IntentCandidate(TurnIntent Intent, double Confidence, string Reason);
 
 /// <summary>
 /// SHADOW relevance feature (being validated, not yet consumed by anything): whether any
@@ -27,11 +27,10 @@ public sealed record FocalCoverage(IReadOnlyList<string> FocalTerms, bool Covere
 /// </summary>
 public sealed record TurnIntentState
 {
-    /// <summary>The selected intent, from the closed vocabulary in
-    /// Services.TurnIntentClassifier.Intents — or "unknown" when nothing clears the
-    /// confidence bar. Unknown means "continue naturally", and it is the preferred answer
-    /// over a confidently wrong one.</summary>
-    public required string Intent { get; init; }
+    /// <summary>The selected intent — <see cref="TurnIntent.Unknown"/> when nothing clears
+    /// the confidence bar, which means "continue naturally" and is the preferred answer over
+    /// a confidently wrong one.</summary>
+    public required TurnIntent Intent { get; init; }
 
     /// <summary>The selection's heuristic strength (0..1). Below the classifier's bar the
     /// selected intent is "unknown" and this is the best rejected candidate's score.</summary>

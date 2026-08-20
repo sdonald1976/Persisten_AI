@@ -1,4 +1,4 @@
-using Companion.Core.Abstractions;
+﻿using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Companion.Core.Services;
 using Companion.Infrastructure.Seeding;
@@ -11,7 +11,7 @@ namespace Companion.Tests;
 /// <summary>
 /// Turn intent (language-organ Phase 2): what Ava should DO this turn, classified
 /// deterministically from working context + retrieval, in shadow. The vocabulary names acts,
-/// never prose — and "unknown" (continue naturally) is the correct answer whenever nothing
+/// never prose â€” and "unknown" (continue naturally) is the correct answer whenever nothing
 /// clears the bar, because a wrong "unknown" costs a corpus row while a wrong intent would
 /// one day cost a turn.
 /// </summary>
@@ -29,30 +29,30 @@ public class TurnIntentTests
     public void AQuestion_IsAnswerQuestion()
     {
         var intent = Classify(new[] { A("The greenhouse held overnight.") }, "What temperature did it drop to?");
-        Assert.Equal(TurnIntentClassifier.Intents.AnswerQuestion, intent.Intent);
+        Assert.Equal(TurnIntent.AnswerQuestion, intent.Intent);
     }
 
     [Fact]
     public void AFirstPersonShare_IsAcknowledge()
     {
         var intent = Classify(Array.Empty<Message>(), "My sister Beth is visiting on Saturday.");
-        Assert.Equal(TurnIntentClassifier.Intents.Acknowledge, intent.Intent);
+        Assert.Equal(TurnIntent.Acknowledge, intent.Intent);
     }
 
     [Fact]
     public void AnAnswerToHerOwnQuestion_IsRespondToAnswer()
     {
         var intent = Classify(new[] { A("What's your favorite kind of magic?") }, "Additive.");
-        Assert.Equal(TurnIntentClassifier.Intents.RespondToAnswer, intent.Intent);
+        Assert.Equal(TurnIntent.RespondToAnswer, intent.Intent);
         Assert.Contains("favorite kind of magic", intent.Reason);
     }
 
     [Fact]
     public void ACorrection_IsAcceptCorrection()
     {
-        var recent = new[] { U("Plant the oak by the gate."), A("Oak by the gate — noted.") };
+        var recent = new[] { U("Plant the oak by the gate."), A("Oak by the gate â€” noted.") };
         var intent = Classify(recent, "Actually, I meant the maple, not the oak.");
-        Assert.Equal(TurnIntentClassifier.Intents.AcceptCorrection, intent.Intent);
+        Assert.Equal(TurnIntent.AcceptCorrection, intent.Intent);
     }
 
     [Fact]
@@ -61,14 +61,14 @@ public class TurnIntentTests
         // THE CANONICAL PROMOTION CASE. Two possible "her"s in the window: answering means
         // guessing; the act is to ask. In the first live shadow run the system selected
         // clarify (0.75) here and qwen3:8b, uninstructed, answered anyway ("a roasted potato
-        // dish") without asking which sister — the first recorded turn where authoritative
+        // dish") without asking which sister â€” the first recorded turn where authoritative
         // intent would have produced a better act than the model's default. When intent is
         // ever promoted into generation, THIS is the case the promotion must win.
         var recent = new[] { U("My sisters Beth and Clara are both visiting this weekend.") };
         var intent = Classify(recent, "What should I cook for her?");
 
-        Assert.Equal(TurnIntentClassifier.Intents.Clarify, intent.Intent);
-        Assert.Contains(intent.Candidates, c => c.Intent == TurnIntentClassifier.Intents.AnswerQuestion);
+        Assert.Equal(TurnIntent.Clarify, intent.Intent);
+        Assert.Contains(intent.Candidates, c => c.Intent == TurnIntent.AnswerQuestion);
     }
 
     // ---- request/directive: promoted to selectable on the 2026-08-20 evidence (6/6
@@ -84,19 +84,19 @@ public class TurnIntentTests
     public void ADirective_IsSelected(string message)
     {
         var intent = Classify(new[] { A("Morning!") }, message);
-        Assert.Equal(TurnIntentClassifier.Intents.RequestDirective, intent.Intent);
+        Assert.Equal(TurnIntent.RequestDirective, intent.Intent);
     }
 
     [Fact]
     public void AQuestionFormRequest_IsAnswerQuestion_WithDirectiveCompeting()
     {
-        // "Can you…?" is answered by performing it — answer-question already says so, and
+        // "Can youâ€¦?" is answered by performing it â€” answer-question already says so, and
         // the directive candidate rides behind as the shape's record.
         var intent = Classify(new[] { A("Morning!") }, "Can you remind me what we discussed?");
 
-        Assert.Equal(TurnIntentClassifier.Intents.AnswerQuestion, intent.Intent);
+        Assert.Equal(TurnIntent.AnswerQuestion, intent.Intent);
         Assert.Contains(intent.Candidates,
-            c => c.Intent == TurnIntentClassifier.Intents.RequestDirective);
+            c => c.Intent == TurnIntent.RequestDirective);
     }
 
     [Theory]
@@ -115,7 +115,7 @@ public class TurnIntentTests
         var intent = Classify(
             new[] { A("Morning!") }, "How's the allotment plot coming along?", retrieved: 0);
 
-        Assert.Equal(TurnIntentClassifier.Intents.AdmitUnknown, intent.Intent);
+        Assert.Equal(TurnIntent.AdmitUnknown, intent.Intent);
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class TurnIntentTests
     {
         var intent = Classify(
             new[] { A("Morning!") }, "How's the allotment plot coming along?", retrieved: 4);
-        Assert.Equal(TurnIntentClassifier.Intents.AnswerQuestion, intent.Intent);
+        Assert.Equal(TurnIntent.AnswerQuestion, intent.Intent);
     }
 
     [Fact]
@@ -132,10 +132,10 @@ public class TurnIntentTests
         var recent = new[]
         {
             U("The irrigation manifold needs a new gasket before the frost."),
-            A("The manifold gasket — that's the brittle one from last spring?"),
+            A("The manifold gasket â€” that's the brittle one from last spring?"),
         };
         var intent = Classify(recent, "That gasket cracked along the manifold seam again.");
-        Assert.Equal(TurnIntentClassifier.Intents.ContinueTopic, intent.Intent);
+        Assert.Equal(TurnIntent.ContinueTopic, intent.Intent);
     }
 
     [Fact]
@@ -146,8 +146,8 @@ public class TurnIntentTests
             U("The irrigation manifold needs a new gasket."),
             A("I'll hold onto that."),
         };
-        var intent = Classify(recent, "Completely different thing — the council approved the extension.");
-        Assert.Equal(TurnIntentClassifier.Intents.FollowTopicChange, intent.Intent);
+        var intent = Classify(recent, "Completely different thing â€” the council approved the extension.");
+        Assert.Equal(TurnIntent.FollowTopicChange, intent.Intent);
     }
 
     // ---- ambiguous and negative cases ----
@@ -158,7 +158,7 @@ public class TurnIntentTests
         var recent = new[] { A("I repotted the ferns this morning.") };
         var intent = Classify(recent, "lol");
 
-        Assert.Equal(TurnIntentClassifier.Intents.Unknown, intent.Intent);
+        Assert.Equal(TurnIntent.Unknown, intent.Intent);
         Assert.Contains("continue naturally", intent.Reason);
     }
 
@@ -166,29 +166,29 @@ public class TurnIntentTests
     public void Lol_EvenAfterHerQuestion_IsUnknown_NotAnAnswer()
     {
         // Live shadow catch, pinned: her reply ended with a question, the user typed "lol",
-        // and the binding treated it as the answer — classifying the turn as responding to
+        // and the binding treated it as the answer â€” classifying the turn as responding to
         // her question. Laughter reacts to a question; it does not answer it.
         var intent = Classify(new[] { A("Do you have any favorite recipes you'd like to include?") }, "lol");
-        Assert.Equal(TurnIntentClassifier.Intents.Unknown, intent.Intent);
+        Assert.Equal(TurnIntent.Unknown, intent.Intent);
     }
 
     [Fact]
     public void Yeah_AfterHerQuestion_IsNotAnInterjection_ButAnAnswer()
     {
         var intent = Classify(new[] { A("Want me to keep track of the seed order?") }, "yeah");
-        Assert.Equal(TurnIntentClassifier.Intents.RespondToAnswer, intent.Intent);
+        Assert.Equal(TurnIntent.RespondToAnswer, intent.Intent);
     }
 
     [Fact]
     public void AnAmbiguousReferenceInAStatement_DoesNotSelectClarify_ButListsIt()
     {
-        // Understanding is dented, not blocked — a reply doesn't require resolving "her",
+        // Understanding is dented, not blocked â€” a reply doesn't require resolving "her",
         // so clarify is a competing candidate for the shadow data, never the selection.
         var recent = new[] { U("My sisters Beth and Clara are both visiting this weekend.") };
         var intent = Classify(recent, "I'm baking a pie for her.");
 
-        Assert.NotEqual(TurnIntentClassifier.Intents.Clarify, intent.Intent);
-        Assert.Contains(intent.Candidates, c => c.Intent == TurnIntentClassifier.Intents.Clarify);
+        Assert.NotEqual(TurnIntent.Clarify, intent.Intent);
+        Assert.Contains(intent.Candidates, c => c.Intent == TurnIntent.Clarify);
     }
 
     [Fact]
@@ -200,6 +200,54 @@ public class TurnIntentTests
         Assert.Equal(intent.Intent, intent.Candidates[0].Intent);
         Assert.Equal(intent.Candidates.OrderByDescending(c => c.Confidence).Select(c => c.Intent),
             intent.Candidates.Select(c => c.Intent));
+    }
+
+    // ---- the one controlled promotion: clarify, behind its own flag ----
+
+    private static async Task<(TestHost host, Guid conv)> ClarifySessionAsync(bool promote)
+    {
+        var host = new TestHost(new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero),
+            configureOptions: o => o.PromoteClarifyIntent = promote);
+        using var scope = host.CreateScope();
+        var conv = (await scope.ServiceProvider.GetRequiredService<IConversationStore>()
+            .StartConversationAsync(CompanionSeeder.DemoUserId, "t", "mock", "test")).Id;
+        await scope.ServiceProvider.GetRequiredService<ICompanion>()
+            .RespondAsync(CompanionSeeder.DemoUserId, conv, "My sisters Beth and Clara are both visiting this weekend.");
+        return (host, conv);
+    }
+
+    [Fact]
+    public async Task PromotedClarify_PutsOneAuthoritativeInstruction_InThePacket()
+    {
+        var (host, conv) = await ClarifySessionAsync(promote: true);
+        await using var _ = host;
+        using var scope = host.CreateScope();
+
+        var trace = await scope.ServiceProvider.GetRequiredService<ICompanion>()
+            .RespondAsync(CompanionSeeder.DemoUserId, conv, "What should I cook for her?");
+
+        Assert.Contains("ONE short clarifying question", trace.Packet.Render());
+        var turn = host.Services.GetRequiredService<ITurnTraceLog>()
+            .Recent(CompanionSeeder.DemoUserId, 1).Single();
+        Assert.Equal("clarify-injected",
+            turn.Decisions.Single(d => d.Stage == "intent.promotion").Verdict);
+        Assert.Equal("config", turn.Decisions.Single(d => d.Stage == "intent.promotion").Decider);
+    }
+
+    [Fact]
+    public async Task WithTheFlagOff_TheDefault_NothingIsInjected()
+    {
+        var (host, conv) = await ClarifySessionAsync(promote: false);
+        await using var _ = host;
+        using var scope = host.CreateScope();
+
+        var trace = await scope.ServiceProvider.GetRequiredService<ICompanion>()
+            .RespondAsync(CompanionSeeder.DemoUserId, conv, "What should I cook for her?");
+
+        Assert.DoesNotContain("ONE short clarifying question", trace.Packet.Render());
+        var turn = host.Services.GetRequiredService<ITurnTraceLog>()
+            .Recent(CompanionSeeder.DemoUserId, 1).Single();
+        Assert.DoesNotContain(turn.Decisions, d => d.Stage == "intent.promotion");
     }
 
     // ---- shadow discipline: recorded everywhere, injected nowhere ----
@@ -220,8 +268,8 @@ public class TurnIntentTests
         var turn = Assert.Single(host.Services.GetRequiredService<ITurnTraceLog>()
             .Recent(CompanionSeeder.DemoUserId, 1));
         Assert.NotNull(turn.Intent);
-        Assert.Equal(TurnIntentClassifier.Intents.Acknowledge, turn.Intent!.Intent);
-        Assert.Equal(turn.Intent.Intent, turn.Decisions.Single(d => d.Stage == "intent").Verdict);
+        Assert.Equal(TurnIntent.Acknowledge, turn.Intent!.Intent);
+        Assert.Equal(turn.Intent.Intent.ToKebab(), turn.Decisions.Single(d => d.Stage == "intent").Verdict);
 
         // Non-authoritative: the packet the model reads carries no trace of the vocabulary.
         var rendered = trace.Packet.Render();
@@ -229,3 +277,5 @@ public class TurnIntentTests
         Assert.DoesNotContain("intent", rendered, StringComparison.OrdinalIgnoreCase);
     }
 }
+
+
