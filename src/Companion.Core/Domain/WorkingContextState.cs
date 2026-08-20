@@ -54,7 +54,11 @@ public sealed record WorkingContextState
     public IReadOnlyList<string> ReferenceMarkers { get; init; } = Array.Empty<string>();
 
     /// <summary>What this turn IS. Typed — a move is cognition, not language — while every
-    /// JSON/diagnostic boundary still reads the kebab label ("answers-open-question").</summary>
+    /// JSON/diagnostic boundary still reads the kebab label ("answers-open-question"). The
+    /// property-level converter is deliberate: the API registers a global
+    /// JsonStringEnumConverter, and property attributes are the one precedence tier above
+    /// options converters.</summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(KebabEnumConverter<ConversationMove>))]
     public required ConversationMove Move { get; init; }
 
     /// <summary>What a detected reference resolved to, when it did ("the second one" → the
@@ -63,6 +67,7 @@ public sealed record WorkingContextState
 
     /// <summary>How the referent was chosen. Null when nothing resolved. Extraction consumes
     /// only Exact/Unambiguous; retrieval may use all three.</summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(KebabEnumConverter<ResolutionConfidence>))]
     public ResolutionConfidence? ResolutionConfidence { get; init; }
 
     /// <summary>The message that introduced the referent, when identifiable — provenance for
