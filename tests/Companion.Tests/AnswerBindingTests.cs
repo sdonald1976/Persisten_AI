@@ -158,6 +158,11 @@ public class AnswerBindingTests
 
         Assert.DoesNotContain("## Reading this turn", trace.Packet.Render());
         var turn = Assert.Single(host.Services.GetRequiredService<ITurnTraceLog>().Recent(UserId, 1));
-        Assert.Equal("unbound", turn.Decisions.Single(d => d.Stage == "interpretation").Verdict);
+        Assert.Equal("new-topic", turn.Decisions.Single(d => d.Stage == "interpretation").Verdict);
+
+        // The hanging question is not lost — it is held as working-context state, not a hijack.
+        Assert.NotNull(turn.WorkingContext);
+        Assert.Contains(turn.WorkingContext!.OpenQuestions,
+            q => q.Question == "What's your favorite kind of magic?");
     }
 }

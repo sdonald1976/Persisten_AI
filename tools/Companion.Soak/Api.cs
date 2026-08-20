@@ -10,7 +10,10 @@ public sealed record Turn(
     string Sent, string Reply, int PacketTokens, int? PromptTokens, int Rounds, TimeSpan Took,
     string? TraceId = null,
     IReadOnlyList<string>? Sections = null,
-    IReadOnlyList<string>? Decisions = null);
+    IReadOnlyList<string>? Decisions = null,
+    string? WorkingContext = null,
+    IReadOnlyList<string>? Retrieved = null,
+    IReadOnlyList<string>? RetrievedRaw = null);
 
 /// <summary>
 /// The companion as a caller meets it — over HTTP, with no access to its internals.
@@ -64,18 +67,21 @@ public sealed class Api
         var reply = doc.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
         var last = await LastTurnAsync();
         return new Turn(message, reply, last.Packet, null, last.Rounds, took,
-            last.TraceId, last.Sections, last.Decisions);
+            last.TraceId, last.Sections, last.Decisions,
+            last.WorkingContext, last.Retrieved, last.RetrievedRaw);
     }
 
     private sealed record LastTurn(
         int Packet, int Rounds, string? TraceId,
-        IReadOnlyList<string> Sections, IReadOnlyList<string> Decisions);
+        IReadOnlyList<string> Sections, IReadOnlyList<string> Decisions,
+        string? WorkingContext, IReadOnlyList<string> Retrieved, IReadOnlyList<string> RetrievedRaw);
 
     /// <summary>The most recent turn's cost and decisions, from the companion's own diagnostics.
     /// Decisions are flattened to "stage=verdict" strings — enough for a scenario to assert on.</summary>
     private async Task<LastTurn> LastTurnAsync()
     {
-        var empty = new LastTurn(0, 0, null, Array.Empty<string>(), Array.Empty<string>());
+        var empty = new LastTurn(0, 0, null, Array.Empty<string>(), Array.Empty<string>(),
+            null, Array.Empty<string>(), Array.Empty<string>());
         try
         {
             var turns = await _http.GetFromJsonAsync<JsonElement>("/diagnostics/turns");
@@ -88,21 +94,58 @@ public sealed class Api
                 ? r.GetInt32() : 0;
             var traceId = last.TryGetProperty("traceId", out var id) && id.ValueKind == JsonValueKind.String
                 ? id.GetString() : null;
-            var sections = last.TryGetProperty("contextSections", out var cs) && cs.ValueKind == JsonValueKind.Array
-                ? cs.EnumerateArray().Select(s => s.GetString() ?? "").Where(s => s.Length > 0).ToList()
-                : (IReadOnlyList<string>)Array.Empty<string>();
+            var sections = Strings(last, "contextSections");
             var decisions = last.TryGetProperty("decisions", out var ds) && ds.ValueKind == JsonValueKind.Array
                 ? ds.EnumerateArray().Select(d =>
                         (d.TryGetProperty("stage", out var st) ? st.GetString() : null) + "=" +
                         (d.TryGetProperty("verdict", out var v) ? v.GetString() : null))
                     .ToList()
                 : (IReadOnlyList<string>)Array.Empty<string>();
-            return new LastTurn(packet, rounds, traceId, sections, decisions);
+            return new LastTurn(packet, rounds, traceId, sections, decisions,
+                DescribeWorkingContext(last),
+                Strings(last, "retrievedSummaries"),
+                Strings(last, "retrievedWithRawQuery"));
         }
         catch (Exception)
         {
             return empty;
         }
+    }
+
+    private static IReadOnlyList<string> Strings(JsonElement e, string name)
+        => e.TryGetProperty(name, out var arr) && arr.ValueKind == JsonValueKind.Array
+            ? arr.EnumerateArray().Select(s => s.GetString() ?? "").Where(s => s.Length > 0).ToList()
+            : (IReadOnlyList<string>)Array.Empty<string>();
+
+    /// <summary>The turn's working-context state, flattened to one readable line.</summary>
+    private static string? DescribeWorkingContext(JsonElement turn)
+    {
+        if (!turn.TryGetProperty("workingContext", out var wc) || wc.ValueKind != JsonValueKind.Object)
+            return null;
+
+        string? Str(string name) => wc.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString() : null;
+
+        var open = wc.TryGetProperty("openQuestions", out var oq) && oq.ValueKind == JsonValueKind.Array
+            ? oq.EnumerateArray()
+                .Select(q => q.TryGetProperty("question", out var qt) ? qt.GetString() : null)
+                .Where(q => !string.IsNullOrEmpty(q)).ToList()
+            : new List<string?>();
+        var markers = wc.TryGetProperty("referenceMarkers", out var rm) && rm.ValueKind == JsonValueKind.Array
+            ? string.Join(",", rm.EnumerateArray().Select(m => m.GetString()))
+            : "";
+
+        var parts = new List<string> { $"move={Str("move")}" };
+        if (Str("topic") is { } topic) parts.Add($"topic=\"{topic}\"");
+        if (markers.Length > 0) parts.Add($"markers=[{markers}]");
+        if (Str("resolvedReference") is { } referent) parts.Add($"ref->\"{referent}\"");
+        if (Str("boundQuestion") is { } bound) parts.Add($"answers=\"{bound}\"");
+        if (open.Count > 0) parts.Add($"open=[{string.Join(" | ", open)}]");
+        var raw = Str("rawQuery");
+        var query = Str("retrievalQuery");
+        if (raw is not null && query is not null && raw != query)
+            parts.Add($"query: \"{raw}\" -> \"{query}\"");
+        return string.Join("  ", parts);
     }
 
     public async Task<int> MemoryCountAsync()

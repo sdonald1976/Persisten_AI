@@ -54,6 +54,16 @@ public sealed record TurnDiagnostics
     /// decided by OUR code or a role model we invoked — never inferred from the reply.</summary>
     public IReadOnlyList<DecisionRecord> Decisions { get; init; } = Array.Empty<DecisionRecord>();
 
+    /// <summary>The turn's working-context read: open questions, topic, salient entities,
+    /// reference resolution, move, and the raw vs resolved retrieval query. Ephemeral state,
+    /// traced here and stored nowhere else.</summary>
+    public WorkingContextState? WorkingContext { get; init; }
+
+    /// <summary>When the retrieval query was rewritten AND capture is on: what the RAW message
+    /// would have retrieved instead, same bounded format as <see cref="RetrievedSummaries"/>.
+    /// The before/after evidence that resolution changes what reaches the prompt.</summary>
+    public IReadOnlyList<string> RetrievedWithRawQuery { get; init; } = Array.Empty<string>();
+
     /// <summary>Which packet sections were present this turn (mood, musing, temporal, …).</summary>
     public IReadOnlyList<string> ContextSections { get; init; } = Array.Empty<string>();
 

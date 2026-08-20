@@ -81,9 +81,10 @@ public static class AnswerBindingDetector
     /// <summary>
     /// The last sentence of the text, when the text ends with a question mark. A question asked
     /// mid-message and then talked past is not treated as open — only a question the companion
-    /// LEFT hanging binds the next reply.
+    /// LEFT hanging binds the next reply. Public because WorkingContext uses the same reading
+    /// to track open questions across the window.
     /// </summary>
-    private static string? TrailingQuestion(string text)
+    public static string? TrailingQuestion(string text)
     {
         var trimmed = text.TrimEnd();
         if (trimmed.Length == 0 || trimmed[^1] != '?')
