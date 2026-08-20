@@ -69,6 +69,10 @@ public sealed record TurnDiagnostics
     /// data earns it authority.</summary>
     public TurnIntentState? Intent { get; init; }
 
+    /// <summary>SHADOW relevance feature under validation: do the retrieved memories contain
+    /// the message's focal terms at all. Observed, consumed by nothing.</summary>
+    public FocalCoverage? Focal { get; init; }
+
     /// <summary>Which packet sections were present this turn (mood, musing, temporal, …).</summary>
     public IReadOnlyList<string> ContextSections { get; init; } = Array.Empty<string>();
 

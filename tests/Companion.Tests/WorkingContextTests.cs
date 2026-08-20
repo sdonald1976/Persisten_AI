@@ -60,6 +60,55 @@ public class WorkingContextTests
     }
 
     [Fact]
+    public void TheSecondOne_AgainstProseAlternatives_ResolvesTheWholePhrase()
+    {
+        // Verbatim shape from the live evidence run: two options offered as flowing prose
+        // with descriptive commas inside each. The first cut of the splitter turned the
+        // descriptive comma into an option called "comforting meal".
+        var recent = new[] { A(
+            "How about a cozy pumpkin risotto for a creamy, comforting meal, or a quick " +
+            "sheet pan chicken with roasted veggies and garlic bread for a fuss-free option?") };
+
+        var state = WorkingContext.Read(recent, "The second one.");
+
+        Assert.Contains("sheet pan chicken", state.ResolvedReference);
+        Assert.DoesNotContain("comforting meal", state.ResolvedReference);
+    }
+
+    [Fact]
+    public void AnOffering_WithoutAQuestionMark_StillEnumerates()
+    {
+        var recent = new[] { A("You could try the lemon tart, or maybe the plum galette.") };
+
+        var state = WorkingContext.Read(recent, "the second one");
+
+        Assert.Equal("the plum galette", state.ResolvedReference);
+    }
+
+    [Fact]
+    public void NarrativeOr_IsNotAnOffering()
+    {
+        // " or " inside narration offers nothing; the cue requirement is the guard.
+        var recent = new[] { A("I read for an hour or so this evening.") };
+
+        var state = WorkingContext.Read(recent, "The second one.");
+
+        Assert.Null(state.ResolvedReference);
+        Assert.Null(state.InterpretationNote);
+    }
+
+    [Fact]
+    public void AnEmojiDecoratedQuestion_IsStillATrailingQuestion()
+    {
+        // qwen-family models sign off with emoji; the question is no less open for it.
+        var recent = new[] { A("Which do you prefer: oak, maple, or birch? \U0001F333") };
+
+        var state = WorkingContext.Read(recent, "the last one");
+
+        Assert.Equal("birch", state.ResolvedReference);
+    }
+
+    [Fact]
     public void AnOrdinal_WithNothingEnumerated_ClassifiesWithoutAsserting()
     {
         var recent = new[] { A("The greenhouse held its temperature overnight.") };

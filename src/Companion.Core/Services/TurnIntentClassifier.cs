@@ -49,17 +49,20 @@ public static partial class TurnIntentClassifier
         /// <summary>No rule cleared the bar; continue naturally.</summary>
         public const string Unknown = "unknown";
 
-        /// <summary>EVIDENCE-ONLY, never selectable: an imperative/request shape ("ask me a
-        /// question", "tell me about X"). Its candidate confidence is capped below the
-        /// selection bar on purpose — whether a general request act joins the vocabulary is
-        /// a decision the captured data makes, not this file. The live run that motivated it:
-        /// "Ask me one short question about my garden" classified follow-topic-change.</summary>
+        /// <summary>The user issued a request/directive ("ask me a question", "tell me about
+        /// X", "don't answer that yet"); perform the requested act. Selectable since the
+        /// 2026-08-20 evidence run: as an evidence-only candidate it fired on 6 of 6
+        /// directives with an identical signature (follow-topic-change 0.60 winning,
+        /// request-directive 0.55 behind) while the model performed the requested act 6 of 6
+        /// times — one general act, clearly real, previously mislabeled. Deliberately ONE
+        /// intent for all commands; it never grows per-verb variants.</summary>
         public const string RequestDirective = "request-directive";
     }
 
-    /// <summary>Kept strictly below <see cref="SelectionBar"/> so the directive candidate can
-    /// appear in every competing-candidates list without ever winning.</summary>
-    private const double DirectiveEvidenceConfidence = 0.55;
+    /// <summary>Above follow-topic-change/acknowledge (a directive outranks the topic-shape
+    /// reading of the same words), below answer-question (a question-form request — "can you
+    /// remind me…?" — is answered by performing it, and answer-question already says so).</summary>
+    private const double DirectiveConfidence = 0.7;
 
     /// <summary>Below this, the selection is "unknown" rather than the best weak guess.</summary>
     private const double SelectionBar = 0.6;
@@ -71,11 +74,11 @@ public static partial class TurnIntentClassifier
         var isQuestion = message.EndsWith('?');
         var candidates = new List<IntentCandidate>();
 
-        // Recorded in every branch (an imperative can carry a question mark: "Can you remind
-        // me…?"), so the shadow data shows how directives overlap the existing vocabulary.
+        // Added in every branch (an imperative can carry a question mark: "Can you remind
+        // me…?" — there, answer-question outranks it and answering IS performing).
         if (LooksDirective(message))
-            candidates.Add(new(Intents.RequestDirective, DirectiveEvidenceConfidence,
-                "imperative/request shape — evidence-only, capped below the bar"));
+            candidates.Add(new(Intents.RequestDirective, DirectiveConfidence,
+                "imperative/request shape — perform the requested act"));
 
         // Move-grounded intents first — these come from working context's read of the turn.
         if (working.Move == WorkingContext.Moves.Correction)

@@ -345,27 +345,69 @@ public static partial class WorkingContext
         if (lines.Count >= 2)
             return lines;
 
+        // A trailing question offering alternatives ("coffee, tea, or chocolate?" — or the
+        // prose kind, "a pumpkin risotto…, or a sheet pan chicken…?").
         if (AnswerBindingDetector.TrailingQuestion(text) is { } question
             && question.Contains(" or ", StringComparison.OrdinalIgnoreCase))
         {
-            var options = question.TrimEnd('?')
-                .Split([",", " or "], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                .Select(o => o.Trim())
-                .Where(o => o.Length is > 0 and <= 60)
-                .ToList();
-            // The lead-in ("Which do you prefer: coffee") rides on the first option; keep only
-            // what follows the last colon or interrogative head.
-            if (options.Count >= 2)
-            {
-                var head = options[0];
-                var colon = head.LastIndexOf(':');
-                if (colon >= 0 && colon + 1 < head.Length)
-                    options[0] = head[(colon + 1)..].Trim();
-                return options.Where(o => o.Length > 0).ToList();
-            }
+            var items = SplitAlternatives(question.TrimEnd('?'));
+            if (items.Count >= 2)
+                return items;
         }
+
+        // A prose OFFERING without a question mark ("You could try the lemon tart, or maybe
+        // the plum galette."). The cue requirement is the negative guard: narrative "or"
+        // ("I read for an hour or so") offers nothing and must parse as nothing.
+        var offering = text.Split(['\n', '.', '!', '?'], StringSplitOptions.RemoveEmptyEntries)
+            .LastOrDefault(s => s.Contains(" or ", StringComparison.OrdinalIgnoreCase)
+                && OfferingCue().IsMatch(s));
+        if (offering is not null)
+        {
+            var items = SplitAlternatives(offering);
+            if (items.Count >= 2)
+                return items;
+        }
+
         return Array.Empty<string>();
     }
+
+    /// <summary>
+    /// Splits an offering into its alternatives. " or " is the primary boundary; a comma
+    /// splits further ONLY when every comma segment is short (parallel nouns: "coffee, tea"),
+    /// because a long segment means the comma was descriptive prose ("a risotto for a creamy,
+    /// comforting meal") — the first cut of this split turned that comma into an "option"
+    /// called "comforting meal", live.
+    /// </summary>
+    private static List<string> SplitAlternatives(string text)
+    {
+        // Keep only what follows a colon lead-in ("Which do you prefer: coffee…").
+        var colon = text.LastIndexOf(':');
+        if (colon >= 0 && colon + 1 < text.Length)
+            text = text[(colon + 1)..];
+        text = LeadInCue().Replace(text.Trim(), "");
+
+        var items = new List<string>();
+        foreach (var orPart in text.Split(" or ", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            var part = LeadInCue().Replace(orPart.Trim().TrimEnd('.', '!', ','), "");
+            var segments = part.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length > 1 && segments.All(s => s.Split(' ').Length <= 3))
+                items.AddRange(segments);
+            else if (part.Length > 0)
+                items.Add(part);
+        }
+        return items.Where(i => i.Length is > 0 and <= 100).ToList();
+    }
+
+    /// <summary>Words that mark a sentence as OFFERING alternatives rather than narrating.</summary>
+    [GeneratedRegex(@"\b(could|how about|maybe|either|perhaps|prefer|option|choice|pick|go with|would you)\b",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex OfferingCue();
+
+    /// <summary>Lead-in phrases that ride on the first alternative and are not part of it.</summary>
+    [GeneratedRegex(@"^(how about|maybe|either|perhaps|you could (?:try|do|go with|make|have)?|we could|there's)\s*",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex LeadInCue();
 
     private static Message? PreviousSubstantiveUserMessage(IReadOnlyList<Message> recent)
         => recent.LastOrDefault(m => m.Role == MessageRole.User && m.Content.Trim().Length >= 20);

@@ -4,6 +4,19 @@ namespace Companion.Core.Domain;
 public sealed record IntentCandidate(string Intent, double Confidence, string Reason);
 
 /// <summary>
+/// SHADOW relevance feature (being validated, not yet consumed by anything): whether any
+/// retrieved memory actually contains the user message's focal terms. Max raw topical score
+/// failed to separate known from unknown in the 2026-08-20 evidence run (question scaffolding
+/// contaminates overlap: the carburetor scored 1.95 but the unknown treehouse still hit 1.49);
+/// containment of the question's subject nouns separated every case in that run and is being
+/// characterized against a broader corpus before admit-unknown may threshold on it.
+/// </summary>
+/// <param name="FocalTerms">The message's subject words after scaffolding is stripped.</param>
+/// <param name="Covered">True when at least one focal term appears in a retrieved memory.</param>
+/// <param name="CoveredBy">The covering memory's text (bounded), for the trace.</param>
+public sealed record FocalCoverage(IReadOnlyList<string> FocalTerms, bool Covered, string? CoveredBy);
+
+/// <summary>
 /// What Ava should DO this turn — not what to say, not how to sound. Personality stays
 /// downstream; this describes the act (answer, acknowledge, clarify…), never the prose.
 ///
