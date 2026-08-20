@@ -1,0 +1,72 @@
+{
+  "seed": 20260820,
+  "sealed": "DO NOT OPEN BEFORE JUDGING",
+  "key": {
+    "cheshire-genuine": {
+      "A": "llama3.2:3b",
+      "B": "qwen2.5:1.5b-instruct",
+      "C": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+      "D": "qwen3:8b"
+    },
+    "cheshire-inversion": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "llama3.2:3b",
+      "C": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+      "D": "qwen3:8b"
+    },
+    "hatter-muddle": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "llama3.2:3b",
+      "C": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+      "D": "qwen3:8b"
+    },
+    "rabbit-hole": {
+      "A": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+      "B": "qwen3:8b",
+      "C": "llama3.2:3b",
+      "D": "qwen2.5:1.5b-instruct"
+    },
+    "dont-break": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "llama3.2:3b",
+      "C": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+      "D": "qwen3:8b"
+    },
+    "quokka-unknown": {
+      "A": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+      "B": "qwen2.5:1.5b-instruct",
+      "C": "llama3.2:3b",
+      "D": "qwen3:8b"
+    },
+    "axe-known": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "llama3.2:3b",
+      "C": "qwen3:8b",
+      "D": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M"
+    },
+    "epcot-pizza": {
+      "A": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+      "B": "qwen2.5:1.5b-instruct",
+      "C": "llama3.2:3b",
+      "D": "qwen3:8b"
+    },
+    "embodiment": {
+      "A": "qwen2.5:1.5b-instruct",
+      "B": "llama3.2:3b",
+      "C": "qwen3:8b",
+      "D": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M"
+    },
+    "precious-palette": {
+      "A": "qwen3:8b",
+      "B": "qwen2.5:1.5b-instruct",
+      "C": "llama3.2:3b",
+      "D": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M"
+    },
+    "clarify-sisters": {
+      "A": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+      "B": "qwen3:8b",
+      "C": "llama3.2:3b",
+      "D": "qwen2.5:1.5b-instruct"
+    }
+  }
+}
