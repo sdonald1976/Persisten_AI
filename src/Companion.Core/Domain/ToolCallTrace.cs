@@ -64,6 +64,11 @@ public sealed record TurnDiagnostics
     /// The before/after evidence that resolution changes what reaches the prompt.</summary>
     public IReadOnlyList<string> RetrievedWithRawQuery { get; init; } = Array.Empty<string>();
 
+    /// <summary>The turn's intent classification — SHADOW state (language-organ Phase 2):
+    /// recorded here and captured for review, never given to generation until the shadow
+    /// data earns it authority.</summary>
+    public TurnIntentState? Intent { get; init; }
+
     /// <summary>Which packet sections were present this turn (mood, musing, temporal, …).</summary>
     public IReadOnlyList<string> ContextSections { get; init; } = Array.Empty<string>();
 

@@ -74,6 +74,27 @@ public class AnswerBindingTests
         Assert.Null(AnswerBindingDetector.Detect(recent, "What do you mean by magic?"));
     }
 
+    [Theory]
+    [InlineData("lol")]      // the live Phase-2 shadow catch: laughter bound as an answer
+    [InlineData("haha")]
+    [InlineData("hmm")]
+    [InlineData("wow!")]
+    public void ABareReaction_DoesNotBind(string reaction)
+    {
+        var recent = new[] { Assistant("Do you have any favorite recipes you'd like to include?") };
+        Assert.Null(AnswerBindingDetector.Detect(recent, reaction));
+    }
+
+    [Theory]
+    [InlineData("yeah")]
+    [InlineData("no")]
+    [InlineData("sure")]
+    public void APolarAnswer_StillBinds(string answer)
+    {
+        var recent = new[] { Assistant("Want me to keep track of the seed order?") };
+        Assert.NotNull(AnswerBindingDetector.Detect(recent, answer));
+    }
+
     [Fact]
     public void NoTrailingQuestion_OrWrongSpeaker_DoesNotBind()
     {

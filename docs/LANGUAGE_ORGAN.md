@@ -237,3 +237,24 @@ speculative inner life, nothing that cannot say where it came from.
   (two cousins, "pie for her") → `withheld-guess`, candidate rejected, store clean.
   Anticipation/project capture still read surface text — recorded as follow-up, not
   wired this pass. 1047 tests green.
+- **2026-08-20 — Phase 2 landed, in shadow.** `TurnIntentClassifier`: what Ava should DO
+  this turn — a closed vocabulary of nine acts (answer-question, acknowledge,
+  respond-to-answer, clarify, continue-topic, accept-correction, follow-topic-change,
+  admit-unknown, unknown), deterministic over working context + retrieval, no model call.
+  Selection needs a 0.6 bar; below it the verdict is "unknown" = continue naturally,
+  preferred over a confident mistake. Recorded as `TurnIntentState` (with competing
+  candidates) on the ring, as a decision, and captured under shadow subject `turn.intent`
+  — and deliberately absent from the generation packet: intent names acts, never prose,
+  and it earns authority only from the shadow data. **Live run against qwen3:8b, 9 turns:
+  7 correct**, including clarify on "what should I cook for her?" with two sisters in the
+  window (the model, uninstructed, answered without asking — the exact case authoritative
+  intent would improve). The two misses are the run's product: (1) "Ask me one short
+  question about my garden" classified follow-topic-change — imperatives/requests are a
+  vocabulary gap, recorded, not patched; (2) the carburetor progress question missed
+  admit-unknown because two irrelevant memories (the dog, at score 1.60) cleared the
+  relevance floor — `retrieved==0` is a broken proxy for "nothing relevant"; needs the
+  topical signal, decided on capture data, not tuned blind. The shadow also caught a
+  Phase-1 flaw, fixed and pinned: "lol" after her question bound as an ANSWER — the
+  binding detector now refuses bare reactions (laughter/sighs) while keeping polar
+  answers (yeah/no/sure). Promotion into generation context is NOT done and awaits the
+  shadow verdict. 1069 tests green.

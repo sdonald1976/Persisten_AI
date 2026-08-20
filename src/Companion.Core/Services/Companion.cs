@@ -377,6 +377,20 @@ public sealed class Companion : ICompanion
             userId, retrievalQuery, outcome.Selected, _options.MaxAssociativeMemories, ct);
         var selectedMemories = outcome.Selected.Concat(associative).ToList();
 
+        // 4a. Turn intent (language-organ Phase 2), in SHADOW: what should this turn DO —
+        // answer, acknowledge, clarify, admit ignorance? Deterministic over working context +
+        // retrieval, recorded and captured, and deliberately NOT given to the packet: it
+        // gains authority over generation only if the shadow data shows the classifications
+        // are useful. "unknown" means continue naturally and is preferred to a confident
+        // mistake.
+        var intent = TurnIntentClassifier.Classify(working, promptText, outcome.Selected.Count);
+        decisions.Add(new DecisionRecord
+        {
+            Stage = "intent", Decider = "rule",
+            Verdict = intent.Intent,
+            Reason = intent.Reason,
+        });
+
         // When the query was rewritten and capture is on, also retrieve with the RAW message
         // and trace both result sets — the before/after evidence for whether resolution
         // actually changes what reaches the prompt. Costs one extra embedding on rewritten
@@ -602,6 +616,24 @@ public sealed class Companion : ICompanion
                         working.BoundQuestion is not null,
                         $"{openQuestion} ||| {extractionSource.Content}", ct);
                 }
+                if (_shadow.IsRecording)
+                {
+                    // Every turn's intent verdict, with the working-context move as input
+                    // context — the corpus that decides whether this vocabulary ever earns
+                    // authority over generation.
+                    await _shadow.RecordAsync(new ShadowComparison
+                    {
+                        Id = Guid.NewGuid(),
+                        Subject = "turn.intent",
+                        Legacy = $"{intent.Intent} ({intent.Confidence:F2})"
+                            + (intent.Candidates.Count > 1
+                                ? $" over {intent.Candidates[1].Intent} ({intent.Candidates[1].Confidence:F2})" : ""),
+                        Model = null,
+                        Applied = "legacy",
+                        Input = SecretDetector.LooksLikeSecret(extractionSource.Content)
+                            ? null : $"[{working.Move}] {extractionSource.Content}",
+                    }, ct);
+                }
                 if (working.ReferenceMarkers.Count > 0 && _shadow.IsRecording)
                 {
                     await _shadow.RecordAsync(new ShadowComparison
@@ -670,6 +702,7 @@ public sealed class Companion : ICompanion
                 }).ToList(),
             Decisions = decisions,
             WorkingContext = working,
+            Intent = intent,
             RetrievedWithRawQuery = rawQueryRetrieved,
             ContextSections = PresentSections(packet),
             DetectedProject = projectContext.ResolvedProjectName,

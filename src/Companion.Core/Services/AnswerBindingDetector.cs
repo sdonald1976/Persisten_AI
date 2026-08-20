@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Companion.Core.Domain;
 
 namespace Companion.Core.Services;
@@ -22,7 +23,7 @@ public sealed record AnswerBinding(string Question, string Answer);
 /// heuristic in this codebase: this one's verdict is recorded as a per-turn decision and
 /// captured for corpus review, so its real-world hit rate gets measured instead of assumed.
 /// </summary>
-public static class AnswerBindingDetector
+public static partial class AnswerBindingDetector
 {
     /// <summary>
     /// A reply longer than this is prose, not an elliptical answer — the model handles full
@@ -75,6 +76,13 @@ public static class AnswerBindingDetector
         if (answer.Contains('?'))
             return null;
 
+        // A bare reaction is not an answer to anything. "yeah"/"no"/"sure" answer a polar
+        // question and bind; "lol" laughs at it. The Phase-2 shadow caught the live failure
+        // this pins: her reply ended with a question, the user typed "lol", and it bound as
+        // the answer — which then classified the turn as responding to her question.
+        if (Reaction().IsMatch(answer))
+            return null;
+
         return new AnswerBinding(question, answer);
     }
 
@@ -94,4 +102,10 @@ public static class AnswerBindingDetector
         var question = trimmed[(start + 1)..].Trim();
         return question.Length > 0 && question.Length <= MaxQuestionChars ? question : null;
     }
+
+    /// <summary>Laughter, sighs, and reactions — tokens that respond to a question without
+    /// answering it. Deliberately excludes yes/no/sure/okay, which DO answer polar questions.</summary>
+    [GeneratedRegex(@"^(lo+l+|lmao+|rofl|ha(ha)*|hehe+|hm+|heh|oof|ugh|yikes|wow|aw+|oh+|omg)[.!\s]*$",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex Reaction();
 }
