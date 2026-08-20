@@ -382,3 +382,9 @@ speculative inner life, nothing that cannot say where it came from.
   without Ava claiming to know it") — is recorded in
   [`CONCEPT_KNOWLEDGE.md`](CONCEPT_KNOWLEDGE.md), awaiting approval before
   implementation.
+- **2026-08-20 — Phase 3 slice approved and live-validated; Phase 4 designed.** The
+  axe/quokka experiment passed with both replies nearly verbatim from the design;
+  `PromoteKnowledgeBoundary` stays off by default while the `knowledge` soak stage
+  accumulates boundary-compliance evidence. Phase 4 — typed knowledge gaps feeding the
+  EXISTING curiosity lifecycle, never a second asking system — is recorded in
+  [`KNOWLEDGE_GAPS.md`](KNOWLEDGE_GAPS.md), awaiting approval before implementation.
