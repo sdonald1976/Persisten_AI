@@ -64,6 +64,9 @@ public static class ContextPacketRenderer
     private static class Rank
     {
         public const int Recent = 900;
+        // The system's reading of THIS turn sits just under the transcript it reads: losing it
+        // reopens the exact failure it exists to close (a short answer reinterpreted as a topic).
+        public const int Interpretation = 850;
         public const int Tools = 800;
         public const int Clarification = 750;
         public const int Attention = 700;
@@ -165,6 +168,9 @@ public static class ContextPacketRenderer
         // The companion's own between-session thought: a musing to hold loosely, never a fact.
         Prose("musing", Rank.Musing, "renderer.musing.header", packet.Musing, "renderer.musing.rules");
         Prose("curiosity", Rank.Curiosity, "renderer.curiosity.header", packet.CuriosityQuestion, "renderer.curiosity.rules");
+        // Canonically emitted right after the transcript (Insert places the transcript before
+        // this section), so the reading sits next to the turns it reads.
+        Prose("interpretation", Rank.Interpretation, "renderer.interpretation.header", packet.InterpretationNote);
 
         var projectText = RenderProject(packet);
         if (projectText.Length > 0)
@@ -283,7 +289,8 @@ public static class ContextPacketRenderer
             return result;
 
         var recent = new Section("recent conversation", Rank.Recent, recentText);
-        var at = result.FindIndex(s => s.Rank is Rank.Project or Rank.OpenLoops or Rank.Clarification
+        var at = result.FindIndex(s => s.Rank is Rank.Interpretation
+            or Rank.Project or Rank.OpenLoops or Rank.Clarification
             or Rank.SharedMemories or Rank.DirectMemories or Rank.InferredMemories
             or Rank.OutdatedMemories or Rank.DisputedMemories
             or Rank.Perspectives or Rank.Procedures or Rank.Preferences

@@ -319,17 +319,35 @@ public sealed class Companion : ICompanion
             },
         };
 
-        // 4. Retrieve relevant memories, boosted by the resolved project.
-        var outcome = await _retriever.RetrieveAsync(userId, promptText, projectContext.ResolvedProjectName, ct);
-        var associative = await _associativeRecall.ExpandAsync(
-            userId, promptText, outcome.Selected, _options.MaxAssociativeMemories, ct);
-        var selectedMemories = outcome.Selected.Concat(associative).ToList();
-
-        // Recent prior turns (exclude the extraction source we just handled).
+        // Recent prior turns (exclude the extraction source we just handled). Fetched BEFORE
+        // retrieval since the working-context read below shapes the retrieval query.
         var recent = (await _conversations.GetRecentMessagesAsync(
                 conversationId, userId, _options.RecentMessageCount + 1, ct))
             .Where(m => m.Id != extractionSource.Id)
             .ToList();
+
+        // 3c. Working context (language-organ Phase 1): if she just asked a question and the
+        // user's reply is a short elliptical answer, the SYSTEM says so — in the packet, as an
+        // authoritative reading — and retrieval searches question + answer together instead of
+        // embedding a near-anchorless fragment alone. Interpretation was the chat model's job by
+        // default, and it demonstrably bent short answers toward whatever else was in the prompt.
+        var binding = AnswerBindingDetector.Detect(recent, promptText);
+        decisions.Add(new DecisionRecord
+        {
+            Stage = "interpretation", Decider = "rule",
+            Verdict = binding is null ? "unbound" : "answers-open-question",
+            Reason = binding?.Question,
+        });
+        var retrievalQuery = binding is null ? promptText : $"{binding.Question} {binding.Answer}";
+        var interpretationNote = binding is null ? null
+            : Prompts.Format("interpretation.answer-binding",
+                ("answer", binding.Answer), ("question", binding.Question));
+
+        // 4. Retrieve relevant memories, boosted by the resolved project.
+        var outcome = await _retriever.RetrieveAsync(userId, retrievalQuery, projectContext.ResolvedProjectName, ct);
+        var associative = await _associativeRecall.ExpandAsync(
+            userId, retrievalQuery, outcome.Selected, _options.MaxAssociativeMemories, ct);
+        var selectedMemories = outcome.Selected.Concat(associative).ToList();
 
         // 4b. Relational/emotional layer: read this message's tone and append it to the signal log
         // (gated by privacy), then derive how things have been feeling so the reply can attune its
@@ -378,7 +396,7 @@ public sealed class Companion : ICompanion
             promptText, recent, selectedMemories, projectContext, persona, relationship,
             musing, curiosity?.Question, innerState.Describe(), familiarity.Describe(),
             temporal, preferenceNotes, identityProjection, attentionNotes, procedureNotes,
-            capabilityNote, perspectiveNotes);
+            capabilityNote, perspectiveNotes, interpretationNote);
 
         // 5b. The bounded tool loop, driven by the executive planner. It gets a COMPACT planning
         // context — recent exchange, what retrieval already found, the detected project — never
@@ -531,6 +549,16 @@ public sealed class Companion : ICompanion
                 // it observes — see ICognitiveCapture.
                 await _capture.CaptureUserMessageAsync(extractionSource.Content, ct);
                 await _capture.CaptureReplyAsync(response, ct);
+
+                // Same discipline for the answer-binding rule: whenever the previous turn left a
+                // question hanging, record what the rule decided about the reply — that is the
+                // population whose base rate the heuristic's precision depends on, and it has
+                // never been measured (the ToolNudge lesson). Capture-only; changes nothing.
+                if (AnswerBindingDetector.TrailingQuestion(recent) is { } openQuestion)
+                {
+                    await Shadow.CaptureAsync(_shadow, "context.binding", binding is not null,
+                        $"{openQuestion} ||| {extractionSource.Content}", ct);
+                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -657,6 +685,7 @@ public sealed class Companion : ICompanion
         If(!string.IsNullOrWhiteSpace(packet.Persona), "persona");
         If(!string.IsNullOrWhiteSpace(packet.MoodNote), "mood");
         If(!string.IsNullOrWhiteSpace(packet.RegisterNote), "register");
+        If(!string.IsNullOrWhiteSpace(packet.InterpretationNote), "interpretation");
         If(!string.IsNullOrWhiteSpace(packet.FamiliarityNote), "familiarity");
         If(!string.IsNullOrWhiteSpace(packet.RelationshipNote), "relationship");
         If(!string.IsNullOrWhiteSpace(packet.TemporalNote), "temporal");

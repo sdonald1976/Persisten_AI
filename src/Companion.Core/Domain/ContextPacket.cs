@@ -66,6 +66,14 @@ public sealed record ContextPacket
     public string? RegisterNote { get; init; }
 
     /// <summary>
+    /// The system's reading of what the user's message IS this turn ("'Additive' answers the
+    /// question you just asked"), or null when no rule fired. Authoritative interpretation
+    /// state — the model expresses it, it does not get to reinterpret it. See
+    /// docs/LANGUAGE_ORGAN.md Phase 1.
+    /// </summary>
+    public string? InterpretationNote { get; init; }
+
+    /// <summary>
     /// Where the relationship actually is (tenure + real interaction depth) — calibrates how
     /// casual, teasing, and shorthand she's allowed to be. Never recited back.
     /// </summary>
