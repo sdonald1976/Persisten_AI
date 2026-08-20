@@ -181,6 +181,11 @@ raise it before adding autonomy that widens what she produces unprompted.
 
 ## Open backlog
 
+- **The language-organ plan is the main line of work** — [`LANGUAGE_ORGAN.md`](LANGUAGE_ORGAN.md)
+  (2026-08-20): make the chat model progressively less responsible for *being* Ava.
+  Eight phases, approved; Phase 0 (decision observability) first. Read it before
+  touching the turn pipeline, personality, or knowledge — it records which subsystems
+  are already system-owned and must be extended rather than rebuilt.
 - **Content gate — built, and the decision left is whether to enforce it.** `IReplyGate` /
   `LlmReplyGate`, off by default, and when switched on it defaults to **shadow**: it judges every
   reply, records the verdict at `/diagnostics/shadow?subject=safety.gate`, and changes nothing. It
