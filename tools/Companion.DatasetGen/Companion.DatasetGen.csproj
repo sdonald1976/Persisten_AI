@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Companion.Core\Companion.Core.csproj" />
+    <!-- The bench owns the canonical plan/2 serialization and the gate suite; the
+         generator links the same source files so training pairs and evaluation
+         prompts cannot drift apart. -->
+    <Compile Include="..\Companion.RendererBench\PlanSerialization.cs" Link="Shared\PlanSerialization.cs" />
+    <Compile Include="..\Companion.RendererBench\RendererChecks.cs" Link="Shared\RendererChecks.cs" />
+  </ItemGroup>
+
+</Project>
