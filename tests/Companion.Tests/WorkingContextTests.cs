@@ -137,6 +137,25 @@ public class WorkingContextTests
     }
 
     [Fact]
+    public void Her_PrefersThePersonTheUserIntroduced_OverNamesInHerOwnReply()
+    {
+        // Verbatim from the first live qwen3 run: the companion's reply led with
+        // "Will Precious get to meet Beth…", and "her" resolved to "Will Precious" — an
+        // auxiliary verb plus the dog's name, lifted from her own message — while the sister
+        // the user had just introduced sat one message earlier.
+        var recent = new[]
+        {
+            U("My sister Beth is visiting on Saturday."),
+            A("Will Precious get to meet Beth, or should I suggest a cozy spot for the pup during the visit?"),
+        };
+
+        var state = WorkingContext.Read(recent, "I'm planning a small dinner for her.");
+
+        Assert.Equal("Beth", state.ResolvedReference);
+        Assert.DoesNotContain(state.SalientEntities, e => e.StartsWith("Will", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void WhatISaidBefore_ResolvesToThePreviousSubstantiveUserMessage()
     {
         var recent = new[]

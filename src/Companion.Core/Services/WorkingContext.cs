@@ -40,7 +40,9 @@ public static partial class WorkingContext
         string? companionName = null)
     {
         var message = userMessage.Trim();
-        var entities = SalientEntities(recent, userName, companionName);
+        var allEntities = SalientEntities(recent, userName, companionName);
+        var entities = allEntities.Select(e => e.Value).ToList();
+        var userEntities = allEntities.Where(e => e.Source == MessageRole.User).Select(e => e.Value).ToList();
         var openQuestions = OpenQuestions(recent);
         var topic = Topic(recent, resolvedProject);
 
@@ -70,8 +72,11 @@ public static partial class WorkingContext
         }
         else if (PersonPronoun().Match(message) is { Success: true } pronoun)
         {
+            // Prefer entities the USER introduced: the first live run resolved "her" to a name
+            // lifted from the companion's own reply while the person the user had just named
+            // sat one message earlier. People the user brings up are who their pronouns mean.
             marker = pronoun.Value;
-            referent = entities.FirstOrDefault();
+            referent = (userEntities.FirstOrDefault() ?? entities.FirstOrDefault());
             markers.Add(marker);
         }
         else if (SaidBefore().Match(message) is { Success: true } before)
@@ -195,32 +200,84 @@ public static partial class WorkingContext
 
     /// <summary>
     /// Capitalized tokens (and runs of them: "Marsh Lane") that don't open a sentence, newest
-    /// first, excluding the two speakers and calendar words. A crude proper-noun read — its
-    /// misses cost nothing (no resolution happens), and its hits give "her" and "that one"
-    /// something concrete to point at.
+    /// first, excluding the two speakers and calendar words, tagged with who said them. A crude
+    /// proper-noun read — its misses cost nothing (no resolution happens), and its hits give
+    /// "her" and "that one" something concrete to point at.
     /// </summary>
-    private static IReadOnlyList<string> SalientEntities(
+    private static IReadOnlyList<(string Value, MessageRole Source)> SalientEntities(
         IReadOnlyList<Message> recent, string? userName, string? companionName)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var entities = new List<string>();
+        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var entities = new List<(string Value, MessageRole Source)>();
         for (var i = recent.Count - 1; i >= 0; i--)
         {
             foreach (Match m in EntityCandidate().Matches(recent[i].Content))
             {
-                if (StartsSentence(recent[i].Content, m.Index) && !m.Value.Contains(' '))
+                var value = TrimFunctionWords(m.Value,
+                    startsSentence: StartsSentence(recent[i].Content, m.Index));
+                if (value is null)
                     continue;
-                var value = m.Value;
                 if (CalendarWord().IsMatch(value)
                     || value.Equals(userName, StringComparison.OrdinalIgnoreCase)
                     || value.Equals(companionName, StringComparison.OrdinalIgnoreCase))
                     continue;
-                if (seen.Add(value))
-                    entities.Add(value);
+                if (seen.TryGetValue(value, out var at))
+                {
+                    // Names travel: the user says "Beth", the companion's reply repeats it,
+                    // and the newest mention is hers. Who a name BELONGS to for pronoun
+                    // purposes is whoever ever said it as the user, so a user mention
+                    // upgrades the tag wherever the name was first kept.
+                    if (recent[i].Role == MessageRole.User && entities[at].Source != MessageRole.User)
+                        entities[at] = (entities[at].Value, MessageRole.User);
+                    continue;
+                }
+                seen[value] = entities.Count;
+                entities.Add((value, recent[i].Role));
             }
         }
         return entities.Take(MaxEntities).ToList();
     }
+
+    /// <summary>
+    /// Sheds capitalized function words from the front of a candidate ("Will Precious" →
+    /// "Precious" — the first live run resolved a pronoun to that auxiliary-plus-name), and
+    /// rejects sentence-case single words at sentence starts, which are indistinguishable from
+    /// ordinary prose. Null when nothing survives.
+    /// </summary>
+    private static string? TrimFunctionWords(string candidate, bool startsSentence)
+    {
+        var tokens = candidate.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        var dropped = 0;
+        while (tokens.Count > 0 && FunctionWords.Contains(tokens[0]))
+        {
+            tokens.RemoveAt(0);
+            dropped++;
+        }
+        if (tokens.Count == 0)
+            return null;
+
+        // A single sentence-case word opening a sentence is indistinguishable from prose
+        // ("Beth arrived" vs "Suddenly it rained") — reject it. A multi-word run there is a
+        // real name ("Beth Miller called"), and a run whose auxiliary was shed keeps the rest
+        // ("Will Precious get to…" → "Precious").
+        if (startsSentence && dropped == 0 && tokens.Count == 1)
+            return null;
+
+        return string.Join(' ', tokens);
+    }
+
+    /// <summary>Capitalized words that open questions and clauses, not name anything. The cost
+    /// of listing "Will" is a person named Will at a sentence head — accepted: a missed entity
+    /// resolves nothing, while a false one misdirected a pronoun in the first live run.</summary>
+    private static readonly HashSet<string> FunctionWords = new(StringComparer.Ordinal)
+    {
+        "Will", "Would", "Should", "Could", "Can", "May", "Might", "Must", "Shall",
+        "How", "What", "When", "Where", "Why", "Who", "Which", "Whose",
+        "Is", "Are", "Was", "Were", "Do", "Does", "Did", "Has", "Have", "Had",
+        "The", "A", "An", "And", "But", "Or", "If", "So", "Then", "That", "This",
+        "I", "Let", "Also", "Just", "Now", "Anyway", "Oh", "Well", "Yes", "No",
+        "Okay", "Thanks", "Please", "Maybe", "Perhaps",
+    };
 
     private static bool StartsSentence(string text, int index)
     {
