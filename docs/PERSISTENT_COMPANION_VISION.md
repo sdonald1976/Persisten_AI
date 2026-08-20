@@ -35,6 +35,16 @@ We do not add developmental-learning engines, emotion simulators, or abstract
 "cognitive" subsystems. Every component must earn its place by directly serving the
 companion experience.
 
+> **Amendment (2026-08-20).** The "no cognitive subsystems" line above bans
+> *speculative* subsystems — components justified by an analogy to minds rather than
+> by an observed failure. It does not ban explicit, inspectable state that the system
+> owns instead of the chat model: working conversational context, concept knowledge
+> with provenance, recorded uncertainty, turn intent. Those are being added
+> deliberately under [`LANGUAGE_ORGAN.md`](LANGUAGE_ORGAN.md), each traceable to a
+> live failure and each meeting the standard this document already sets — derived
+> from what actually happened, able to say where it came from. The guiding principle
+> is unchanged: continuity, not consciousness.
+
 ## 3. Target user experience
 
 A user talks with the companion regularly over a long period. Later — possibly months
