@@ -1,0 +1,86 @@
+{
+  "seed": 20260824,
+  "sealed": "DO NOT OPEN BEFORE JUDGING",
+  "key": {
+    "1": {
+      "id": "play-wry-01",
+      "origin": "teacher-original:llama3.2:3b"
+    },
+    "2": {
+      "id": "know-recall-05",
+      "origin": "edited:curator"
+    },
+    "3": {
+      "id": "tu-corr-05",
+      "origin": "edited:curator"
+    },
+    "4": {
+      "id": "ack-mund-04",
+      "origin": "edited:curator"
+    },
+    "5": {
+      "id": "ms-tool-04",
+      "origin": "teacher-original:qwen3:8b"
+    },
+    "6": {
+      "id": "agree-op-02",
+      "origin": "edited:curator"
+    },
+    "7": {
+      "id": "play-hypo-04",
+      "origin": "teacher-original:llama3.2:3b"
+    },
+    "8": {
+      "id": "tu-optq-09",
+      "origin": "edited:curator"
+    },
+    "9": {
+      "id": "shb-embod-03",
+      "origin": "edited:curator"
+    },
+    "10": {
+      "id": "ack-mund-03",
+      "origin": "edited:curator"
+    },
+    "11": {
+      "id": "sup-sched-01",
+      "origin": "edited:curator"
+    },
+    "12": {
+      "id": "tu-epi-07",
+      "origin": "teacher-original:llama3.2:3b"
+    },
+    "13": {
+      "id": "corr-name-02",
+      "origin": "edited:curator"
+    },
+    "14": {
+      "id": "play-bit-02",
+      "origin": "teacher-original:llama3.2:3b"
+    },
+    "15": {
+      "id": "corr-place-03",
+      "origin": "edited:curator"
+    },
+    "16": {
+      "id": "ack-prog-05",
+      "origin": "teacher-original:qwen3:8b"
+    },
+    "17": {
+      "id": "sup-sched-04",
+      "origin": "teacher-original:qwen3:8b"
+    },
+    "18": {
+      "id": "know-recall-04",
+      "origin": "teacher-original:qwen3:8b"
+    },
+    "19": {
+      "id": "real-bauble-03",
+      "origin": "edited:curator"
+    },
+    "20": {
+      "id": "corr-obj-02",
+      "origin": "edited:curator"
+    }
+  }
+}

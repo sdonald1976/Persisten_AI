@@ -175,6 +175,140 @@ for sid, cands in by_scenario.items():
     })
 
 accepted.sort(key=lambda r: r["id"])
+
+# ---- human curation pass (2026-08-20 directives) -----------------------------------
+# Gate-eligible is not training-quality. Every accepted target carries an explicit
+# decision in curation-run1a.jsonl: keep / edit (target replaced; raw preserved) /
+# author (curator-written target for a scenario every teacher draw failed). basis
+# records whose judgment produced the text: "scott" for Scott's dictated lines and
+# named findings, "curator" for edits applied under his written principles.
+
+CONTROL_TOKENS = ["[plan/2]", "CONTROL", "SITUATION", "PALETTE", "CONSTRAINTS", "act =", "question ="]
+
+def normalize(text):
+    t = text.strip()
+    for a, b in (('"', '"'), ("“", "”")):
+        if len(t) > 2 and t.startswith(a) and t.endswith(b) and t.count(a) == (1 if a != b else 2):
+            return t[1:-1].strip(), True
+    return t, False
+
+# Check lists come from the CURRENT scenario files, not the candidates lineage: two
+# forbidden terms ("shave", "ichor") were substrings of the very words the scenarios
+# are about (spokeshave, petrichor) and were fixed in the scenario definitions; the
+# candidate rows keep the stale lists as an honest record of what the teachers faced.
+scenario_checks = {}
+for f in sorted((ROOT / "scenarios").glob("*.jsonl")):
+    for line in f.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            s = json.loads(line)
+            scenario_checks[s["id"]] = {"required": s.get("required"),
+                                        "forbidden": s.get("forbidden"),
+                                        "requiredAny": s.get("requiredAny"),
+                                        "transcript": s.get("transcript"),
+                                        "userMessage": s.get("userMessage")}
+
+def py_gates(sid, text):
+    """The deterministic contract, re-run in-process on every curated target. The C#
+    suite already vetted kept teacher targets; edited and authored text passes the
+    same required/forbidden/control checks here or the build fails loudly."""
+    row = {**meta[sid], **scenario_checks.get(sid, {})}
+    fails = []
+    for tok in CONTROL_TOKENS:
+        if tok in text:
+            fails.append(f"control vocabulary '{tok}'")
+    if re.search(r"\bthe user\b", text, re.I):
+        fails.append("narrates 'the user'")
+    for term in row.get("required") or []:
+        if term.lower() not in text.lower():
+            fails.append(f"required '{term}' missing")
+    any_terms = row.get("requiredAny") or []
+    if any_terms and not any(t.lower() in text.lower() for t in any_terms):
+        fails.append("requiredAny unmet")
+    for term in row.get("forbidden") or []:
+        if term.lower() in text.lower():
+            fails.append(f"forbidden '{term}'")
+    mode = question_mode(row)
+    ends_q = text.rstrip().endswith("?")
+    if mode == "none" and ends_q:
+        fails.append("trailing question on question=none plan")
+    if mode == "mandatory" and not ends_q:
+        fails.append("mandatory question missing")
+    return fails
+
+decisions = {}
+for line in (ROOT / "curation-run1a.jsonl").read_text(encoding="utf-8").splitlines():
+    if line.strip():
+        d = json.loads(line)
+        decisions[d["id"]] = d
+
+missing_decisions = [r["id"] for r in accepted if r["id"] not in decisions]
+if missing_decisions:
+    raise SystemExit(f"accepted rows without a curation decision: {missing_decisions}")
+
+gate_failures, normalized_count = [], 0
+final_rows = []
+for r in accepted:
+    d = decisions[r["id"]]
+    if d["action"] == "edit":
+        r["target"] = d["target"]
+        r["review"] = {"gated": True, "humanReviewed": True,
+                       "humanEdited": True, "editBasis": d["basis"]}
+        r["curation"] = {"action": "edit", "basis": d["basis"], "note": d.get("note")}
+    elif d["action"] == "keep":
+        r["review"] = {"gated": True, "humanReviewed": True, "humanEdited": False}
+        r["curation"] = {"action": "keep", "basis": d["basis"], "note": d.get("note")}
+    else:
+        raise SystemExit(f"{r['id']}: unexpected action {d['action']} on an accepted row")
+    r["target"], stripped = normalize(r["target"])
+    if stripped:
+        normalized_count += 1
+        r["curation"]["normalized"] = "stripped wrapper quotes"
+    final_rows.append(r)
+
+# Curator-authored rows: scenarios where no teacher draw was acceptable. The plan,
+# transcript, and checks come from the generation metadata; only the target is new.
+authored = [d for d in decisions.values() if d["action"] == "author"]
+for d in authored:
+    sid = d["id"]
+    if sid not in meta:
+        raise SystemExit(f"authored target for unknown scenario {sid}")
+    if any(r["id"] == sid for r in final_rows):
+        raise SystemExit(f"authored target for already-accepted scenario {sid}")
+    row = meta[sid]
+    current = scenario_checks.get(sid, {})
+    target, stripped = normalize(d["target"])
+    final_rows.append({
+        "id": sid,
+        "family": row["family"],
+        "stratum": row["stratum"],
+        "plan2": row["plan2"],
+        "transcript": current.get("transcript") or row["transcript"],
+        "userMessage": current.get("userMessage") or row["userMessage"],
+        "target": target,
+        "source": {**row["source"], "teacherModel": None, "origin": "curator-authored",
+                   "teacherDrawsRejected": len(by_scenario[sid])},
+        "review": {"gated": True, "humanReviewed": True, "humanEdited": False,
+                   "curatorAuthored": True, "editBasis": d["basis"]},
+        "curation": {"action": "author", "basis": d["basis"], "note": d.get("note")},
+        "styleLicense": re.search(r"STYLE\n\s*(.*)", row["plan2"]).group(1).strip()
+                        if re.search(r"STYLE\n\s*(.*)", row["plan2"]) else "",
+    })
+
+for r in final_rows:
+    r["words"] = len(re.findall(r"[\w'-]+", r["target"]))
+    r["opening"] = " ".join(re.findall(r"[a-z']+", r["target"].lower())[:3])
+    if r["curation"]["action"] in ("edit", "author"):
+        fails = py_gates(r["id"], r["target"])
+        if fails:
+            gate_failures.append(f"{r['id']}: {fails}")
+if gate_failures:
+    raise SystemExit("curated targets failing deterministic gates:\n  " + "\n  ".join(gate_failures))
+
+# Scenarios still rejected = no eligible teacher draw AND no authored replacement.
+authored_ids = {d["id"] for d in authored}
+rejected = [rej for rej in rejected if rej["id"] not in authored_ids]
+
+accepted = sorted(final_rows, key=lambda r: r["id"])
 (ROOT / "train-200.jsonl").write_text(
     "\n".join(json.dumps(r, ensure_ascii=False) for r in accepted) + "\n", encoding="utf-8")
 
@@ -244,7 +378,7 @@ for i, a in enumerate(accepted):
 # ---- audit ------------------------------------------------------------------------
 strata = Counter(r["stratum"] for r in accepted)
 sources = Counter(r["source"]["kind"] for r in accepted)
-teachers = Counter(r["source"]["teacherModel"] for r in accepted)
+teachers = Counter(r["source"].get("teacherModel") or "curator-authored" for r in accepted)
 lengths = [r["words"] for r in accepted]
 q_end = [r for r in accepted if r["target"].rstrip().endswith("?")]
 openings = Counter(r["opening"] for r in accepted)
@@ -264,7 +398,7 @@ for r in palette_rows:
             break
     if not used:
         palette_unused.append(r["id"])
-sludge_counter = Counter(f for r in accepted for f in r["source"]["sludgeFlags"])
+sludge_counter = Counter(f for r in accepted for f in r["source"].get("sludgeFlags", []))
 rejection_reasons = Counter()
 for rej in rejected:
     for a in rej["reasons"]:
@@ -364,13 +498,27 @@ w(f"- silence-palette stratum (palette present, correct answer uses none): "
 w(f"- optional-question-unasked stratum (question available, correct answer asks none): "
   f"{strata.get('optional-question-unasked', 0)} scenarios")
 
-w("\n## 8. Human editing\n")
-edited = [r for r in accepted if r["review"]["humanEdited"]]
-w(f"- human-edited targets: {len(edited)}/{len(accepted)} ({100*len(edited)/len(accepted):.1f}%)")
-w("- every target in this build is raw teacher output that passed the gates and the "
-  "sludge filter; the review package below is where human editing enters, and each "
-  "edit will be recorded in `review.humanEdited` with the original preserved in "
-  "`source.rawTeacherCandidate`.")
+w("\n## 8. Curation provenance\n")
+by_action = Counter(r["curation"]["action"] for r in accepted)
+edit_basis = Counter(r["curation"]["basis"] for r in accepted if r["curation"]["action"] == "edit")
+w("| disposition | n | share |")
+w("|---|---|---|")
+w(f"| teacher target kept unchanged | {by_action.get('keep', 0)} | {100*by_action.get('keep',0)/len(accepted):.1f}% |")
+w(f"| edited — Scott's dictated line or named finding | {edit_basis.get('scott', 0)} | {100*edit_basis.get('scott',0)/len(accepted):.1f}% |")
+w(f"| edited — curator, under Scott's written principles | {edit_basis.get('curator', 0)} | {100*edit_basis.get('curator',0)/len(accepted):.1f}% |")
+w(f"| curator-authored (every teacher draw failed) | {by_action.get('author', 0)} | {100*by_action.get('author',0)/len(accepted):.1f}% |")
+w(f"\n- wrapper-quote normalization (mechanical, not an edit): {normalized_count} targets")
+w("- every edited or authored target re-passed the deterministic gates in this build; "
+  "the raw teacher candidate is preserved in `source.rawTeacherCandidate` and the "
+  "reason for every change in `curation-run1a.jsonl` and each row's `curation` field.")
+w("- scenarios previously rejected that now carry a curator-authored target: "
+  f"{sorted(r['id'] for r in accepted if r['curation']['action'] == 'author')}")
+w("\nEdited/authored rows (reasons in `curation-run1a.jsonl`):\n")
+w("| id | action | basis |")
+w("|---|---|---|")
+for r in accepted:
+    if r["curation"]["action"] != "keep":
+        w(f"| `{r['id']}` | {r['curation']['action']} | {r['curation']['basis']} |")
 
 w("\n## 9. Deterministic rejections\n")
 w(f"total scenarios with no acceptable candidate: {len(rejected)}\n")
@@ -435,6 +583,17 @@ w("\nThe two starved strata are the same two defect classes the round-2 review n
   "representation, (b) human-author targets for those strata, or (c) accept that these "
   "two behaviors may need more than run 1a to move. This is a judgment call, not a "
   "pipeline bug.\n")
+longer = [r for r in accepted if r["words"] > 45]
+w(f"**Curation shortened the corpus.** Median length fell from ~22 words (raw teacher "
+  f"output) to {statistics.median(lengths):.0f}, and only {len(longer)} rows now exceed "
+  f"45 words ({', '.join('`'+r['id']+'`' for r in longer)}). Most teacher length was "
+  f"sludge — restatement, coaching, invented color — so trimming it was correct; but "
+  f"the result is that genuinely longer-licensed replies are thinly represented, which "
+  f"is exactly the 'length must emerge from content' concern. The registers in this "
+  f"corpus mostly license short replies, so the profile is not dishonest — but if run "
+  f"1a should also teach the occasional full-paragraph turn, a handful of "
+  f"longer-licensed scenarios (a recap request, a told story, a thinking-out-loud "
+  f"answer) would need authoring. Decision left open.\n")
 real = sources.get("turnrecord", 0)
 w(f"**Real-derived share is {real}/{len(accepted)} ({100*real/len(accepted):.1f}%), "
   f"far below the designed 15-25%.** The cause is inventory, not policy: the durable "
@@ -452,7 +611,8 @@ def render_review(items, title, note):
     out = [f"# {title}\n", note, ""]
     for i, r in enumerate(items, 1):
         out.append(f"\n---\n\n## {i}. `{r['id']}` — {r['stratum']}\n")
-        out.append(f"**Family:** `{r['family']}`  |  **Teacher:** {r['source']['teacherModel']}  "
+        out.append(f"**Family:** `{r['family']}`  |  **Origin:** "
+                   f"{r['source'].get('teacherModel') or 'curator-authored'} / {r['curation']['action']}  "
                    f"|  **Source:** {r['source']['kind']}  |  **{r['words']} words**\n")
         out.append("**ResponsePlan (plan/2, exactly as the model sees it):**\n")
         out.append("```")
@@ -466,10 +626,43 @@ def render_review(items, title, note):
             out.append("")
         out.append(f"> [Scott] **{r['userMessage']}**\n")
         out.append(f"**TARGET:** {r['target']}\n")
-        if r["source"]["sludgeFlags"]:
+        if r["source"].get("sludgeFlags"):
             out.append(f"_flags: {', '.join(r['source']['sludgeFlags'])}_\n")
         out.append("- [ ] keep as-is   - [ ] edit: ______________   - [ ] drop\n")
     return "\n".join(out)
+
+# ---- blind post-curation sample ---------------------------------------------------
+# 20 random finals with origin (teacher-original / edited / authored) hidden; the key
+# is sealed until judging. The freeze waits on this sample passing.
+rng_blind = random.Random(SEED + 3)
+blind = rng_blind.sample(accepted, min(20, len(accepted)))
+blind_lines = ["# Run-1a blind post-curation sample\n",
+               "Twenty targets drawn at random from the final curated corpus. Origin "
+               "(teacher-original, edited, or authored) is hidden — the key is sealed in "
+               "`review-blind-post-key.json` until judging is done. Same standard as "
+               "before: licensed, complete, nothing invented, sounds like Ava.\n"]
+blind_key = {}
+for i, r in enumerate(blind, 1):
+    blind_key[str(i)] = {
+        "id": r["id"],
+        "origin": ("authored" if r["curation"]["action"] == "author"
+                   else f"edited:{r['curation']['basis']}" if r["curation"]["action"] == "edit"
+                   else f"teacher-original:{r['source'].get('teacherModel')}"),
+    }
+    blind_lines.append(f"\n---\n\n## {i}. ({r['stratum']})\n")
+    blind_lines.append("```")
+    blind_lines.append(r["plan2"].rstrip())
+    blind_lines.append("```\n")
+    for t in r["transcript"]:
+        who = "Scott" if t["role"] == "user" else "Ava"
+        blind_lines.append(f"> [{who}] {t['text']}")
+    blind_lines.append(f"> [Scott] **{r['userMessage']}**\n")
+    blind_lines.append(f"**TARGET:** {r['target']}\n")
+    blind_lines.append("- [ ] pass   - [ ] fail: ______________\n")
+(ROOT / "review-blind-post.md").write_text("\n".join(blind_lines), encoding="utf-8")
+(ROOT / "review-blind-post-key.json").write_text(json.dumps(
+    {"seed": SEED + 3, "sealed": "DO NOT OPEN BEFORE JUDGING", "key": blind_key},
+    indent=2) + "\n", encoding="utf-8")
 
 rng2 = random.Random(SEED + 1)
 random_sample = rng2.sample(accepted, min(20, len(accepted)))
@@ -493,8 +686,10 @@ for s in HARD_STRATA:
     "random sample did not already cover, so the random sample stays genuinely random. "
     "These are the behaviors the experiment exists to fix."), encoding="utf-8")
 
-print(f"accepted {len(accepted)}, rejected {len(rejected)}")
+print(f"final {len(accepted)} ({by_action.get('keep',0)} kept, "
+      f"{by_action.get('edit',0)} edited, {by_action.get('author',0)} authored), "
+      f"rejected {len(rejected)}")
 print(f"train {len(train)} / val {len(val)} across {len(families)} families")
-print(f"leaks: {len(leak)}  near-dupes: {len(dupes)}")
-print(f"written: train-200.jsonl, splits.json, audit.md, review-random.md ({len(random_sample)}), "
-      f"review-hard.md ({len(hard_sample)})")
+print(f"leaks: {len(leak)}  near-dupes: {len(dupes)}  quote-normalized: {normalized_count}")
+print(f"written: train-200.jsonl, splits.json, audit.md, review-blind-post.md (20, key sealed), "
+      f"review-random.md ({len(random_sample)}), review-hard.md ({len(hard_sample)})")
