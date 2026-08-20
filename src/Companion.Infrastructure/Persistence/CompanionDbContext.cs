@@ -143,6 +143,7 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Retrieved).HasMaxLength(2000);
             e.Property(x => x.FocalTerms).HasMaxLength(300);
             e.Property(x => x.Decisions).HasMaxLength(1000);
+            e.Property(x => x.Plan).HasMaxLength(2500);
             e.Property(x => x.ModelUsed).HasMaxLength(200);
             // Read newest-first per user; pruned below a time cutoff.
             e.HasIndex(x => new { x.UserId, x.Timestamp });
