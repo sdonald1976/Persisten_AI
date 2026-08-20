@@ -35,6 +35,11 @@ public sealed class Companion : ICompanion
     private readonly IDiagnosticsStore? _diagnostics;
     private readonly IConceptKnowledge? _concepts;
     private readonly IGapStore? _gaps;
+
+    /// <summary>The serialized-plan contract uses the same camelCase + kebab-enum shape as
+    /// every other JSON boundary — this string IS the future renderer's input format.</summary>
+    private static readonly System.Text.Json.JsonSerializerOptions PlanJson =
+        new(System.Text.Json.JsonSerializerDefaults.Web);
     private readonly IPersonalityService _personality;
     private readonly IMemoryPipeline _pipeline;
     private readonly IProjectUpdater _projectUpdater;
@@ -556,6 +561,25 @@ public sealed class Companion : ICompanion
                 ? null : string.Join(", ", packet.TrimmedSections),
         });
 
+        // 5a. The response plan (Phase 5), SHADOW: what Ava has DECIDED this turn — act,
+        // acknowledgments with error ownership, content authority levels, epistemic
+        // constraints, the question if any. Computed entirely from state already decided
+        // above, recorded beside the turn, and NOT rendered: the generation packet is
+        // byte-identical with or without it. Fidelity of real replies to the plan is
+        // measured before the plan is ever given authority (docs/RESPONSE_PLAN.md).
+        var plan = ResponsePlanner.Build(
+            traceId, intent, working, promptText, selectedMemories, knowledge,
+            curiosity?.Question, packet.RegisterNote, packet.MoodNote, persona);
+        decisions.Add(new DecisionRecord
+        {
+            Stage = "plan", Decider = "rule",
+            Verdict = plan.Act.ToKebab()
+                + (plan.Acknowledgments.Count > 0 ? $"|ack={plan.Acknowledgments.Count}" : "")
+                + (plan.Content.Count(c => c.Requirement == ContentRequirement.MustState) is var must && must > 0 ? $"|must={must}" : "")
+                + (plan.Epistemic.Count > 0 ? $"|epistemic={plan.Epistemic.Count}" : "")
+                + (plan.Question is not null ? $"|q={plan.Question.Kind.ToKebab()}" : ""),
+        });
+
         var planningContext = BuildPlanningContext(recent, selectedMemories, projectContext.ResolvedProjectName);
         var toolOutcome = await _toolLoop.RunAsync(userId, planningContext, promptText, ct);
         if (toolOutcome.ResultsSection is not null)
@@ -625,6 +649,39 @@ public sealed class Companion : ICompanion
 
                 if (enforcing)
                     response = _safety.Replacement;
+            }
+        }
+
+        // 6c. Plan fidelity, SHADOW: the deterministic checks of what the model actually
+        // said against what the plan required — the measurable half of the renderer
+        // contract, running long before the plan has any authority. Violations are
+        // decisions AND capture rows; changing the reply is not on the table here.
+        foreach (var (check, violation) in new (string, string?)[]
+        {
+            ("correction-ownership", PlanFidelity.CheckCorrectionOwnership(plan, response)),
+            ("shared-history", PlanFidelity.CheckSharedHistoryClaim(plan, response)),
+            ("epistemic", PlanFidelity.CheckEpistemic(plan, response)),
+        })
+        {
+            if (violation is null)
+                continue;
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "plan.fidelity", Decider = "rule",
+                Verdict = $"violated:{check}",
+                Reason = violation,
+            });
+            if (_shadow.IsRecording)
+            {
+                await _shadow.RecordAsync(new ShadowComparison
+                {
+                    Id = Guid.NewGuid(),
+                    Subject = "plan.fidelity",
+                    Legacy = $"violated:{check}",
+                    Model = null,
+                    Applied = "legacy",
+                    Input = violation,
+                }, ct);
             }
         }
 
@@ -862,6 +919,7 @@ public sealed class Companion : ICompanion
             Decisions = decisions,
             WorkingContext = working,
             Intent = intent,
+            Plan = plan,
             Focal = focal,
             RetrievedWithRawQuery = rawQueryRetrieved,
             ContextSections = PresentSections(packet),
@@ -916,6 +974,9 @@ public sealed class Companion : ICompanion
                 FocalTerms = !extractFacts || focal is null ? null : string.Join(",", focal.FocalTerms),
                 FocalCovered = focal?.Covered,
                 Decisions = string.Join("; ", decisions.Select(d => $"{d.Stage}={d.Verdict}")),
+                Plan = !extractFacts ? null
+                    : System.Text.Json.JsonSerializer.Serialize(plan, PlanJson) is var planJson
+                        && planJson.Length <= 2500 ? planJson : null,
                 PacketTokens = packet.EstimatedTokens,
                 ModelUsed = generated.Model,
             }, ct);

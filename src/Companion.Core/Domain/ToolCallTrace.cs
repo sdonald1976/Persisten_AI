@@ -73,6 +73,10 @@ public sealed record TurnDiagnostics
     /// the message's focal terms at all. Observed, consumed by nothing.</summary>
     public FocalCoverage? Focal { get; init; }
 
+    /// <summary>The turn's ResponsePlan — SHADOW (Phase 5): what Ava decided, recorded
+    /// beside what the model then said. The future renderer's input contract.</summary>
+    public ResponsePlan? Plan { get; init; }
+
     /// <summary>Which packet sections were present this turn (mood, musing, temporal, …).</summary>
     public IReadOnlyList<string> ContextSections { get; init; } = Array.Empty<string>();
 

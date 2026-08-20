@@ -97,10 +97,16 @@ public static partial class WorkingContext
         string? note = null, boundQuestion = null;
         var query = userMessage;
 
+        ErrorOwner? correctionTarget = null;
         if (IsCorrection(message))
         {
             move = ConversationMove.Correction;
             note = Prompts.Get("interpretation.correction");
+            // Whose error: "I meant…" corrects the user's own words; otherwise a correction
+            // arriving after the companion spoke targets what SHE said.
+            correctionTarget = SelfCorrection().IsMatch(message) ? ErrorOwner.User
+                : recent.Count > 0 && recent[^1].Role == MessageRole.Assistant ? ErrorOwner.Companion
+                : ErrorOwner.Nobody;
         }
         else if (binding is not null)
         {
@@ -152,6 +158,7 @@ public static partial class WorkingContext
             ReferentSourceMessageId = sourceMessage?.Id,
             ReferentSourceExcerpt = sourceMessage is null ? null : Clip(sourceMessage.Content.Trim()),
             BoundQuestion = boundQuestion,
+            CorrectionTarget = correctionTarget,
             RawQuery = userMessage,
             RetrievalQuery = query,
             InterpretationNote = note,
@@ -389,6 +396,10 @@ public static partial class WorkingContext
         }
         return items.Where(i => i.Length is > 0 and <= 100).ToList();
     }
+
+    /// <summary>Markers of the user correcting THEMSELVES rather than the companion.</summary>
+    [GeneratedRegex(@"\b(i meant|i said it wrong|my mistake|i was wrong|i misspoke)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex SelfCorrection();
 
     /// <summary>Words that mark a sentence as OFFERING alternatives rather than narrating.</summary>
     [GeneratedRegex(@"\b(could|how about|maybe|either|perhaps|prefer|option|choice|pick|go with|would you)\b",

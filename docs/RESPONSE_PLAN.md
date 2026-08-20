@@ -197,3 +197,19 @@ land without another architecture phase.
 ## Status
 
 - **2026-08-20** — design recorded; awaiting approval before implementation.
+- **2026-08-20 — shadow slice implemented and live-validated.** `ResponsePlan` computed
+  and recorded beside every turn (ring + durable TurnRecord as camelCase/kebab JSON —
+  the renderer contract), packet byte-identical, three deterministic fidelity tripwires
+  armed (`plan.fidelity` captures), specimens pinned as tests. Live run (11 turns,
+  qwen3:8b): zero fidelity violations — no error-sharing, no shared-history claims, no
+  epistemic leaks; the quokka plan carried `not-learned` and the reply honored it; the
+  Epcot-class negation turn drew none of the palette bait. **The run's best product is a
+  design correction**: the Mad Hatter eval inverted (qwen answered correctly, so the
+  scripted "correction" was agreement) and `ErrorOwner=Companion` was assigned from
+  shape alone — whereupon the model INVENTED an apology ("I owe a apology for that
+  mix-up!"). Sycophantic self-blame is the mirror image of "we both slipped up": the
+  ErrorOwner detector needs a conflict check (does her prior claim actually contradict
+  the correction? if not → Nobody) before correction acknowledgments can be promoted.
+  Also recorded: the caps-emphasis correction shape ("They DON'T BREAK, I told you")
+  is not detected — classified follow-topic-change, a documented recall gap for the
+  capture corpus, not a reflex patch. Promotion NOT performed. 1133 tests green.

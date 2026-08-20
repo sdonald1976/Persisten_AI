@@ -111,6 +111,10 @@ public class TurnRecord
     /// <summary>The decision trail, flattened: "stage=verdict; stage=verdict; …".</summary>
     public string Decisions { get; set; } = "";
 
+    /// <summary>The turn's serialized ResponsePlan (Phase 5, shadow) — the future renderer
+    /// input contract, preserved per turn; null on private/sensitive turns.</summary>
+    public string? Plan { get; set; }
+
     public int PacketTokens { get; set; }
     public string? ModelUsed { get; set; }
 }

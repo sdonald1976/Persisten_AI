@@ -80,6 +80,13 @@ public sealed record WorkingContextState
     /// <summary>The question the current turn answered, when <see cref="Move"/> says it did.</summary>
     public string? BoundQuestion { get; init; }
 
+    /// <summary>When <see cref="Move"/> is Correction: whose error is being corrected.
+    /// Self-correction markers ("I meant…") make it the user's; otherwise a correction
+    /// following the companion's own message targets her. The field that makes
+    /// "we both slipped up" a checkable violation.</summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(KebabEnumConverter<ErrorOwner>))]
+    public ErrorOwner? CorrectionTarget { get; init; }
+
     /// <summary>The user's message as sent — what retrieval would have searched for before.</summary>
     public required string RawQuery { get; init; }
 
