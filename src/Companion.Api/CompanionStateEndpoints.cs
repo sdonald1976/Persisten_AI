@@ -142,6 +142,25 @@ internal static class CompanionStateEndpoints
         });
 
         // Run a reflection pass right now (demo/debug; the worker normally does this while you're away).
+        // Knowledge gaps: what she knows she doesn't know, with provenance and lifecycle
+        // (docs/KNOWLEDGE_GAPS.md). Recording a gap is not a promise to ask about it.
+        app.MapGet("/gaps", async (IUserContext user, IGapStore gaps, int? count, CancellationToken ct) =>
+            Results.Ok((await gaps.GetRecentAsync(user.UserId, count ?? 50, ct)).Select(g => new
+            {
+                id = g.Id,
+                kind = g.Kind,
+                subject = g.Subject,
+                source = g.Source,
+                sourceRef = g.SourceRef,
+                occurrences = g.Occurrences,
+                firstSeen = g.FirstSeen,
+                lastSeen = g.LastSeen,
+                status = g.Status,
+                pursuit = g.Pursuit,
+                curiosityId = g.CuriosityId,
+                resolutionNote = g.ResolutionNote,
+            })));
+
         app.MapPost("/reflect", async (IUserContext user, IReflector reflector, CancellationToken ct) =>
         {
             var outcome = await reflector.ReflectAsync(user.UserId, ct);

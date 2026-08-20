@@ -29,6 +29,10 @@ public interface IReflectionStore
     /// <summary>All open (not yet voiced/dismissed) curiosities, newest first.</summary>
     Task<IReadOnlyList<Curiosity>> GetOpenCuriositiesAsync(string userId, CancellationToken ct = default);
 
+    /// <summary>Appends one curiosity outside a reflection write — the gap promoter's path.
+    /// Same table, same lifecycle, same budgets; only the producer differs.</summary>
+    Task AddCuriosityAsync(Curiosity curiosity, CancellationToken ct = default);
+
     /// <summary>
     /// The next curiosity worth voicing right now, or null. Returns the newest open one — but only
     /// when no other curiosity has been voiced within <paramref name="cooldown"/> of

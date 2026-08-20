@@ -34,6 +34,7 @@ public sealed class Companion : ICompanion
     private readonly ICognitiveCapture _capture;
     private readonly IDiagnosticsStore? _diagnostics;
     private readonly IConceptKnowledge? _concepts;
+    private readonly IGapStore? _gaps;
     private readonly IPersonalityService _personality;
     private readonly IMemoryPipeline _pipeline;
     private readonly IProjectUpdater _projectUpdater;
@@ -92,7 +93,8 @@ public sealed class Companion : ICompanion
         IShadowRecorder? shadow = null,
         ICognitiveCapture? capture = null,
         IDiagnosticsStore? diagnostics = null,
-        IConceptKnowledge? concepts = null)
+        IConceptKnowledge? concepts = null,
+        IGapStore? gaps = null)
     {
         _gate = gate ?? new AlwaysOpenGate();
         _safety = safety?.Value ?? new SafetyOptions();
@@ -100,6 +102,7 @@ public sealed class Companion : ICompanion
         _capture = capture ?? new NoCognitiveCapture();
         _diagnostics = diagnostics;
         _concepts = concepts;
+        _gaps = gaps;
         _conversations = conversations;
         _projectContext = projectContext;
         _pending = pending;
@@ -660,9 +663,10 @@ public sealed class Companion : ICompanion
                 // high-precision detector, evidence-bound (docs/CONCEPT_KNOWLEDGE.md). Inside
                 // this gate deliberately: a turn not allowed durable derived memory is not
                 // allowed durable knowledge either.
+                string? taught = null;
                 if (_concepts is not null)
                 {
-                    var taught = await _concepts.LearnFromAsync(userId, extractionSource, lexicon, ct);
+                    taught = await _concepts.LearnFromAsync(userId, extractionSource, lexicon, ct);
                     if (taught is not null)
                     {
                         decisions.Add(new DecisionRecord
@@ -678,6 +682,69 @@ public sealed class Companion : ICompanion
                     {
                         await Shadow.CaptureAsync(_shadow, "knowledge.teaching", taught is not null,
                             extractionSource.Content, ct);
+                    }
+                }
+
+                // Knowledge gaps (Phase 4): observable epistemic events become typed,
+                // deduped, provenance-bearing gap rows. Recording is NOT a promise to ask —
+                // promotion is a separate, capped decision in the reflection cadence.
+                // Inside this gate deliberately: gaps are durable derived state.
+                if (_gaps is not null)
+                {
+                    async Task ObserveGapAsync(GapKind kind, string subject, GapSource source)
+                    {
+                        var (gap, _) = await _gaps.ObserveAsync(userId, kind, subject, source, traceId, now, ct);
+                        decisions.Add(new DecisionRecord
+                        {
+                            Stage = "gap.observed", Decider = "rule",
+                            Verdict = $"{kind.ToKebab()}:{subject}",
+                            Reason = $"seen {gap.Occurrences}x ({gap.Status.ToKebab()})",
+                        });
+                    }
+
+                    if (knowledge is not null)
+                    {
+                        var subject = ConceptKnowledge.Canonical(knowledge.Term);
+                        if (knowledge.Familiarity == ConceptFamiliarity.Unknown)
+                            await ObserveGapAsync(GapKind.UnknownConcept, subject, GapSource.KnowledgeLookup);
+                        else if (knowledge.Familiarity is ConceptFamiliarity.Learning or ConceptFamiliarity.Disputed)
+                            await ObserveGapAsync(GapKind.UncertainKnowledge, subject, GapSource.KnowledgeLookup);
+                    }
+
+                    // An unpinned reference: recorded, never promoted in v1 (it ages badly).
+                    if (working is { ReferenceMarkers.Count: > 0 }
+                        && (working.ResolvedReference is null
+                            || working.ResolutionConfidence == ResolutionConfidence.Guess))
+                    {
+                        await ObserveGapAsync(GapKind.UnresolvedReference,
+                            working.ReferenceMarkers[0].ToLowerInvariant(), GapSource.WorkingContext);
+                    }
+
+                    // Conflicting evidence the pipeline parked for review.
+                    foreach (var parked in extraction.Decisions
+                                 .Where(d => d.Outcome == MemoryDecisionKind.NeedsReview).Take(2))
+                    {
+                        await ObserveGapAsync(GapKind.ConflictingEvidence,
+                            $"{parked.Candidate.Subject}/{parked.Candidate.Predicate}".ToLowerInvariant(),
+                            GapSource.MemoryReview);
+                    }
+
+                    // Teaching satisfies: the loop closes with provenance, and the linked
+                    // curiosity closes with it.
+                    if (taught is not null)
+                    {
+                        var satisfied = await _gaps.SatisfyBySubjectAsync(
+                            userId, ConceptKnowledge.Canonical(taught),
+                            $"learned from teaching on {now:MMM d}", ct);
+                        if (satisfied > 0)
+                        {
+                            decisions.Add(new DecisionRecord
+                            {
+                                Stage = "gap.satisfied", Decider = "rule",
+                                Verdict = ConceptKnowledge.Canonical(taught),
+                                Reason = $"{satisfied} gap(s) closed by teaching",
+                            });
+                        }
                     }
                 }
 

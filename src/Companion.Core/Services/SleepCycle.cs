@@ -40,6 +40,11 @@ public sealed class SleepCycle : ISleepCycle
     private readonly IExperienceStore _experiences;
     private readonly TimeProvider _clock;
     private readonly ILogger<SleepCycle> _logger;
+    private readonly IGapStore? _gaps;
+
+    /// <summary>How long an unpursued knowledge gap is held before aging to Expired.
+    /// Diagnostics-grade retention: a gap is working epistemic state, never biography.</summary>
+    public static readonly TimeSpan StaleGapAge = TimeSpan.FromDays(30);
 
     public SleepCycle(
         IReflector reflector,
@@ -49,8 +54,10 @@ public sealed class SleepCycle : ISleepCycle
         IDiagnosticsStore diagnostics,
         IExperienceStore experiences,
         TimeProvider clock,
-        ILogger<SleepCycle> logger)
+        ILogger<SleepCycle> logger,
+        IGapStore? gaps = null)
     {
+        _gaps = gaps;
         _reflector = reflector;
         _consolidator = consolidator;
         _reflections = reflections;
@@ -83,6 +90,8 @@ public sealed class SleepCycle : ISleepCycle
         // debugging and model comparisons, and the tables stay bounded without a separate job.
         await _diagnostics.PruneAsync(_clock.GetUtcNow() - DiagnosticsRetention, ct);
         await _experiences.PruneAsync(_clock.GetUtcNow() - ExperienceRetention, ct);
+        if (_gaps is not null)
+            await _gaps.ExpireStaleAsync(userId, _clock.GetUtcNow() - StaleGapAge, ct);
 
         var result = new SleepCycleResult
         {

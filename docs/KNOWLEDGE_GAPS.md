@@ -205,3 +205,16 @@ the evidence says they work.
 ## Status
 
 - **2026-08-20** — design recorded; awaiting approval before implementation.
+- **2026-08-20 — minimal slice implemented and live-validated.** The full loop ran
+  against qwen3:8b: five unknowns in one conversation → five `UnknownConcept` gaps with
+  turn-level provenance → one promotion (quokka, the oldest, by the deterministic tie) →
+  the template curiosity → teaching → `Satisfied` ("learned from teaching on Aug 20"),
+  curiosity closed with it, concept `Known` with evidence. Every suppression recorded:
+  four `cap-reached` rows in `gap.promotion`. Boundary bonus: qwen3 answered all five
+  unknown questions honestly ("I haven't learned what 'zarf' is yet…") — 5/5 compliance
+  with the promoted knowledge boundary this run. One legitimate surprise, recorded: the
+  LLM reflection pass, reading the odd five-unknown-words conversation, minted two
+  curiosities of its own about the *pattern* ("do these words come from a book or
+  game?") — reflection behaving as designed, and a reminder that gap restraint and
+  reflection curiosity are separate budgets sharing one voicing throttle. 1121 tests
+  green.

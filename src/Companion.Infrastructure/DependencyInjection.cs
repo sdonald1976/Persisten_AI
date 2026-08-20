@@ -46,6 +46,8 @@ public static class DependencyInjection
         services.AddScoped<IMemoryStore, MemoryStore>();
         services.AddScoped<IConceptStore, ConceptStore>();
         services.AddScoped<IConceptKnowledge, ConceptKnowledge>();
+        services.AddScoped<IGapStore, GapStore>();
+        services.AddScoped<GapPromoter>();
         services.AddScoped<IProjectStore, ProjectStore>();
         services.AddScoped<IProfileStore, ProfileStore>();
         services.AddScoped<IFeedbackStore, FeedbackStore>();
