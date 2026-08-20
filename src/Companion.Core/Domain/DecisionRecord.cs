@@ -42,6 +42,10 @@ public sealed record RetrievedMemoryTrace
 
     public required double Score { get; init; }
 
+    /// <summary>Raw topical relevance (similarity + keyword + project) — is this memory ABOUT
+    /// the query, independent of recency/importance. See RetrievalResult.Topical.</summary>
+    public double Topical { get; init; }
+
     /// <summary>Where it came from: "retrieval" (ranked) or "associative" (expansion).</summary>
     public string? Source { get; init; }
 }

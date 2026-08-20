@@ -56,15 +56,46 @@ public class TurnIntentTests
     }
 
     [Fact]
-    public void AQuestionHangingOnAnAmbiguousReference_IsClarify()
+    public void CANONICAL_AQuestionHangingOnAnAmbiguousReference_IsClarify()
     {
-        // Two possible "her"s in the window: answering means guessing; the act is to ask.
+        // THE CANONICAL PROMOTION CASE. Two possible "her"s in the window: answering means
+        // guessing; the act is to ask. In the first live shadow run the system selected
+        // clarify (0.75) here and qwen3:8b, uninstructed, answered anyway ("a roasted potato
+        // dish") without asking which sister — the first recorded turn where authoritative
+        // intent would have produced a better act than the model's default. When intent is
+        // ever promoted into generation, THIS is the case the promotion must win.
         var recent = new[] { U("My sisters Beth and Clara are both visiting this weekend.") };
         var intent = Classify(recent, "What should I cook for her?");
 
         Assert.Equal(TurnIntentClassifier.Intents.Clarify, intent.Intent);
         Assert.Contains(intent.Candidates, c => c.Intent == TurnIntentClassifier.Intents.AnswerQuestion);
     }
+
+    // ---- request/directive: evidence, never selection ----
+
+    [Theory]
+    [InlineData("Ask me a question.")]
+    [InlineData("Tell me about border collies.")]
+    [InlineData("Help me figure this out.")]
+    [InlineData("Give me two choices.")]
+    [InlineData("Don't answer that yet.")]
+    [InlineData("Remind me what we were discussing.")]
+    public void ADirective_IsRecordedAsEvidence_AndNeverSelected(string message)
+    {
+        var intent = Classify(new[] { A("Morning!") }, message);
+
+        Assert.Contains(intent.Candidates,
+            c => c.Intent == TurnIntentClassifier.Intents.RequestDirective);
+        Assert.NotEqual(TurnIntentClassifier.Intents.RequestDirective, intent.Intent);
+        Assert.True(TurnIntentClassifier.LooksDirective(message));
+    }
+
+    [Theory]
+    [InlineData("My sister Beth is visiting on Saturday.")]
+    [InlineData("What breeds make good farm dogs?")]
+    [InlineData("The greenhouse held its temperature overnight.")]
+    public void OrdinaryTurns_AreNotDirectives(string message)
+        => Assert.False(TurnIntentClassifier.LooksDirective(message));
 
     [Fact]
     public void AProgressQuestion_WithNothingRetrieved_IsAdmitUnknown()

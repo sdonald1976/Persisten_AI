@@ -48,7 +48,18 @@ public static partial class TurnIntentClassifier
 
         /// <summary>No rule cleared the bar; continue naturally.</summary>
         public const string Unknown = "unknown";
+
+        /// <summary>EVIDENCE-ONLY, never selectable: an imperative/request shape ("ask me a
+        /// question", "tell me about X"). Its candidate confidence is capped below the
+        /// selection bar on purpose — whether a general request act joins the vocabulary is
+        /// a decision the captured data makes, not this file. The live run that motivated it:
+        /// "Ask me one short question about my garden" classified follow-topic-change.</summary>
+        public const string RequestDirective = "request-directive";
     }
+
+    /// <summary>Kept strictly below <see cref="SelectionBar"/> so the directive candidate can
+    /// appear in every competing-candidates list without ever winning.</summary>
+    private const double DirectiveEvidenceConfidence = 0.55;
 
     /// <summary>Below this, the selection is "unknown" rather than the best weak guess.</summary>
     private const double SelectionBar = 0.6;
@@ -59,6 +70,12 @@ public static partial class TurnIntentClassifier
         var message = userMessage.Trim();
         var isQuestion = message.EndsWith('?');
         var candidates = new List<IntentCandidate>();
+
+        // Recorded in every branch (an imperative can carry a question mark: "Can you remind
+        // me…?"), so the shadow data shows how directives overlap the existing vocabulary.
+        if (LooksDirective(message))
+            candidates.Add(new(Intents.RequestDirective, DirectiveEvidenceConfidence,
+                "imperative/request shape — evidence-only, capped below the bar"));
 
         // Move-grounded intents first — these come from working context's read of the turn.
         if (working.Move == WorkingContext.Moves.Correction)
@@ -141,6 +158,22 @@ public static partial class TurnIntentClassifier
             Candidates = ordered,
         };
     }
+
+    /// <summary>An imperative or polite-request shape. Public because the capture path tags
+    /// inputs with it — the corpus that decides whether request/directive joins the
+    /// vocabulary needs the flag on every turn, not only the ones this file classified.</summary>
+    public static bool LooksDirective(string message) => DirectiveShape().IsMatch(message.Trim());
+
+    /// <summary>Bare-verb openers and polite requests. One general shape on purpose — the
+    /// instruction is to find out whether ONE request act is warranted, not to grow a
+    /// taxonomy of commands.</summary>
+    [GeneratedRegex(
+        @"^(please\s+)?(ask|tell|give|show|help|remind|describe|explain|list|suggest|recommend|" +
+        @"name|pick|choose|write|draft|find|check|walk me|talk me|let's|don't|do not|stop|wait|" +
+        @"hold|skip|never mind|forget|ignore|imagine|pretend|play|try|keep|start|stay|share|" +
+        @"read|summari[sz]e|say|sing|make|look)\b|^(can|could|would|will) you\b",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex DirectiveShape();
 
     /// <summary>"How's X coming along / going" — a status question about the user's own world.</summary>
     [GeneratedRegex(@"\b(how('s| is| are| was| did)\b|coming along|any progress|going (with|on with))",
