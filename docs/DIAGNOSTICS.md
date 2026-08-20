@@ -9,7 +9,7 @@ tools, which model served which job and how fast, what a recent turn actually ha
 |---|---|
 | **Chat page** | A quiet `🔧 looked up: memory.search` line under any reply she used tools for. |
 | **Dashboard → 🔬 Diagnostics** | Recent turns (context sections, model, rounds, tool calls), per-role model telemetry for the last 24h, and the durable tool-call history. |
-| `GET /diagnostics/turns` | The in-memory ring: the last 5 turns' full operational story (what was retrieved, which sections were present, generation metadata, tools advertised/used). Cleared on restart. |
+| `GET /diagnostics/turns` | The in-memory ring: the last 5 turns' full operational story (what was retrieved, which sections were present, generation metadata, tools advertised/used). Each turn carries a `traceId`, structured `retrieved` entries (content/score/source), and a `decisions` list — every system-level verdict the pipeline made (privacy, roleplay, project, curiosity, register, budget, tools, gate, extraction) with its decider and reason. See `LANGUAGE_ORGAN.md` Phase 0. Cleared on restart. |
 | `GET /diagnostics/tools?count=50` | Durable tool-call history, newest first. Survives restarts. |
 | `GET /diagnostics/models?hours=24` | Per role+model aggregates: calls, failures, average latency, token totals, last used. |
 | `diagnostics.last_turn` (her tool) | She can answer "why did you say that?" from the same ring. |

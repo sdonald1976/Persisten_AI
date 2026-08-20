@@ -32,6 +32,10 @@ public sealed record ToolCallTrace
 /// </summary>
 public sealed record TurnDiagnostics
 {
+    /// <summary>Correlates this record with the in-process <see cref="TurnTrace"/> and any
+    /// evaluation artifact derived from the turn. Unique per turn.</summary>
+    public Guid TraceId { get; init; } = Guid.NewGuid();
+
     public required DateTimeOffset At { get; init; }
 
     /// <summary>First characters of the user message (bounded), for orientation only.</summary>
@@ -41,6 +45,14 @@ public sealed record TurnDiagnostics
 
     /// <summary>Bounded summaries of the memories that entered context, with scores.</summary>
     public IReadOnlyList<string> RetrievedSummaries { get; init; } = Array.Empty<string>();
+
+    /// <summary>The same memories, structured — for harnesses that assert on retrieval
+    /// rather than read it.</summary>
+    public IReadOnlyList<RetrievedMemoryTrace> Retrieved { get; init; } = Array.Empty<RetrievedMemoryTrace>();
+
+    /// <summary>System-level decisions the turn made, in pipeline order. Every entry was
+    /// decided by OUR code or a role model we invoked — never inferred from the reply.</summary>
+    public IReadOnlyList<DecisionRecord> Decisions { get; init; } = Array.Empty<DecisionRecord>();
 
     /// <summary>Which packet sections were present this turn (mood, musing, temporal, …).</summary>
     public IReadOnlyList<string> ContextSections { get; init; } = Array.Empty<string>();

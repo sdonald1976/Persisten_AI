@@ -137,7 +137,8 @@ public sealed class HttpAvaConversationClient : IAvaConversationClient
 
         return new AvaTraceRecord(
             GetString(t, "traceId"),
-            GetString(t, "userMessage") ?? "",
+            // The ring emits userMessagePreview; userMessage kept for in-process fakes.
+            GetString(t, "userMessage") ?? GetString(t, "userMessagePreview") ?? "",
             retrieved,
             Array.Empty<AvaMemoryDecisionRecord>());
     }

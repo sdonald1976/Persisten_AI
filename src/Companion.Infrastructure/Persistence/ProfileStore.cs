@@ -77,13 +77,19 @@ public sealed class ProfileStore : IProfileStore
         string userId, string? name, string? gender, string? pronouns, CancellationToken ct = default)
     {
         var profile = await GetOrCreateAsync(userId, ct);
-        // Only overwrite the fields that were actually provided.
-        if (name is not null) profile.CompanionName = name;
-        if (gender is not null) profile.CompanionGender = gender;
-        if (pronouns is not null) profile.CompanionPronouns = pronouns;
+        // Only overwrite the fields that were actually provided. An empty (or whitespace) string
+        // is an explicit CLEAR — the column returns to null and the configured default shows
+        // through again. Null means "leave this field alone". Without the distinction, a field
+        // could be set but never unset: blanking it in the dashboard was a silent no-op.
+        if (name is not null) profile.CompanionName = Normalize(name);
+        if (gender is not null) profile.CompanionGender = Normalize(gender);
+        if (pronouns is not null) profile.CompanionPronouns = Normalize(pronouns);
         _db.Users.Update(profile);
         await _db.SaveChangesAsync(ct);
     }
+
+    private static string? Normalize(string value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     public async Task SetCompanionSpiritsAsync(
         string userId, double spirits, DateTimeOffset nudgedAt, CancellationToken ct = default)

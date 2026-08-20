@@ -238,6 +238,28 @@ public class PersonalityTests
     }
 
     [Fact]
+    public async Task ClearingAnIdentityField_RestoresTheConfiguredDefault()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var profiles = scope.ServiceProvider.GetRequiredService<IProfileStore>();
+        var personality = scope.ServiceProvider.GetRequiredService<IPersonalityService>();
+
+        await profiles.SetIdentityAsync(User, "Nova", "female", "she/her");
+
+        // Null leaves a field alone; an empty string is an explicit clear. Before this
+        // distinction, a stored field could never be unset — blanking it was a silent no-op
+        // and the dashboard forever redisplayed a default it could not tell from a choice.
+        await profiles.SetIdentityAsync(User, "", null, null);
+
+        var profile = await profiles.GetOrCreateAsync(User);
+        Assert.Null(profile.CompanionName);
+        Assert.Equal("female", profile.CompanionGender);
+
+        Assert.Equal("Ava", personality.Identity(profile).Name);
+    }
+
+    [Fact]
     public async Task DefaultIdentity_IsFemale_AndReachesThePrompt()
     {
         await using var host = new TestHost(Now);
