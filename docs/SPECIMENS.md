@@ -5,6 +5,27 @@ evaluation material. Each is referenced from `LANGUAGE_ORGAN.md`, which carries 
 analysis; this file carries the raw material. Do not edit transcripts — they are
 evidence, not prose.
 
+## Expression-fidelity specimens (2026-08-20, normal use, reported fragments)
+
+Four failure classes from live conversation, preserved as the design tests for Phase 5
+(`RESPONSE_PLAN.md`). Fragments as reported; full transcripts live on the machine that
+ran them.
+
+- **Correction ownership.** Ava attributed "We're all mad here" to the Mad Hatter; the
+  user corrected: *"It was actually the Cheshire Cat."* Desired state: AVA was wrong and
+  the USER corrected her. A reply shaped like "we both slipped up" redistributes an
+  error the system knows the owner of — a state-fidelity failure, not a style choice.
+- **Invented shared history.** Thematic conversation must not become *"remember when we
+  went down the rabbit hole together"* unless such shared history exists as an
+  Ava-owned Shared memory. Inventing a shared past is worse than inventing a fact: it
+  forges the relationship itself.
+- **Correction obedience.** The user corrected an interpretation — *"They DON'T
+  BREAK"* — and the prior model interpretation must lose authority immediately: not be
+  defended, softened, or rephrased back.
+- **Irrelevant embellishment.** Retrieved-but-unneeded content (pizza, spicy food,
+  margaritas, Precious, calzones) woven in because it was in the packet. The Epcot
+  specimen below is the fully-preserved member of this class.
+
 ## Epcot (2026-08-20, normal use, other machine, qwen-family chat model)
 
 Analysis: `LANGUAGE_ORGAN.md` § "Preserved specimens" — the truth / topical-similarity /
