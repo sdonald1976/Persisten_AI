@@ -407,19 +407,34 @@ app.MapPut("/user", async (UserRequest req, IUserContext user, IProfileStore sto
 });
 
 // The companion's identity (name / gender / pronouns), separate from its personality.
+// The response carries BOTH the effective identity and the raw stored overrides: without the
+// `stored` block, a caller cannot tell "Ava because you set it" from "Ava because nothing is
+// set", and a field could never be shown as clearable. PUT semantics: null = leave alone,
+// empty string = clear back to the configured default.
+static object IdentityResponse(Companion.Core.Domain.UserProfile profile, Companion.Core.Domain.CompanionIdentity id) => new
+{
+    id.Name,
+    id.Gender,
+    id.Pronouns,
+    stored = new
+    {
+        name = profile.CompanionName,
+        gender = profile.CompanionGender,
+        pronouns = profile.CompanionPronouns,
+    },
+};
+
 app.MapGet("/identity", async (IUserContext user, IProfileStore store, IPersonalityService personality, CancellationToken ct) =>
 {
     var profile = await store.GetOrCreateAsync(user.UserId, ct);
-    var id = personality.Identity(profile);
-    return Results.Ok(new { id.Name, id.Gender, id.Pronouns });
+    return Results.Ok(IdentityResponse(profile, personality.Identity(profile)));
 });
 
 app.MapPut("/identity", async (IdentityRequest req, IUserContext user, IProfileStore store, IPersonalityService personality, CancellationToken ct) =>
 {
     await store.SetIdentityAsync(user.UserId, req.Name, req.Gender, req.Pronouns, ct);
     var profile = await store.GetOrCreateAsync(user.UserId, ct);
-    var id = personality.Identity(profile);
-    return Results.Ok(new { id.Name, id.Gender, id.Pronouns });
+    return Results.Ok(IdentityResponse(profile, personality.Identity(profile)));
 });
 
 // Thumbs up/down for a rich UI. Routed through the brain so it uses the exact same last-exchange

@@ -3,8 +3,14 @@ using System.Text.Json;
 
 namespace Companion.Soak;
 
-/// <summary>One turn as the harness saw it: what was said, what came back, and what it cost.</summary>
-public sealed record Turn(string Sent, string Reply, int PacketTokens, int? PromptTokens, int Rounds, TimeSpan Took);
+/// <summary>One turn as the harness saw it: what was said, what came back, what it cost — and,
+/// from the companion's own diagnostics, what the system decided along the way. The decision
+/// fields let a scenario assert on what the ARCHITECTURE did, not just on the reply's prose.</summary>
+public sealed record Turn(
+    string Sent, string Reply, int PacketTokens, int? PromptTokens, int Rounds, TimeSpan Took,
+    string? TraceId = null,
+    IReadOnlyList<string>? Sections = null,
+    IReadOnlyList<string>? Decisions = null);
 
 /// <summary>
 /// The companion as a caller meets it — over HTTP, with no access to its internals.
@@ -56,28 +62,46 @@ public sealed class Api
         var took = DateTimeOffset.UtcNow - started;
 
         var reply = doc.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
-        var (packet, prompt, rounds) = await LastTurnCostAsync();
-        return new Turn(message, reply, packet, prompt, rounds, took);
+        var last = await LastTurnAsync();
+        return new Turn(message, reply, last.Packet, null, last.Rounds, took,
+            last.TraceId, last.Sections, last.Decisions);
     }
 
-    /// <summary>What the most recent turn cost, from the companion's own diagnostics.</summary>
-    private async Task<(int Packet, int? Prompt, int Rounds)> LastTurnCostAsync()
+    private sealed record LastTurn(
+        int Packet, int Rounds, string? TraceId,
+        IReadOnlyList<string> Sections, IReadOnlyList<string> Decisions);
+
+    /// <summary>The most recent turn's cost and decisions, from the companion's own diagnostics.
+    /// Decisions are flattened to "stage=verdict" strings — enough for a scenario to assert on.</summary>
+    private async Task<LastTurn> LastTurnAsync()
     {
+        var empty = new LastTurn(0, 0, null, Array.Empty<string>(), Array.Empty<string>());
         try
         {
             var turns = await _http.GetFromJsonAsync<JsonElement>("/diagnostics/turns");
             if (turns.ValueKind != JsonValueKind.Array || turns.GetArrayLength() == 0)
-                return (0, null, 0);
+                return empty;
 
             var last = turns[0];
             var packet = last.TryGetProperty("packetTokens", out var p) ? p.GetInt32() : 0;
             var rounds = last.TryGetProperty("generationRounds", out var r) && r.ValueKind == JsonValueKind.Number
                 ? r.GetInt32() : 0;
-            return (packet, null, rounds);
+            var traceId = last.TryGetProperty("traceId", out var id) && id.ValueKind == JsonValueKind.String
+                ? id.GetString() : null;
+            var sections = last.TryGetProperty("contextSections", out var cs) && cs.ValueKind == JsonValueKind.Array
+                ? cs.EnumerateArray().Select(s => s.GetString() ?? "").Where(s => s.Length > 0).ToList()
+                : (IReadOnlyList<string>)Array.Empty<string>();
+            var decisions = last.TryGetProperty("decisions", out var ds) && ds.ValueKind == JsonValueKind.Array
+                ? ds.EnumerateArray().Select(d =>
+                        (d.TryGetProperty("stage", out var st) ? st.GetString() : null) + "=" +
+                        (d.TryGetProperty("verdict", out var v) ? v.GetString() : null))
+                    .ToList()
+                : (IReadOnlyList<string>)Array.Empty<string>();
+            return new LastTurn(packet, rounds, traceId, sections, decisions);
         }
         catch (Exception)
         {
-            return (0, null, 0);
+            return empty;
         }
     }
 

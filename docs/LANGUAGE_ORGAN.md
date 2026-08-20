@@ -176,4 +176,13 @@ speculative inner life, nothing that cannot say where it came from.
 ## Status
 
 - **2026-08-20** — inspection complete, plan approved, this document recorded.
-  Phase 0 begun. No behavior changes yet.
+- **2026-08-20 — Phase 0 landed.** Every turn now carries a `TraceId` shared between the
+  in-process `TurnTrace` and the diagnostics ring, and a `Decisions` list recording each
+  system-level verdict (privacy, roleplay, derived-memory, project, curiosity, register,
+  packet budget, tools, reply gate, extraction) with decider and reason. Retrieval enters
+  the ring structured (content/score/source) beside the prose summaries. The soak
+  harness's `Turn` record now reads trace id, sections, and decisions per turn; the
+  synthetic evaluator's HTTP client no longer parses fields that don't exist. The
+  identity API distinguishes stored overrides from configured defaults, and an empty
+  string on `PUT /identity` explicitly clears a field (blanking it was a silent no-op).
+  No behavior changed; 1007 tests green.

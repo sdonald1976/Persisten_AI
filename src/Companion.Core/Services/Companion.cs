@@ -285,6 +285,40 @@ public sealed class Companion : ICompanion
             _logger.LogDebug("In-character turn for {UserId}: derived memory skipped.", userId);
         var extractFacts = remember && !inCharacter;
 
+        // Phase 0 of the language-organ plan (docs/LANGUAGE_ORGAN.md): the system-level
+        // decisions this turn makes are recorded in pipeline order, so the diagnostics ring
+        // answers "what did OUR architecture decide?" separately from "what did the model say?".
+        // Recording adds no authority — every entry below was already being decided.
+        var traceId = Guid.NewGuid();
+        var decisions = new List<DecisionRecord>
+        {
+            new()
+            {
+                Stage = "privacy", Decider = "model",
+                Verdict = sensitive ? "sensitive" : "not-sensitive",
+            },
+            new()
+            {
+                Stage = "roleplay", Decider = "rule",
+                Verdict = inCharacter ? "in-character" : "plain",
+            },
+            new()
+            {
+                Stage = "memory.derived", Decider = "rule",
+                Verdict = extractFacts ? "enabled" : "disabled",
+                Reason = extractFacts ? null
+                    : sensitive ? "privacy classifier marked the turn sensitive"
+                    : (conversation?.DoNotRemember ?? false) ? "do-not-remember conversation"
+                    : !_options.EnableExtraction ? "extraction disabled"
+                    : "in-character turn",
+            },
+            new()
+            {
+                Stage = "project", Decider = "rule",
+                Verdict = projectContext.ResolvedProjectName ?? "none",
+            },
+        };
+
         // 4. Retrieve relevant memories, boosted by the resolved project.
         var outcome = await _retriever.RetrieveAsync(userId, promptText, projectContext.ResolvedProjectName, ct);
         var associative = await _associativeRecall.ExpandAsync(
@@ -316,6 +350,12 @@ public sealed class Companion : ICompanion
         var musing = await RelevantMusingAsync(userId, outcome.QueryEmbedding, now, ct);
         var curiosity = await _reflections.GetNextToVoiceAsync(
             userId, now, TimeSpan.FromHours(_options.CuriosityCooldownHours), ct);
+        decisions.Add(new DecisionRecord
+        {
+            Stage = "curiosity", Decider = "rule",
+            Verdict = curiosity is null ? "none-offered" : "offered",
+            Reason = curiosity?.Question,
+        });
 
         // 4d. Her own inner state — spirits + energy — colors the reply's tone (and answers
         // "how are you?" honestly). Read AFTER the mood capture above, so this turn's emotional
@@ -368,10 +408,31 @@ public sealed class Companion : ICompanion
                 userId, _options.PromptTokenBudget, string.Join(", ", packet.TrimmedSections));
         }
 
+        decisions.Add(new DecisionRecord
+        {
+            Stage = "register", Decider = "rule",
+            Verdict = packet.RegisterNote is null ? "unconstrained" : "advised",
+            Reason = packet.RegisterNote,
+        });
+        decisions.Add(new DecisionRecord
+        {
+            Stage = "packet.budget", Decider = "rule",
+            Verdict = packet.TrimmedSections.Count == 0 ? "fit" : "trimmed",
+            Reason = packet.TrimmedSections.Count == 0
+                ? null : string.Join(", ", packet.TrimmedSections),
+        });
+
         var planningContext = BuildPlanningContext(recent, selectedMemories, projectContext.ResolvedProjectName);
         var toolOutcome = await _toolLoop.RunAsync(userId, planningContext, promptText, ct);
         if (toolOutcome.ResultsSection is not null)
             packet = packet with { ToolResults = toolOutcome.ResultsSection };
+        decisions.Add(new DecisionRecord
+        {
+            Stage = "tools",
+            Decider = toolOutcome.PlanningRounds > 0 ? "model" : "rule",
+            Verdict = toolOutcome.Calls.Count == 0
+                ? "none" : string.Join(",", toolOutcome.Calls.Select(c => c.Tool)),
+        });
 
         // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
@@ -402,6 +463,13 @@ public sealed class Companion : ICompanion
         if (_gate.IsEnabled)
         {
             var verdict = await _gate.ReviewAsync(response, promptText, ct);
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "reply.gate", Decider = "model",
+                Verdict = verdict.Allow ? "allow"
+                    : _safety.Mode == GateMode.Enforce ? "block-enforced" : "block-shadow",
+                Reason = verdict.Allow ? null : verdict.Reason,
+            });
             if (!verdict.Allow)
             {
                 var enforcing = _safety.Mode == GateMode.Enforce;
@@ -477,6 +545,16 @@ public sealed class Companion : ICompanion
         if (curiosity is not null)
             await _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct);
 
+        if (extractFacts)
+        {
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "extraction", Decider = "model",
+                Verdict = $"accepted={extraction.Accepted} merged={extraction.Merged} " +
+                          $"review={extraction.NeedsReview} rejected={extraction.Rejected}",
+            });
+        }
+
         // 11. Record the trace for debugging (`/why`).
         _logger.LogInformation(
             "Turn complete for {UserId}: {Selected} memories, project={Project}, " +
@@ -490,12 +568,21 @@ public sealed class Companion : ICompanion
         // The operational record for "why did you say that?" — powers diagnostics.last_turn.
         _turnLog.Record(userId, new TurnDiagnostics
         {
+            TraceId = traceId,
             At = now,
             UserMessagePreview = promptText.Length <= 80 ? promptText : promptText[..80],
             MemoriesRetrieved = selectedMemories.Count,
             RetrievedSummaries = selectedMemories.Take(5)
                 .Select(r => (r.Memory.Content.Length <= 120 ? r.Memory.Content : r.Memory.Content[..120])
                     + $" (score {r.Score:F2})").ToList(),
+            Retrieved = selectedMemories.Take(5)
+                .Select(r => new RetrievedMemoryTrace
+                {
+                    Content = r.Memory.Content.Length <= 120 ? r.Memory.Content : r.Memory.Content[..120],
+                    Score = r.Score,
+                    Source = r.Source == RetrievalSource.Associative ? "associative" : "retrieval",
+                }).ToList(),
+            Decisions = decisions,
             ContextSections = PresentSections(packet),
             DetectedProject = projectContext.ResolvedProjectName,
             InCharacterTurn = inCharacter,
@@ -512,6 +599,7 @@ public sealed class Companion : ICompanion
 
         return new TurnTrace
         {
+            TraceId = traceId,
             UserMessage = promptText,
             Status = status,
             PendingClarificationId = pendingId,

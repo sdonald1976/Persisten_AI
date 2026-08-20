@@ -7,6 +7,9 @@ namespace Companion.Core.Domain;
 /// </summary>
 public sealed record TurnTrace
 {
+    /// <summary>Correlates this trace with the diagnostics ring entry for the same turn.</summary>
+    public Guid TraceId { get; init; } = Guid.NewGuid();
+
     public required string UserMessage { get; init; }
 
     /// <summary>

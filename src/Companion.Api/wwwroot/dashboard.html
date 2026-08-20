@@ -338,10 +338,13 @@
 
       mainEl.innerHTML =
         card('Identity',
-          '<label>Name</label><input type="text" id="idName" value="' + esc(identity.name) + '">' +
-          '<label>Gender</label><input type="text" id="idGender" value="' + esc(identity.gender) + '">' +
-          '<label>Pronouns</label><input type="text" id="idPronouns" value="' + esc(identity.pronouns) + '">' +
-          '<div class="row"><button class="save" id="saveIdentity">Save identity</button><span class="saved" id="savedIdentity">✓ saved</span></div>') +
+          // The input holds what is actually STORED; the placeholder shows the default that
+          // applies while the field is empty. Blanking a field and saving clears the override.
+          '<label>Name</label><input type="text" id="idName" value="' + esc(identity.stored.name || '') + '" placeholder="' + esc(identity.name) + ' (default)">' +
+          '<label>Gender</label><input type="text" id="idGender" value="' + esc(identity.stored.gender || '') + '" placeholder="' + esc(identity.gender) + ' (default)">' +
+          '<label>Pronouns</label><input type="text" id="idPronouns" value="' + esc(identity.stored.pronouns || '') + '" placeholder="' + esc(identity.pronouns) + ' (default)">' +
+          '<div class="row"><button class="save" id="saveIdentity">Save identity</button><span class="saved" id="savedIdentity">✓ saved</span></div>' +
+          '<div class="meta" style="margin-top:6px">Empty = use the configured default. Save with a field blank to clear it.</div>') +
         card('Personality preset (the base voice)',
           '<select id="preset">' + presets + '</select>' +
           '<div class="row"><button class="save" id="savePreset">Switch personality</button><span class="saved" id="savedPreset">✓ switched</span></div>') +
@@ -354,10 +357,12 @@
 
       wireSave('saveIdentity', 'savedIdentity', () => fetch('/identity', {
         method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        // Empty string is meaningful: it clears the stored override (null would mean
+        // "leave alone" and made clearing impossible — the old silent no-op).
         body: JSON.stringify({
-          name: document.getElementById('idName').value.trim() || null,
-          gender: document.getElementById('idGender').value.trim() || null,
-          pronouns: document.getElementById('idPronouns').value.trim() || null,
+          name: document.getElementById('idName').value.trim(),
+          gender: document.getElementById('idGender').value.trim(),
+          pronouns: document.getElementById('idPronouns').value.trim(),
         }),
       }));
       wireSave('savePreset', 'savedPreset', () => fetch('/personality', {
