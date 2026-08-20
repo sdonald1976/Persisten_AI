@@ -14,6 +14,13 @@ internal static class DiagnosticsEndpoints
         app.MapGet("/diagnostics/turns", (IUserContext user, ITurnTraceLog log) =>
             Results.Ok(log.Recent(user.UserId, 5)));
 
+        // Durable turn history, newest first: the decision evidence that survives a restart —
+        // working-context reading, intent, retrieval with scores, decisions. Bounded previews;
+        // private turns keep structure only.
+        app.MapGet("/diagnostics/turns/history", async (
+            IUserContext user, IDiagnosticsStore diagnostics, int? count, CancellationToken ct) =>
+            Results.Ok(await diagnostics.GetRecentTurnsAsync(user.UserId, count ?? 20, ct)));
+
         // Durable tool-call history, newest first: when and whether she used her tools.
         app.MapGet("/diagnostics/tools", async (
             IUserContext user, IDiagnosticsStore diagnostics, int? count, CancellationToken ct) =>

@@ -22,6 +22,13 @@ public interface IDiagnosticsStore
     Task<IReadOnlyList<ModelRoleStats>> GetModelStatsAsync(
         DateTimeOffset since, CancellationToken ct = default);
 
+    /// <summary>Persists one turn's decision evidence. Same no-throw guarantee.</summary>
+    Task RecordTurnAsync(TurnRecord record, CancellationToken ct = default);
+
+    /// <summary>Most recent turn records for the user, newest first.</summary>
+    Task<IReadOnlyList<TurnRecord>> GetRecentTurnsAsync(
+        string userId, int count, CancellationToken ct = default);
+
     /// <summary>Deletes records older than the cutoff; returns how many went.</summary>
     Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default);
 }

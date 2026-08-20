@@ -110,6 +110,48 @@ public class TurnObservabilityTests
     }
 
     [Fact]
+    public async Task EveryTurn_LeavesADurableRecord_MatchingTheRing()
+    {
+        var (host, conversationId) = await SeededSessionAsync();
+        await using var _ = host;
+
+        var trace = await SayAsync(host, conversationId, "I tested the Jetson Nano deployment at home.");
+
+        var record = Assert.Single(await host.Services.GetRequiredService<IDiagnosticsStore>()
+            .GetRecentTurnsAsync(User, 5));
+        Assert.Equal(trace.TraceId, record.Id);
+        Assert.Equal("new-topic", record.Move);
+        Assert.Contains("Jetson", record.UserPreview);
+        Assert.NotNull(record.AssistantPreview);
+        Assert.Contains("intent=", record.Decisions);
+        Assert.Contains("Jetson", record.RetrievalQuery);
+        Assert.NotNull(record.Retrieved);
+    }
+
+    [Fact]
+    public async Task APrivateTurn_KeepsStructure_ButNoWords()
+    {
+        var (host, conversationId) = await SeededSessionAsync();
+        await using var _ = host;
+
+        using (var scope = host.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IConversationStore>()
+                .SetDoNotRememberAsync(conversationId, User, true);
+        }
+        await SayAsync(host, conversationId, "I had a nice walk this afternoon.");
+
+        var record = Assert.Single(await host.Services.GetRequiredService<IDiagnosticsStore>()
+            .GetRecentTurnsAsync(User, 5));
+        Assert.Null(record.UserPreview);
+        Assert.Null(record.AssistantPreview);
+        Assert.Null(record.RetrievalQuery);
+        Assert.Null(record.Retrieved);
+        Assert.NotNull(record.Move);              // structure survives
+        Assert.Contains("memory.derived=disabled", record.Decisions);
+    }
+
+    [Fact]
     public async Task PrivateConversation_IsVisibleInTheDecisions()
     {
         var (host, conversationId) = await SeededSessionAsync();

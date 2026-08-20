@@ -1,4 +1,4 @@
-using Companion.Core.Abstractions;
+﻿using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Companion.Core.Services;
 using Companion.Infrastructure.Seeding;
@@ -10,7 +10,7 @@ namespace Companion.Tests;
 
 /// <summary>
 /// Phase 1 of the language-organ plan: when the companion asks a question and the user answers
-/// with a short elliptical reply, the SYSTEM binds the answer to the question — in the packet,
+/// with a short elliptical reply, the SYSTEM binds the answer to the question â€” in the packet,
 /// as an authoritative reading, and in the retrieval query. The reference failure is real and
 /// verbatim: she asked "What's your favorite kind of magic?", the user said "Additive.", and
 /// the chat model reinterpreted the reply as being about the relationship. The question was in
@@ -53,7 +53,7 @@ public class AnswerBindingTests
     [Fact]
     public void AQuestionTalkedPast_DoesNotBind()
     {
-        // She asked mid-message and then moved on — the question is not left hanging.
+        // She asked mid-message and then moved on â€” the question is not left hanging.
         var recent = new[] { Assistant("What's your favorite kind of magic? Anyway, I repotted the ferns.") };
         Assert.Null(AnswerBindingDetector.Detect(recent, "Additive."));
     }
@@ -174,16 +174,17 @@ public class AnswerBindingTests
         {
             trace = await scope.ServiceProvider.GetRequiredService<ICompanion>()
                 .RespondAsync(UserId, conversationId,
-                    "Never mind that — I finally got the irrigation pump running this morning.");
+                    "Never mind that â€” I finally got the irrigation pump running this morning.");
         }
 
         Assert.DoesNotContain("## Reading this turn", trace.Packet.Render());
         var turn = Assert.Single(host.Services.GetRequiredService<ITurnTraceLog>().Recent(UserId, 1));
         Assert.Equal("new-topic", turn.Decisions.Single(d => d.Stage == "interpretation").Verdict);
 
-        // The hanging question is not lost — it is held as working-context state, not a hijack.
+        // The hanging question is not lost â€” it is held as working-context state, not a hijack.
         Assert.NotNull(turn.WorkingContext);
         Assert.Contains(turn.WorkingContext!.OpenQuestions,
             q => q.Question == "What's your favorite kind of magic?");
     }
 }
+

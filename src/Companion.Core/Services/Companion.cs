@@ -1,4 +1,4 @@
-using Companion.Core.Abstractions;
+﻿using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -7,13 +7,13 @@ namespace Companion.Core.Services;
 
 /// <summary>
 /// Orchestrates one conversation turn:
-/// store message → (resolve a pending clarification, or detect a new ambiguity) →
-/// resolve project &amp; build project context → retrieve memories → assemble bounded context →
-/// generate → store → extract &amp; validate memories → update project/open-loop state → trace.
+/// store message â†’ (resolve a pending clarification, or detect a new ambiguity) â†’
+/// resolve project &amp; build project context â†’ retrieve memories â†’ assemble bounded context â†’
+/// generate â†’ store â†’ extract &amp; validate memories â†’ update project/open-loop state â†’ trace.
 ///
 /// Ambiguity is a control-flow state, not a prompt note: when a project reference is materially
 /// ambiguous the turn stores a deterministic clarifying question and a pending-resolution record
-/// and STOPS — no retrieval-for-answer, no chat generation, no memory extraction, no project
+/// and STOPS â€” no retrieval-for-answer, no chat generation, no memory extraction, no project
 /// mutation. The next message tries to resolve that pending item before being treated as new.
 /// </summary>
 public sealed class Companion : ICompanion
@@ -26,12 +26,13 @@ public sealed class Companion : ICompanion
     private readonly IContextAssembler _assembler;
     private readonly IReplyGenerator _replyGenerator;
 
-    // All three optional and defaulted, so every existing construction site — and every test —
+    // All three optional and defaulted, so every existing construction site â€” and every test â€”
     // keeps working with a gate that is simply not there.
     private readonly IReplyGate _gate;
     private readonly SafetyOptions _safety;
     private readonly IShadowRecorder _shadow;
     private readonly ICognitiveCapture _capture;
+    private readonly IDiagnosticsStore? _diagnostics;
     private readonly IPersonalityService _personality;
     private readonly IMemoryPipeline _pipeline;
     private readonly IProjectUpdater _projectUpdater;
@@ -88,12 +89,14 @@ public sealed class Companion : ICompanion
         IReplyGate? gate = null,
         IOptions<SafetyOptions>? safety = null,
         IShadowRecorder? shadow = null,
-        ICognitiveCapture? capture = null)
+        ICognitiveCapture? capture = null,
+        IDiagnosticsStore? diagnostics = null)
     {
         _gate = gate ?? new AlwaysOpenGate();
         _safety = safety?.Value ?? new SafetyOptions();
         _shadow = shadow ?? new NoShadowRecorder();
         _capture = capture ?? new NoCognitiveCapture();
+        _diagnostics = diagnostics;
         _conversations = conversations;
         _projectContext = projectContext;
         _pending = pending;
@@ -132,7 +135,7 @@ public sealed class Companion : ICompanion
         if (string.IsNullOrWhiteSpace(userMessage))
             throw new ArgumentException("User message must not be empty.", nameof(userMessage));
 
-        // The conversation must exist and belong to this user before ANY work happens — no message
+        // The conversation must exist and belong to this user before ANY work happens â€” no message
         // storage, retrieval, generation, extraction, or project/open-loop mutation on an unknown
         // or foreign conversation. A missing conversation is an invalid request, not a new one.
         var conversation = await _conversations.GetConversationAsync(conversationId, userId, ct);
@@ -145,7 +148,7 @@ public sealed class Companion : ICompanion
         // the gap describes the actual absence, not this very turn.
         var lastSeenBefore = await _conversations.GetLastMessageAtAsync(userId, ct);
 
-        // 1–2. Store the raw user message. (Raw storage is unconditional — private turns skip
+        // 1â€“2. Store the raw user message. (Raw storage is unconditional â€” private turns skip
         // durable *derived* memory, see the extraction gate below, not conversation storage.)
         var userMsg = await StoreMessageAsync(userId, conversationId, MessageRole.User, userMessage, replyToId: null, now, ct);
 
@@ -221,7 +224,7 @@ public sealed class Companion : ICompanion
             pending.ResolvedAt = now;
             await _pending.UpdateAsync(pending, ct);
 
-            const string ack = "No problem — I've dropped that. What would you like to do instead?";
+            const string ack = "No problem â€” I've dropped that. What would you like to do instead?";
             await StoreMessageAsync(userId, conversationId, MessageRole.Assistant, ack, replyMsg.Id, _clock.GetUtcNow(), ct);
             return ClarificationTrace(replyMsg.Content, ack, TurnStatus.ClarificationCancelled, pending.Id);
         }
@@ -233,7 +236,7 @@ public sealed class Companion : ICompanion
             return ClarificationTrace(replyMsg.Content, pending.Question, TurnStatus.ClarificationRequested, pending.Id);
         }
 
-        // Resolved → record the audit trail and resume the ORIGINAL request with the chosen project.
+        // Resolved â†’ record the audit trail and resume the ORIGINAL request with the chosen project.
         pending.Status = ClarificationStatus.Resolved;
         pending.ResolvedProjectId = decision.ProjectId;
         pending.ResolutionNote = decision.Note;
@@ -243,11 +246,11 @@ public sealed class Companion : ICompanion
         var forced = await _projectContext.BuildForProjectAsync(userId, pending.OriginalText, decision.ProjectId!.Value, ct);
 
         // Extract from the ORIGINAL message (now disambiguated), never from the terse reply
-        // ("the buoy one") — so a clarification answer never becomes a durable memory on its own.
+        // ("the buoy one") â€” so a clarification answer never becomes a durable memory on its own.
         var originalMsg = await _conversations.GetMessageAsync(pending.OriginalMessageId, userId, ct) ?? replyMsg;
 
         _logger.LogInformation(
-            "Resolved clarification {Pending} for {UserId} → project {Project} ({Note})",
+            "Resolved clarification {Pending} for {UserId} â†’ project {Project} ({Note})",
             pending.Id, userId, decision.ProjectId, decision.Note);
 
         return await CompleteTurnAsync(
@@ -255,7 +258,7 @@ public sealed class Companion : ICompanion
             extractionSource: originalMsg, replyToId: replyMsg.Id, TurnStatus.ClarificationResolved, pending.Id, tokenSink, now, lastSeenBefore, ct);
     }
 
-    // ---- the normal turn tail (retrieve → generate → store → extract → update) ----
+    // ---- the normal turn tail (retrieve â†’ generate â†’ store â†’ extract â†’ update) ----
 
     private async Task<TurnTrace> CompleteTurnAsync(
         string userId, Guid conversationId, string promptText, ProjectContext projectContext,
@@ -263,7 +266,7 @@ public sealed class Companion : ICompanion
         IProgress<string>? tokenSink, DateTimeOffset now, DateTimeOffset? lastSeenBefore, CancellationToken ct)
     {
         // Privacy gate, computed up front: a "don't remember this conversation" turn produces a
-        // reply but writes NO durable derived memory — no extraction, no project/open-loop updates,
+        // reply but writes NO durable derived memory â€” no extraction, no project/open-loop updates,
         // and no emotional signal. Raw messages are still stored for in-session context.
         var conversation = await _conversations.GetConversationAsync(conversationId, userId, ct);
         var sensitive = await _privacy.ShouldSkipDerivedMemoryAsync(promptText, ct);
@@ -288,7 +291,7 @@ public sealed class Companion : ICompanion
         // Phase 0 of the language-organ plan (docs/LANGUAGE_ORGAN.md): the system-level
         // decisions this turn makes are recorded in pipeline order, so the diagnostics ring
         // answers "what did OUR architecture decide?" separately from "what did the model say?".
-        // Recording adds no authority — every entry below was already being decided.
+        // Recording adds no authority â€” every entry below was already being decided.
         var traceId = Guid.NewGuid();
         var decisions = new List<DecisionRecord>
         {
@@ -327,10 +330,10 @@ public sealed class Companion : ICompanion
             .ToList();
 
         // 3c. Working context (language-organ Phase 1): the system's explicit read of the
-        // conversation — open questions, topic, salient entities, what the user's references
+        // conversation â€” open questions, topic, salient entities, what the user's references
         // point at, and what kind of turn this is. Interpretation was the chat model's job by
         // default, and it demonstrably bent short answers toward whatever else was in the
-        // prompt. Deterministic, ephemeral (recent dialogue stays dialogue — none of this is
+        // prompt. Deterministic, ephemeral (recent dialogue stays dialogue â€” none of this is
         // stored), and traced in full on the diagnostics ring.
         var working = WorkingContext.Read(
             recent, promptText, projectContext.ResolvedProjectName,
@@ -338,7 +341,7 @@ public sealed class Companion : ICompanion
         decisions.Add(new DecisionRecord
         {
             Stage = "interpretation", Decider = "rule",
-            Verdict = working.Move,
+            Verdict = working.Move.ToKebab(),
             Reason = working.BoundQuestion
                 ?? (working.ResolvedReference is null ? null
                     : $"{working.ReferenceMarkers.FirstOrDefault()} -> {working.ResolvedReference}"),
@@ -348,9 +351,9 @@ public sealed class Companion : ICompanion
 
         // The resolution as extraction needs to know it. Exact/unambiguous resolutions are
         // consumed (the extractor is told, the fact cites both utterances); a guess is passed
-        // as a WARNING only — the extractor never sees it, and the pipeline uses it to refuse
+        // as a WARNING only â€” the extractor never sees it, and the pipeline uses it to refuse
         // candidates that name a person the user did not name this turn. A guessed referent
-        // must not become an authoritative fact because retrieval found it useful — and
+        // must not become an authoritative fact because retrieval found it useful â€” and
         // neither must the chat model's own conversational guess.
         ReferenceResolution? extractionResolution =
             working is { ResolvedReference: { } refValue, ResolutionConfidence: { } refConfidence }
@@ -365,19 +368,19 @@ public sealed class Companion : ICompanion
             {
                 Stage = "reference.extraction", Decider = "rule",
                 Verdict = extractionResolution.Consumable
-                    ? $"consumed-{extractionResolution.Confidence}" : "withheld-guess",
+                    ? $"consumed-{extractionResolution.Confidence.ToKebab()}" : "withheld-guess",
                 Reason = $"{working.ReferenceMarkers.FirstOrDefault()} -> {working.ResolvedReference}",
             });
         }
 
-        // 4. Retrieve relevant memories, boosted by the resolved project — searching what the
+        // 4. Retrieve relevant memories, boosted by the resolved project â€” searching what the
         // message MEANS (question + answer, reference + referent), not just what it says.
         var outcome = await _retriever.RetrieveAsync(userId, retrievalQuery, projectContext.ResolvedProjectName, ct);
         var associative = await _associativeRecall.ExpandAsync(
             userId, retrievalQuery, outcome.Selected, _options.MaxAssociativeMemories, ct);
         var selectedMemories = outcome.Selected.Concat(associative).ToList();
 
-        // 4a. Turn intent (language-organ Phase 2), in SHADOW: what should this turn DO —
+        // 4a. Turn intent (language-organ Phase 2), in SHADOW: what should this turn DO â€”
         // answer, acknowledge, clarify, admit ignorance? Deterministic over working context +
         // retrieval, recorded and captured, and deliberately NOT given to the packet: it
         // gains authority over generation only if the shadow data shows the classifications
@@ -387,13 +390,31 @@ public sealed class Companion : ICompanion
         decisions.Add(new DecisionRecord
         {
             Stage = "intent", Decider = "rule",
-            Verdict = intent.Intent,
+            Verdict = intent.Intent.ToKebab(),
             Reason = intent.Reason,
         });
         var focal = RelevanceSignals.Focal(promptText, outcome.Selected);
 
+        // The one controlled promotion (language-organ Phase 2): when the flag is on and the
+        // system selected clarify â€” which the classifier only does for a QUESTION hanging on
+        // guess-level ambiguity â€” the packet's authoritative interpretation section carries
+        // one instruction preferring a short clarifying question over guessing. Narrowest
+        // possible authority: one intent, one condition, one line, its own flag, off by
+        // default, measured by the canonical soak stage. Nothing else is promoted.
+        if (_options.PromoteClarifyIntent && intent.Intent == TurnIntent.Clarify)
+        {
+            interpretationNote = Prompts.Format("intent.clarify",
+                ("marker", working.ReferenceMarkers.FirstOrDefault() ?? "their reference"));
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "intent.promotion", Decider = "config",
+                Verdict = "clarify-injected",
+                Reason = "PromoteClarifyIntent is on; question turn with unresolvable ambiguity",
+            });
+        }
+
         // When the query was rewritten and capture is on, also retrieve with the RAW message
-        // and trace both result sets — the before/after evidence for whether resolution
+        // and trace both result sets â€” the before/after evidence for whether resolution
         // actually changes what reaches the prompt. Costs one extra embedding on rewritten
         // turns only, and only while measuring.
         IReadOnlyList<string> rawQueryRetrieved = Array.Empty<string>();
@@ -414,7 +435,7 @@ public sealed class Companion : ICompanion
             await CaptureMoodAsync(userId, extractionSource, projectContext, now, ct);
 
             // A dated plan in the user's words ("interview on Thursday") becomes an anticipation:
-            // encouragement on the day, a follow-up after — the caring-at-the-right-moment layer.
+            // encouragement on the day, a follow-up after â€” the caring-at-the-right-moment layer.
             await CaptureAnticipationAsync(userId, extractionSource, ct);
         }
         var relationship = await _relationship.BuildAsync(userId, ct);
@@ -432,13 +453,13 @@ public sealed class Companion : ICompanion
             Reason = curiosity?.Question,
         });
 
-        // 4d. Her own inner state — spirits + energy — colors the reply's tone (and answers
+        // 4d. Her own inner state â€” spirits + energy â€” colors the reply's tone (and answers
         // "how are you?" honestly). Read AFTER the mood capture above, so this turn's emotional
         // signal has already rubbed off on her. Familiarity calibrates how casual she may be.
         var innerState = await _innerState.BuildAsync(userId, ct);
         var familiarity = await _familiarity.BuildAsync(userId, ct);
 
-        // 4e. Temporal grounding + her own relevant tastes for this turn (top few by similarity —
+        // 4e. Temporal grounding + her own relevant tastes for this turn (top few by similarity â€”
         // never the whole preference table, and never raw numbers).
         var temporal = TemporalNote(_clock.GetLocalNow(), now, lastSeenBefore);
         var preferenceNotes = await RelevantPreferencesAsync(
@@ -456,11 +477,11 @@ public sealed class Companion : ICompanion
             capabilityNote, perspectiveNotes, interpretationNote);
 
         // 5b. The bounded tool loop, driven by the executive planner. It gets a COMPACT planning
-        // context — recent exchange, what retrieval already found, the detected project — never
+        // context â€” recent exchange, what retrieval already found, the detected project â€” never
         // the full persona packet: planning is an information-gap question, not a conversation,
         // and the planner model is deliberately not her. Everything executed is read-only,
         // validated, deduped, and capped; results are injected into the packet for THIS
-        // generation only — they never become messages or memory.
+        // generation only â€” they never become messages or memory.
         if (_options.PacketTokenWarningThreshold > 0
             && packet.EstimatedTokens > _options.PacketTokenWarningThreshold)
         {
@@ -478,7 +499,7 @@ public sealed class Companion : ICompanion
         {
             _logger.LogWarning(
                 "Prompt for {UserId} exceeded its {Budget}-token budget; left out (lowest value " +
-                "first): {Dropped}. Identity and the standing rules are never among these — if " +
+                "first): {Dropped}. Identity and the standing rules are never among these â€” if " +
                 "this is routine, the chat model needs a larger context window.",
                 userId, _options.PromptTokenBudget, string.Join(", ", packet.TrimmedSections));
         }
@@ -509,13 +530,13 @@ public sealed class Companion : ICompanion
                 ? "none" : string.Join(",", toolOutcome.Calls.Select(c => c.Tool)),
         });
 
-        // 6. Generate the response. The reply generator owns "when to keep going" — it continues a
+        // 6. Generate the response. The reply generator owns "when to keep going" â€” it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
         // task), and streams to the sink across rounds when one is provided.
         var generated = await _replyGenerator.GenerateAsync(
             packet.Render(), promptText, tokenSink, identityProjection?.CompanionName, ct);
 
-        // Her own transcript is in the prompt, and she sometimes continues it instead of replying —
+        // Her own transcript is in the prompt, and she sometimes continues it instead of replying â€”
         // reproducing an entire earlier turn before getting to the new one. This is the only place
         // that can catch it, because it needs the conversation to compare against, which the
         // generator does not have.
@@ -528,7 +549,7 @@ public sealed class Companion : ICompanion
         }
 
         // 6b. The reply gate. Runs on what she is actually about to say, after the shape filters,
-        // because it judges meaning rather than form — and before storage, so a refused reply is
+        // because it judges meaning rather than form â€” and before storage, so a refused reply is
         // never the thing the next turn reads back as context.
         //
         // In shadow mode the verdict is recorded and the reply goes out unchanged. That is the
@@ -574,10 +595,10 @@ public sealed class Companion : ICompanion
         var assistantMsg = await StoreMessageAsync(
             userId, conversationId, MessageRole.Assistant, response, replyToId, _clock.GetUtcNow(), ct, generated);
 
-        // 8–10. Derived-state work: extraction, project/open-loop updates, attention, procedures,
+        // 8â€“10. Derived-state work: extraction, project/open-loop updates, attention, procedures,
         // commitments. The reply is already generated and STORED, so a failure here (extraction
         // model down, embedding server gone, a malformed candidate) must not turn a delivered
-        // answer into an error — the user would see a 500 for a message the companion actually
+        // answer into an error â€” the user would see a 500 for a message the companion actually
         // answered, and the stored exchange would be orphaned mid-turn. Losing a turn's derived
         // memory is recoverable; losing the turn is not. Cancellation still propagates: that is
         // the caller leaving, not a failure.
@@ -586,7 +607,7 @@ public sealed class Companion : ICompanion
         var updates = ProjectUpdateResult.Empty;
         try
         {
-            // (Skipped for private AND in-character turns — fiction never reaches the fact store.)
+            // (Skipped for private AND in-character turns â€” fiction never reaches the fact store.)
             if (extractFacts)
             {
                 extraction = await _pipeline.ProcessAsync(userId, exchange, extractionResolution, ct);
@@ -603,12 +624,12 @@ public sealed class Companion : ICompanion
                 // Corpus capture, last and deliberately inside this gate: a turn that is not
                 // allowed to produce durable memory is not allowed to produce durable training
                 // data either. Off unless CognitiveModels:Capture is set, and it changes nothing
-                // it observes — see ICognitiveCapture.
+                // it observes â€” see ICognitiveCapture.
                 await _capture.CaptureUserMessageAsync(extractionSource.Content, ct);
                 await _capture.CaptureReplyAsync(response, ct);
 
                 // Same discipline for the working-context rules: record what they decided on
-                // the populations they decide about — that is the base rate every precision
+                // the populations they decide about â€” that is the base rate every precision
                 // claim depends on, and it has never been measured (the ToolNudge lesson).
                 // Capture-only; changes nothing it observes.
                 if (AnswerBindingDetector.TrailingQuestion(recent) is { } openQuestion)
@@ -620,7 +641,7 @@ public sealed class Companion : ICompanion
                 if (_shadow.IsRecording)
                 {
                     // Every turn's intent verdict, with the working-context move as input
-                    // context — the corpus that decides whether this vocabulary ever earns
+                    // context â€” the corpus that decides whether this vocabulary ever earns
                     // authority over generation.
                     // The input tag carries the evidence the vocabulary decisions need: the
                     // working-context move, the top RAW topical relevance this turn (for the
@@ -631,14 +652,14 @@ public sealed class Companion : ICompanion
                     {
                         Id = Guid.NewGuid(),
                         Subject = "turn.intent",
-                        Legacy = $"{intent.Intent} ({intent.Confidence:F2})"
+                        Legacy = $"{intent.Intent.ToKebab()} ({intent.Confidence:F2})"
                             + (intent.Candidates.Count > 1
-                                ? $" over {intent.Candidates[1].Intent} ({intent.Candidates[1].Confidence:F2})" : ""),
+                                ? $" over {intent.Candidates[1].Intent.ToKebab()} ({intent.Candidates[1].Confidence:F2})" : ""),
                         Model = null,
                         Applied = "legacy",
                         Input = SecretDetector.LooksLikeSecret(extractionSource.Content)
                             ? null
-                            : $"[{working.Move}|topical={topTopical:F2}" +
+                            : $"[{working.Move.ToKebab()}|topical={topTopical:F2}" +
                               $"{(TurnIntentClassifier.LooksDirective(extractionSource.Content) ? "|directive" : "")}" +
                               $"{(focal is null ? "" : focal.Covered ? "|focal=covered" : "|focal=uncovered")}] " +
                               extractionSource.Content,
@@ -650,7 +671,7 @@ public sealed class Companion : ICompanion
                     {
                         Id = Guid.NewGuid(),
                         Subject = "context.reference",
-                        Legacy = $"{working.Move}: {working.ReferenceMarkers.First()}"
+                        Legacy = $"{working.Move.ToKebab()}: {working.ReferenceMarkers.First()}"
                             + (working.ResolvedReference is null ? " (unresolved)"
                                 : $" -> {working.ResolvedReference}"),
                         Model = null,
@@ -668,7 +689,7 @@ public sealed class Companion : ICompanion
                 "the turn stands, this turn's derived memory is lost.", userId);
         }
 
-        // 10c. The offered curiosity is spent whether or not the model chose to raise it — asked
+        // 10c. The offered curiosity is spent whether or not the model chose to raise it â€” asked
         // once (or passed over once) is the whole budget, so proactive wondering never nags.
         if (curiosity is not null)
             await _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct);
@@ -693,7 +714,7 @@ public sealed class Companion : ICompanion
             extraction.Accepted, extraction.Merged, extraction.NeedsReview, extraction.Rejected,
             updates.Actions.Count);
 
-        // The operational record for "why did you say that?" — powers diagnostics.last_turn.
+        // The operational record for "why did you say that?" â€” powers diagnostics.last_turn.
         _turnLog.Record(userId, new TurnDiagnostics
         {
             TraceId = traceId,
@@ -730,6 +751,49 @@ public sealed class Companion : ICompanion
             PacketTokens = packet.EstimatedTokens,
         });
 
+        // The DURABLE twin of the ring entry (the ring forgets on restart, which is how the
+        // Epcot specimen's trace was lost). Content fields are nulled on turns not allowed to
+        // produce durable derived data â€” structure survives, words do not â€” and previews of
+        // ordinary turns mirror text the Messages table already stores. The store owns the
+        // never-throw guarantee.
+        if (_diagnostics is not null)
+        {
+            string? Bounded(string? text, int max) =>
+                !extractFacts || text is null ? null
+                : SecretDetector.LooksLikeSecret(text) ? null
+                : text.Length <= max ? text : text[..max];
+
+            await _diagnostics.RecordTurnAsync(new TurnRecord
+            {
+                Id = traceId,
+                UserId = userId,
+                Timestamp = now,
+                UserPreview = Bounded(promptText, 300),
+                AssistantPreview = Bounded(response, 300),
+                Move = working.Move.ToKebab(),
+                ResolvedReference = Bounded(working.ResolvedReference, 200),
+                ResolutionConfidence = working.ResolutionConfidence?.ToKebab(),
+                BoundQuestion = Bounded(working.BoundQuestion, 300),
+                RetrievalQuery = Bounded(retrievalQuery, 500),
+                Intent = intent.Intent.ToKebab(),
+                IntentConfidence = intent.Confidence,
+                IntentRunnerUp = intent.Candidates.Count > 1
+                    ? $"{intent.Candidates[1].Intent.ToKebab()} ({intent.Candidates[1].Confidence:F2})" : null,
+                Retrieved = !extractFacts ? null : System.Text.Json.JsonSerializer.Serialize(
+                    selectedMemories.Take(5).Select(r => new
+                    {
+                        c = r.Memory.Content.Length <= 90 ? r.Memory.Content : r.Memory.Content[..90],
+                        s = Math.Round(r.Score, 2),
+                        t = Math.Round(r.Topical, 2),
+                    })),
+                FocalTerms = !extractFacts || focal is null ? null : string.Join(",", focal.FocalTerms),
+                FocalCovered = focal?.Covered,
+                Decisions = string.Join("; ", decisions.Select(d => $"{d.Stage}={d.Verdict}")),
+                PacketTokens = packet.EstimatedTokens,
+                ModelUsed = generated.Model,
+            }, ct);
+        }
+
         return new TurnTrace
         {
             TraceId = traceId,
@@ -751,7 +815,7 @@ public sealed class Companion : ICompanion
 
     /// <summary>
     /// The planner's bounded view of the turn: enough to judge information gaps ("does the
-    /// context already cover this?"), nothing more. Deliberately NOT the full packet — no
+    /// context already cover this?"), nothing more. Deliberately NOT the full packet â€” no
     /// persona, no mood, no relationship framing; the planner is an executive, not her.
     /// </summary>
     private static string BuildPlanningContext(
@@ -761,7 +825,7 @@ public sealed class Companion : ICompanion
         sb.AppendLine("Recent conversation (newest last):");
         foreach (var message in recent.OrderBy(m => m.Timestamp).TakeLast(6))
         {
-            var content = message.Content.Length <= 200 ? message.Content : message.Content[..200] + "…";
+            var content = message.Content.Length <= 200 ? message.Content : message.Content[..200] + "â€¦";
             sb.AppendLine($"- {(message.Role == MessageRole.User ? "user" : "assistant")}: {content}");
         }
         sb.AppendLine(project is null ? "Detected project: (none)" : $"Detected project: {project}");
@@ -776,13 +840,13 @@ public sealed class Companion : ICompanion
             foreach (var retrieved in selectedMemories.Take(3))
             {
                 var summary = retrieved.Memory.Content;
-                sb.AppendLine($"- {(summary.Length <= 150 ? summary : summary[..150] + "…")}");
+                sb.AppendLine($"- {(summary.Length <= 150 ? summary : summary[..150] + "â€¦")}");
             }
         }
         return sb.ToString();
     }
 
-    /// <summary>Which packet sections were actually present — diagnostics, not content.</summary>
+    /// <summary>Which packet sections were actually present â€” diagnostics, not content.</summary>
     private static IReadOnlyList<string> PresentSections(ContextPacket packet)
     {
         var sections = new List<string>();
@@ -806,7 +870,7 @@ public sealed class Companion : ICompanion
 
     // ---- helpers ----
 
-    /// <summary>A musing is only current for so long — after this it stops shaping turns by default.</summary>
+    /// <summary>A musing is only current for so long â€” after this it stops shaping turns by default.</summary>
     private static readonly TimeSpan MusingSurfaceWindow = TimeSpan.FromDays(7);
 
     /// <summary>How far back the diary is searched for a relevant past thought.</summary>
@@ -820,9 +884,9 @@ public sealed class Companion : ICompanion
 
     /// <summary>
     /// The musing that should color THIS turn: the most relevant past thought (by similarity to
-    /// the turn's query — an old thought resurfaces on its own when the conversation comes back
+    /// the turn's query â€” an old thought resurfaces on its own when the conversation comes back
     /// to it), falling back to the freshest one while it's still current. Reading the diary is
-    /// side-effect free — a musing can accompany many turns; it is a mood the companion carries,
+    /// side-effect free â€” a musing can accompany many turns; it is a mood the companion carries,
     /// unlike a curiosity, which is consumed the one time it is offered.
     /// </summary>
     private async Task<string?> RelevantMusingAsync(
@@ -834,7 +898,7 @@ public sealed class Companion : ICompanion
         if (musings.Count == 0)
             return null;
 
-        // Relevance first: "I remember thinking about this a while back" — and it's literally true.
+        // Relevance first: "I remember thinking about this a while back" â€” and it's literally true.
         if (queryEmbedding is not null)
         {
             var best = musings
@@ -846,12 +910,12 @@ public sealed class Companion : ICompanion
                 return WithAge(best.Reflection, now);
         }
 
-        // Otherwise the freshest thought still colors the turn — but only while it's current.
+        // Otherwise the freshest thought still colors the turn â€” but only while it's current.
         var newest = musings[0];
         return now - newest.CreatedAt <= MusingSurfaceWindow ? WithAge(newest, now) : null;
     }
 
-    /// <summary>An older thought carries its age, so "I'd been thinking…" can be timed honestly.</summary>
+    /// <summary>An older thought carries its age, so "I'd been thinkingâ€¦" can be timed honestly.</summary>
     private static string WithAge(Reflection reflection, DateTimeOffset now)
         => now - reflection.CreatedAt <= MusingIsRecent
             ? reflection.Musing!
@@ -863,7 +927,7 @@ public sealed class Companion : ICompanion
     /// <summary>
     /// One compact line of temporal grounding: the day and time, and how long the user was
     /// actually gone (measured before this turn's message landed). The model turns this into
-    /// "back already?" or "look who finally showed up" on its own — nothing is scripted.
+    /// "back already?" or "look who finally showed up" on its own â€” nothing is scripted.
     /// </summary>
     public static string TemporalNote(DateTimeOffset localNow, DateTimeOffset utcNow, DateTimeOffset? lastSeenBefore)
     {
@@ -961,7 +1025,7 @@ public sealed class Companion : ICompanion
 
     /// <summary>
     /// Reads the emotional tone of the user's message and, when a real cue is present, appends it to
-    /// the emotional-signal log — the substrate the relationship snapshot is derived from. No-op on
+    /// the emotional-signal log â€” the substrate the relationship snapshot is derived from. No-op on
     /// flat/neutral messages, so the log stays signal, not noise.
     /// </summary>
     private async Task CaptureMoodAsync(
@@ -972,7 +1036,7 @@ public sealed class Companion : ICompanion
             return;
 
         // Tie the feeling to what it's about: the subject phrase from the message ("the interview"),
-        // or — failing that — the project this turn resolved to, so a mood voiced while discussing a
+        // or â€” failing that â€” the project this turn resolved to, so a mood voiced while discussing a
         // project still knows its subject.
         var resolvedProject = projectContext.Summary?.Project;
         var topic = MoodTopic.Extract(userMessage.Content) ?? resolvedProject?.Name;
@@ -996,7 +1060,7 @@ public sealed class Companion : ICompanion
             ProjectId = resolvedProject?.Id,
         }, ct);
 
-        // The moment rubs off on her too — honest emotional contagion, one small step.
+        // The moment rubs off on her too â€” honest emotional contagion, one small step.
         await _innerState.NudgeAsync(userId, mood.Valence, ct);
 
         _logger.LogDebug(
@@ -1068,7 +1132,7 @@ public sealed class Companion : ICompanion
         _logger.LogInformation("Captured a companion commitment for {UserId}: \"{Commitment}\"", userId, commitment);
     }
 
-    /// <summary>A trace for a turn that paused (or cancelled) instead of answering — no retrieval/generation ran.</summary>
+    /// <summary>A trace for a turn that paused (or cancelled) instead of answering â€” no retrieval/generation ran.</summary>
     private static TurnTrace ClarificationTrace(
         string userMessage, string response, TurnStatus status, Guid? pendingId,
         ProjectContext? projectContext = null)
@@ -1123,3 +1187,4 @@ public sealed class Companion : ICompanion
             => Task.FromResult(0);
     }
 }
+

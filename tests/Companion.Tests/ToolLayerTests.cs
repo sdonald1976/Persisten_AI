@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Companion.Core;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
@@ -14,7 +14,7 @@ namespace Companion.Tests;
 
 /// <summary>
 /// The tool layer end to end: discovery, per-tool behavior, the bounded loop's safety properties
-/// (dedupe, max calls, unknown-tool refusal, malformed output), and the full-turn integration —
+/// (dedupe, max calls, unknown-tool refusal, malformed output), and the full-turn integration â€”
 /// results reach the packet, diagnostics record the calls, and the conversation record stays
 /// truthful (no fabricated messages, no tool artifacts in durable memory).
 /// </summary>
@@ -92,7 +92,7 @@ public class ToolLayerTests
         using var scope = host.CreateScope();
         var tool = scope.ServiceProvider.GetServices<ICompanionTool>().Single(t => t.Name == "memory.search");
 
-        // Missing, wrong-typed, and empty queries all fail the same controlled way — never a throw.
+        // Missing, wrong-typed, and empty queries all fail the same controlled way â€” never a throw.
         foreach (var bad in new[] { "{}", """{"query": 7}""", """{"query": "   "}""" })
         {
             var result = await tool.ExecuteAsync(CompanionSeeder.DemoUserId, Args(bad));
@@ -144,6 +144,9 @@ public class ToolLayerTests
             => Task.FromResult<IReadOnlyList<ToolCallRecord>>(ToolCalls);
         public Task<IReadOnlyList<ModelRoleStats>> GetModelStatsAsync(DateTimeOffset since, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ModelRoleStats>>(Array.Empty<ModelRoleStats>());
+        public Task RecordTurnAsync(TurnRecord record, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<TurnRecord>> GetRecentTurnsAsync(string userId, int count, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<TurnRecord>>(Array.Empty<TurnRecord>());
         public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default) => Task.FromResult(0);
     }
 
@@ -214,7 +217,7 @@ public class ToolLayerTests
     [Fact]
     public async Task ToolLoop_UnknownTool_IsRefusedAndRecorded()
     {
-        // The model asks for something this installation doesn't have — nothing executes,
+        // The model asks for something this installation doesn't have â€” nothing executes,
         // the refusal is in the trace, and no results section reaches the prompt.
         var chat = new QueuedChatModel("""{"tool": "file.delete", "arguments": {"path": "/etc"}}""");
         var tool = new FakeTool();
@@ -268,14 +271,14 @@ public class ToolLayerTests
         var call = Assert.Single(outcome.Calls);
         Assert.False(call.Ok);
         Assert.Equal("invalid_arguments", call.Code);
-        // The failure is visible to the model (so it can correct itself) — as data, not a crash.
+        // The failure is visible to the model (so it can correct itself) â€” as data, not a crash.
         Assert.Contains("invalid_arguments", outcome.ResultsSection);
     }
 
     // ---- rules-first nudges ----
 
     [Theory]
-    [InlineData("Be honest — what can you actually do? Can you see images?", "capability.list")]
+    [InlineData("Be honest â€” what can you actually do? Can you see images?", "capability.list")]
     [InlineData("can you hear me right now?", "capability.list")]
     [InlineData("Why did you bring that up just now?", "diagnostics.last_turn")]
     [InlineData("Is there anything unfinished between us?", "openloop.list")]
@@ -302,7 +305,7 @@ public class ToolLayerTests
     [Fact]
     public void Nudge_WhenTheTopicIsAPronoun_SearchesTheWholeMessage()
     {
-        // The captured topic is only what follows the trigger, so this yields "about it" — all
+        // The captured topic is only what follows the trigger, so this yields "about it" â€” all
         // stopwords, which scores zero against every memory and retrieves noise. The referent
         // ("the Persisten_AI companion") is in the same message, just earlier in it.
         var match = ToolNudge.Detect(
@@ -315,11 +318,11 @@ public class ToolLayerTests
 
     [Theory]
     [InlineData("So, do you remember that?")]
-    [InlineData("Anyway — do you remember it?")]        // too short to even match; no nudge is fine
+    [InlineData("Anyway â€” do you remember it?")]        // too short to even match; no nudge is fine
     [InlineData("Right, do you remember any of that?")]
     public void Nudge_ContentlessTopic_NeverBecomesTheQuery(string message)
     {
-        // Not firing is an acceptable outcome — a missed nudge costs nothing, since the model loop
+        // Not firing is an acceptable outcome â€” a missed nudge costs nothing, since the model loop
         // still runs. What is never acceptable is searching for the bare anaphor: those tokens are
         // all stopwords, so they match nothing and the retriever returns noise ranked as relevant.
         var match = ToolNudge.Detect(message);
@@ -335,7 +338,7 @@ public class ToolLayerTests
     public void Nudge_WellFormedTopic_IsStillUsedVerbatim()
     {
         // The fallback must not swallow the narrow, correct case: a real topic stays the query.
-        var match = ToolNudge.Detect("Quick one — do you remember the greenhouse sensor debacle?");
+        var match = ToolNudge.Detect("Quick one â€” do you remember the greenhouse sensor debacle?");
 
         Assert.NotNull(match);
         Assert.Contains("\"query\":\"the greenhouse sensor debacle\"", match!.ArgumentsJson);
@@ -344,16 +347,16 @@ public class ToolLayerTests
     [Fact]
     public async Task Nudge_RunsTheTool_EvenWhenTheModelDeclines()
     {
-        // The model always says no — the deterministic nudge must carry the obvious case anyway.
+        // The model always says no â€” the deterministic nudge must carry the obvious case anyway.
         var chat = new QueuedChatModel("""{"tool": null}""");
         var tool = new FakeTool();
         var diagnostics = new NoopDiagnostics();
 
-        // FakeTool is named fake.lookup, so use the loop with a memory-style nudge…
+        // FakeTool is named fake.lookup, so use the loop with a memory-style nudgeâ€¦
         var outcome = await Loop(chat, tool, diagnostics: diagnostics)
             .RunAsync("u1", "ctx", "do you remember the answer to everything?");
 
-        // …which targets memory.search: not in this loop's tool set, so nothing ran — but the
+        // â€¦which targets memory.search: not in this loop's tool set, so nothing ran â€” but the
         // decision trail shows the rules never got a matching tool and the model was still asked.
         Assert.Empty(outcome.Calls);
         Assert.Equal(1, chat.Calls);
@@ -385,14 +388,14 @@ public class ToolLayerTests
             new ICompanionTool[] { tool }, chat, new NoopDiagnostics(),
             Options.Create(new CompanionOptions()), TimeProvider.System, NullLogger<ToolLoop>.Instance);
 
-        var outcome = await loop.RunAsync("u1", "ctx", "Be honest — what can you actually do? Can you see images?");
+        var outcome = await loop.RunAsync("u1", "ctx", "Be honest â€” what can you actually do? Can you see images?");
 
         Assert.Equal(1, tool.Executions);
         var call = Assert.Single(outcome.Calls);
         Assert.True(call.Ok);
         Assert.Contains("[capability.list]", outcome.ResultsSection);
         Assert.Contains("(rule nudge) capability.list", outcome.Decisions[0]);
-        // The model was still consulted for ADDITIONAL lookups and declined — that's fine.
+        // The model was still consulted for ADDITIONAL lookups and declined â€” that's fine.
         Assert.Equal(1, chat.Calls);
     }
 
@@ -405,7 +408,7 @@ public class ToolLayerTests
         var chat = new QueuedChatModel(
             """{"tool": "memory.search", "arguments": {"query": "Jetson"}}""",
             """{"tool": null}""",
-            "The Jetson test — that's great news. How did the detection hold up at home?");
+            "The Jetson test â€” that's great news. How did the detection hold up at home?");
         await using var host = new TestHost(
             Now, configureServices: s => s.AddSingleton<IChatModel>(chat));
 
@@ -438,7 +441,7 @@ public class ToolLayerTests
         {
             var sp = verify.ServiceProvider;
 
-            // Conversation truth: exactly the user message and the final reply — tool calls never
+            // Conversation truth: exactly the user message and the final reply â€” tool calls never
             // become messages.
             var messages = await sp.GetRequiredService<IConversationStore>()
                 .GetRecentMessagesAsync(conversationId, CompanionSeeder.DemoUserId, 20);
@@ -473,7 +476,7 @@ public class ToolLayerTests
     [Fact]
     public async Task FullTurn_ModelNeverAsksForTools_BehavesExactlyAsBefore()
     {
-        // The mock chat model answers with prose, never JSON — so the loop decides "answer
+        // The mock chat model answers with prose, never JSON â€” so the loop decides "answer
         // directly" and the turn is indistinguishable from the pre-tool-layer behavior.
         await using var host = new TestHost(Now);
 
@@ -498,3 +501,4 @@ public class ToolLayerTests
         Assert.Equal(ExpectedTools.Length, trace.AdvertisedTools.Count);
     }
 }
+

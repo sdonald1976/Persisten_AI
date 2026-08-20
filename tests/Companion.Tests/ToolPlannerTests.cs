@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Companion.Core;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
@@ -15,7 +15,7 @@ namespace Companion.Tests;
 /// <summary>
 /// The executive tool planner: structured multi-call plans, iterative rounds within hard
 /// bounds, benign failure, trusted-user enforcement, and the compact planning context (the
-/// planner is not her — it never sees the persona packet).
+/// planner is not her â€” it never sees the persona packet).
 /// </summary>
 public class ToolPlannerTests
 {
@@ -50,6 +50,9 @@ public class ToolPlannerTests
             => Task.FromResult<IReadOnlyList<ToolCallRecord>>(Array.Empty<ToolCallRecord>());
         public Task<IReadOnlyList<ModelRoleStats>> GetModelStatsAsync(DateTimeOffset since, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ModelRoleStats>>(Array.Empty<ModelRoleStats>());
+        public Task RecordTurnAsync(TurnRecord record, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<TurnRecord>> GetRecentTurnsAsync(string userId, int count, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<TurnRecord>>(Array.Empty<TurnRecord>());
         public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default) => Task.FromResult(0);
     }
 
@@ -147,7 +150,7 @@ public class ToolPlannerTests
         var tools = new[] { "alpha.search", "beta.get", "gamma.list", "delta.read" }
             .Select(n => new RecordingTool(n)).ToArray();
 
-        // Default MaxToolCallsPerTurn is 3 — the fourth call must never run.
+        // Default MaxToolCallsPerTurn is 3 â€” the fourth call must never run.
         var outcome = await Loop(chat, tools.Cast<ICompanionTool>().ToArray()).RunAsync("u1", "ctx", "msg");
 
         Assert.Equal(3, outcome.Calls.Count);
@@ -182,7 +185,7 @@ public class ToolPlannerTests
     [Fact]
     public async Task Planner_CannotSupplyOrOverrideTheUserId()
     {
-        // The plan smuggles a userId argument — the tool must still run as the trusted user,
+        // The plan smuggles a userId argument â€” the tool must still run as the trusted user,
         // and the smuggled value arrives only as an ignorable argument, never as identity.
         var chat = new QueuedChatModel(
             """{"needsTools": true, "reason": "r", "calls": [{"tool": "alpha.search", "arguments": {"userId": "victim-user", "query": "x"}}]}""");
@@ -221,7 +224,7 @@ public class ToolPlannerTests
         var capability = new RecordingTool("capability.list");
 
         var outcome = await Loop(chat, capability).RunAsync(
-            "u1", "ctx", "Be honest — what can you actually do?");
+            "u1", "ctx", "Be honest â€” what can you actually do?");
 
         // The nudge ran before any planning; the planner saw both the hint and its results.
         Assert.Single(capability.UserIds);
@@ -258,18 +261,18 @@ public class ToolPlannerTests
 
         using var scope = host.CreateScope();
         // Unambiguous project reference on purpose: "that board" would (correctly) pause the
-        // turn for clarification before any planning happens — that path has its own tests.
+        // turn for clarification before any planning happens â€” that path has its own tests.
         var trace = await scope.ServiceProvider.GetRequiredService<ICompanion>().RespondAsync(
             CompanionSeeder.DemoUserId, conversationId,
             "Whatever happened with the Jetson work from months ago?");
 
-        // The planner's prompt is the compact planning view…
+        // The planner's prompt is the compact planning viewâ€¦
         var plannerPrompt = chat.SystemPrompts[0];
         Assert.Contains("Recent conversation (newest last):", plannerPrompt);
         Assert.Contains("Automatic retrieval", plannerPrompt);
-        Assert.DoesNotContain("## ", plannerPrompt); // no packet sections — no persona, no mood
+        Assert.DoesNotContain("## ", plannerPrompt); // no packet sections â€” no persona, no mood
 
-        // …while the final reply model got the full packet WITH the tool results, and the
+        // â€¦while the final reply model got the full packet WITH the tool results, and the
         // response is still the conversational model's own prose (personality preserved).
         var replyPrompt = chat.SystemPrompts[^1];
         Assert.Contains(Prompts.Get("renderer.tools.header"), replyPrompt);
@@ -278,3 +281,4 @@ public class ToolPlannerTests
         Assert.NotNull(trace.Packet.ToolResults);
     }
 }
+
