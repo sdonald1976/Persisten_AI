@@ -4,7 +4,16 @@ namespace Companion.Core.Domain;
 
 /// <summary>What kind of acknowledgment a turn owes.</summary>
 [JsonConverter(typeof(KebabEnumConverter<AckKind>))]
-public enum AckKind { CorrectionAccepted, FactTaught, AnswerReceived }
+public enum AckKind
+{
+    CorrectionAccepted,
+    FactTaught,
+    AnswerReceived,
+
+    /// <summary>The user emphatically confirmed her claim (correction-shaped agreement).
+    /// No error exists on either side; apology language here is INVENTED contrition.</summary>
+    AgreementConfirmed,
+}
 
 /// <summary>Whose error a correction addresses — the Mad Hatter field. When the system
 /// knows the owner, "we both slipped up" is a fidelity violation, not a style choice.</summary>

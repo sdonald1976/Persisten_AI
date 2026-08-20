@@ -164,6 +164,16 @@ public sealed class CompanionOptions
     /// </summary>
     public bool PromoteKnowledgeBoundary { get; set; }
 
+    /// <summary>
+    /// The narrowest ResponsePlan promotion (docs/RESPONSE_PLAN.md): when on, a
+    /// conflict-verified companion-owned correction puts ONE authoritative acknowledgment
+    /// constraint in the packet — she made the error, accept the correction plainly, no
+    /// blame-sharing. Nothing else in the plan gains authority. Off by default; measured
+    /// against both the genuine-correction and the agreement (Mad Hatter inversion)
+    /// specimens before it ships on.
+    /// </summary>
+    public bool PromoteResponsePlan { get; set; }
+
     /// <summary>Hard ceiling on tool executions in one turn (identical repeats stop earlier).</summary>
     public int MaxToolCallsPerTurn { get; set; } = 3;
 

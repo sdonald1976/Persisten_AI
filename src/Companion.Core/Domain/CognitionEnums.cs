@@ -21,6 +21,12 @@ public enum ConversationMove
     AnswersOpenQuestion,
     ResolvesReference,
     Correction,
+
+    /// <summary>Correction-SHAPED words whose asserted value already matches the
+    /// companion's preceding claim — emphatic agreement, not correction. The Mad Hatter
+    /// inversion: "No, it was actually the Cheshire Cat" after she said Cheshire Cat.
+    /// No error exists; contrition would be invented.</summary>
+    ConfirmsClaim,
 }
 
 /// <summary>How a reference resolution was reached — see ReferenceResolution for what each

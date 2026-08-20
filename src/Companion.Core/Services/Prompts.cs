@@ -231,6 +231,18 @@ public static class Prompts
             "The user's question depends on \"{marker}\", which could mean more than one " +
             "thing in this conversation. Ask ONE short clarifying question instead of " +
             "guessing — do not answer as if you know which one they mean.");
+        Define("interpretation.agreement",
+            "Injected when correction-shaped words actually CONFIRM the companion's claim.",
+            "The user is emphatically agreeing with what you just said — this is " +
+            "confirmation, not a correction. You made no error here: do not apologize or " +
+            "call it a mix-up. Take the agreement warmly and move on.");
+        Define("plan.correction-owned",
+            "Injected (when the response plan's correction authority is promoted) after a " +
+            "verified companion-owned correction.",
+            "You made the error here — their correction fixes YOUR earlier statement. " +
+            "Accept it plainly as your own mistake: no blame-sharing (never \"we both\"), " +
+            "no defending the old version. Thank them if it feels natural, and use the " +
+            "corrected version from now on.");
         Define("interpretation.correction",
             "Injected when the user's message is a correction of something recent.",
             "The user is correcting something from the recent conversation. Their newest " +

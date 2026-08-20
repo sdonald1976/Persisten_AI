@@ -213,3 +213,21 @@ land without another architecture phase.
   Also recorded: the caps-emphasis correction shape ("They DON'T BREAK, I told you")
   is not detected — classified follow-topic-change, a documented recall gap for the
   capture corpus, not a reflex patch. Promotion NOT performed. 1133 tests green.
+- **2026-08-20 — Step 1 (ErrorOwner conflict check) + Step 2 (narrow correction
+  promotion) landed and live-validated.** Correction-shaped words now check whether the
+  asserted value (entities first, content words minus correction scaffolding as
+  fallback) actually conflicts with her preceding claim; agreement becomes the new
+  `ConversationMove.ConfirmsClaim` → `AckKind.AgreementConfirmed(Nobody)` with its own
+  interpretation note, and an `invented-contrition` fidelity tripwire mirrors the
+  error-sharing one. `PromoteResponsePlan` (off by default) injects ONE authoritative
+  owned-correction line only for conflict-verified companion-owned corrections.
+  **Live before/after (qwen3:8b, 8 turns):** the Mad Hatter inversion now classifies
+  `confirms-claim` and the reply carried zero contrition ("You're welcome! It's always
+  fun to revisit these little details") versus the earlier invented apology; the
+  genuine acrylic correction, promoted, produced clear single-sentence ownership
+  ("Oh, thanks for clarifying — I should've double-checked that!") versus the flag-off
+  "good call" softness. Zero fidelity violations in all eight turns. One new specimen
+  preserved from the off-phase: qwen accepted a genuine correction and then re-asserted
+  the corrected claim mid-reply ("…I mixed up the quotes earlier. The Mad Hatter
+  actually says…") — the accept-then-muddle shape, recorded for the corpus. The flag
+  ships off; word-safe clipping fixed in passing. 1138 tests green.

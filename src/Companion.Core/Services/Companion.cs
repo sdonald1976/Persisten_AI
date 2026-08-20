@@ -580,6 +580,27 @@ public sealed class Companion : ICompanion
                 + (plan.Question is not null ? $"|q={plan.Question.Kind.ToKebab()}" : ""),
         });
 
+        // 5b. The narrowest plan promotion: correction acknowledgments ONLY, and only
+        // when the conflict check proved the error is hers (an agreement-shaped turn
+        // never reaches this — it planned AgreementConfirmed instead). One authoritative
+        // line; style stays free.
+        if (_options.PromoteResponsePlan
+            && plan.Acknowledgments.Any(a => a is { Kind: AckKind.CorrectionAccepted, ErrorOwner: ErrorOwner.Companion }))
+        {
+            var owned = Prompts.Get("plan.correction-owned");
+            packet = packet with
+            {
+                InterpretationNote = packet.InterpretationNote is { } existing
+                    ? $"{existing}\n{owned}" : owned,
+            };
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "plan.promotion", Decider = "config",
+                Verdict = "correction-owned-injected",
+                Reason = "PromoteResponsePlan is on; conflict-verified companion-owned correction",
+            });
+        }
+
         var planningContext = BuildPlanningContext(recent, selectedMemories, projectContext.ResolvedProjectName);
         var toolOutcome = await _toolLoop.RunAsync(userId, planningContext, promptText, ct);
         if (toolOutcome.ResultsSection is not null)
@@ -659,6 +680,7 @@ public sealed class Companion : ICompanion
         foreach (var (check, violation) in new (string, string?)[]
         {
             ("correction-ownership", PlanFidelity.CheckCorrectionOwnership(plan, response)),
+            ("invented-contrition", PlanFidelity.CheckInventedContrition(plan, response)),
             ("shared-history", PlanFidelity.CheckSharedHistoryClaim(plan, response)),
             ("epistemic", PlanFidelity.CheckEpistemic(plan, response)),
         })
