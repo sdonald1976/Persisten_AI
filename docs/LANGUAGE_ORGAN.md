@@ -388,3 +388,11 @@ speculative inner life, nothing that cannot say where it came from.
   accumulates boundary-compliance evidence. Phase 4 — typed knowledge gaps feeding the
   EXISTING curiosity lifecycle, never a second asking system — is recorded in
   [`KNOWLEDGE_GAPS.md`](KNOWLEDGE_GAPS.md), awaiting approval before implementation.
+- **2026-08-20 — Phase 4 approved and live-validated; Phase 5 designed.** The full
+  gap loop proved live (five unknowns → one question → teaching → satisfied, receipts
+  throughout; 5/5 boundary compliance). Phase 5 — the ResponsePlan boundary: content
+  authority to the system, style freedom to the renderer, with the four new expression-
+  fidelity specimens (correction ownership, invented shared history, correction
+  obedience, embellishment) as invariant tests and a measurable contract for a future
+  replaceable renderer — is recorded in [`RESPONSE_PLAN.md`](RESPONSE_PLAN.md),
+  awaiting approval before implementation.
