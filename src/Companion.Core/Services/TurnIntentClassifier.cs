@@ -1,0 +1,156 @@
+using System.Text.RegularExpressions;
+using Companion.Core.Domain;
+
+namespace Companion.Core.Services;
+
+/// <summary>
+/// Classifies what Ava should DO this turn, deterministically, from the working-context read
+/// and this turn's retrieval — it consumes <see cref="WorkingContextState"/> rather than
+/// re-deriving any of it. No model call: the ToolNudge lesson says a deterministic rule and a
+/// small model are BOTH presumed wrong until captured data says otherwise, and the cheap one
+/// should be measured first.
+///
+/// The vocabulary is small and grounded in observed conversational needs, not a speech-act
+/// taxonomy. Selection requires a confidence bar; below it the answer is "unknown", which
+/// means "continue naturally" — preferred over a confidently wrong classification, because in
+/// shadow a wrong "unknown" costs a corpus row while a wrong intent would one day cost a turn.
+/// </summary>
+public static partial class TurnIntentClassifier
+{
+    /// <summary>The closed vocabulary. Each names an act, never prose or tone.</summary>
+    public static class Intents
+    {
+        /// <summary>The user asked something; answer it.</summary>
+        public const string AnswerQuestion = "answer-question";
+
+        /// <summary>The user shared information; receive it — no question owed back.</summary>
+        public const string Acknowledge = "acknowledge";
+
+        /// <summary>The user just answered a question Ava asked; engage with their answer.</summary>
+        public const string RespondToAnswer = "respond-to-answer";
+
+        /// <summary>Understanding is genuinely blocked (an ambiguous reference the reply
+        /// depends on); ask one short clarifying question.</summary>
+        public const string Clarify = "clarify";
+
+        /// <summary>The thread continues; stay with it.</summary>
+        public const string ContinueTopic = "continue-topic";
+
+        /// <summary>The user corrected something; accept the correction.</summary>
+        public const string AcceptCorrection = "accept-correction";
+
+        /// <summary>The user changed the subject; follow them, don't drag the old topic back.</summary>
+        public const string FollowTopicChange = "follow-topic-change";
+
+        /// <summary>The user asked about something Ava has no data on (their unseen life, an
+        /// empty retrieval); say so instead of inventing.</summary>
+        public const string AdmitUnknown = "admit-unknown";
+
+        /// <summary>No rule cleared the bar; continue naturally.</summary>
+        public const string Unknown = "unknown";
+    }
+
+    /// <summary>Below this, the selection is "unknown" rather than the best weak guess.</summary>
+    private const double SelectionBar = 0.6;
+
+    public static TurnIntentState Classify(
+        WorkingContextState working, string userMessage, int memoriesRetrieved)
+    {
+        var message = userMessage.Trim();
+        var isQuestion = message.EndsWith('?');
+        var candidates = new List<IntentCandidate>();
+
+        // Move-grounded intents first — these come from working context's read of the turn.
+        if (working.Move == WorkingContext.Moves.Correction)
+            candidates.Add(new(Intents.AcceptCorrection, 0.85, "the message is a correction of something recent"));
+        if (working.Move == WorkingContext.Moves.AnswersOpenQuestion)
+            candidates.Add(new(Intents.RespondToAnswer, 0.85,
+                $"the message answers her question: \"{working.BoundQuestion}\""));
+
+        if (isQuestion)
+        {
+            if (working.ResolutionConfidence == "guess" || working is { ReferenceMarkers.Count: > 0, ResolvedReference: null })
+            {
+                // The question depends on a reference the system could not pin — answering
+                // means guessing, and one short question is cheaper than a wrong answer.
+                candidates.Add(new(Intents.Clarify, 0.75,
+                    $"the question depends on \"{working.ReferenceMarkers.FirstOrDefault()}\", which is ambiguous here"));
+                candidates.Add(new(Intents.AnswerQuestion, 0.5, "it is still a question"));
+            }
+            else if (ProgressQuestion().IsMatch(message) && memoriesRetrieved == 0)
+            {
+                // Asking how something of theirs is going, with nothing retrieved to answer
+                // from: the honest act is admitting she can't see it. The documented failure
+                // is three paragraphs of invented compost layers.
+                candidates.Add(new(Intents.AdmitUnknown, 0.7,
+                    "a progress question with nothing retrieved to answer from"));
+                candidates.Add(new(Intents.AnswerQuestion, 0.4, "it is still a question"));
+            }
+            else
+            {
+                candidates.Add(new(Intents.AnswerQuestion, 0.8, "the user asked a question"));
+            }
+        }
+        else
+        {
+            if (Interjection().IsMatch(message)
+                && working.Move != WorkingContext.Moves.AnswersOpenQuestion)
+            {
+                // "ok" / "lol" with no question of hers in play carries no act to classify.
+                // Deliberately nothing added: unknown is the honest label.
+            }
+            else if (FirstPersonShare().IsMatch(message))
+            {
+                candidates.Add(new(Intents.Acknowledge, 0.7, "the user is sharing something of their own"));
+            }
+
+            if (working.Move is WorkingContext.Moves.ContinuesThread or WorkingContext.Moves.ResolvesReference)
+                candidates.Add(new(Intents.ContinueTopic, 0.65, "the thread continues"));
+            if (working.Move == WorkingContext.Moves.NewTopic && !Interjection().IsMatch(message))
+                candidates.Add(new(Intents.FollowTopicChange, 0.6, "the subject changed; follow it"));
+
+            // An ambiguous reference in a STATEMENT does not block replying, so clarify is
+            // offered as a competing candidate only — the shadow data will say whether it
+            // deserves more.
+            if (working.ResolutionConfidence == "guess")
+                candidates.Add(new(Intents.Clarify, 0.5,
+                    $"\"{working.ReferenceMarkers.FirstOrDefault()}\" is ambiguous, though a reply doesn't require resolving it"));
+        }
+
+        var ordered = candidates.OrderByDescending(c => c.Confidence).ToList();
+        var top = ordered.FirstOrDefault();
+
+        if (top is null || top.Confidence < SelectionBar)
+        {
+            return new TurnIntentState
+            {
+                Intent = Intents.Unknown,
+                Confidence = top?.Confidence ?? 0.0,
+                Reason = top is null
+                    ? "no rule matched — continue naturally"
+                    : $"best candidate ({top.Intent}) below the bar — continue naturally",
+                Candidates = ordered,
+            };
+        }
+
+        return new TurnIntentState
+        {
+            Intent = top.Intent,
+            Confidence = top.Confidence,
+            Reason = top.Reason,
+            Candidates = ordered,
+        };
+    }
+
+    /// <summary>"How's X coming along / going" — a status question about the user's own world.</summary>
+    [GeneratedRegex(@"\b(how('s| is| are| was| did)\b|coming along|any progress|going (with|on with))",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex ProgressQuestion();
+
+    [GeneratedRegex(@"^(I('m|'ve|'ll|'d)?|My|We('re|'ve)?|Our)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex FirstPersonShare();
+
+    [GeneratedRegex(@"^(ok(ay)?|k+|lol|ha(ha)*|hm+|yeah|yep|yes|nah|no|nice|cool|fair|sure|right|wow|oof|ugh|thanks|ty|cheers)[.!\s]*$",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex Interjection();
+}
