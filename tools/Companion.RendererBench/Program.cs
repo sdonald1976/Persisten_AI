@@ -150,17 +150,23 @@ async Task<(string Reply, double TtftMs, double TokPerSec, double TotalMs)> Gene
     if (model.StartsWith("qwen3", StringComparison.OrdinalIgnoreCase))
         user.Append(" /no_think");
 
-    var body = JsonSerializer.Serialize(new
+    // qwen3's soft /no_think switch is unreliable through the native API — the model can
+    // burn its whole num_predict inside a think block and return empty (measured). The
+    // explicit parameter is authoritative, but only thinking-capable models accept it.
+    var payload = new Dictionary<string, object>
     {
-        model,
-        stream = false,
-        options = new { temperature = 0.6, num_predict = 220 },
-        messages = new object[]
+        ["model"] = model,
+        ["stream"] = false,
+        ["options"] = new { temperature = 0.6, num_predict = 220 },
+        ["messages"] = new object[]
         {
             new { role = "system", content = system },
             new { role = "user", content = user.ToString() },
         },
-    });
+    };
+    if (model.StartsWith("qwen3", StringComparison.OrdinalIgnoreCase))
+        payload["think"] = false;
+    var body = JsonSerializer.Serialize(payload);
     using var response = await client.PostAsync("/api/chat",
         new StringContent(body, Encoding.UTF8, "application/json"));
     response.EnsureSuccessStatusCode();
@@ -183,6 +189,20 @@ async Task<(string Reply, double TtftMs, double TokPerSec, double TotalMs)> Gene
 List<string> Check(Fixture fixture, string reply)
 {
     var violations = new List<string>();
+    // An empty reply must never score as a pass on forbidden-only fixtures — the first
+    // qwen3 run's empty think-burned replies inflated its row exactly that way.
+    if (string.IsNullOrWhiteSpace(reply))
+    {
+        violations.Add("empty reply");
+        return violations;
+    }
+    // Plan-echo: reciting the plan's own MustState/interpretation lines near-verbatim is
+    // reading the plan as text, not realizing it (measured live on qwen2.5:1.5b).
+    foreach (var c in fixture.Plan.Content.Where(c => c.Requirement == ContentRequirement.MustState))
+    {
+        if (c.Text.Length > 40 && reply.Contains(c.Text[..40], StringComparison.OrdinalIgnoreCase))
+            violations.Add("plan-echo: must-state text recited verbatim");
+    }
     foreach (var term in fixture.Required ?? [])
         if (!reply.Contains(term, StringComparison.OrdinalIgnoreCase))
             violations.Add($"must-state missing \"{term}\"");

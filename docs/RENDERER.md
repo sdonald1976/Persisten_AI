@@ -138,7 +138,37 @@ if some model renders faithfully at any size (prompting suffices → integration
 question) or if small models fail on instruction-following while the ceiling passes
 (the classic adaptation gap → LoRA per §7, with measured headroom).
 
+## Baseline results (2026-08-20, prompted, no training)
+
+Corrected table — qwen3 rows re-run with the native `think:false` after the soft
+`/no_think` switch was measured burning the whole token budget inside think blocks
+(empty replies; the harness now scores empty as violation):
+
+| model | fidelity | CLR | tok/s | avg total | VRAM |
+|---|---|---|---|---|---|
+| qwen3:0.6b | 5/11 | 55% | 153 | 1.5 s | 0.9 GB |
+| llama3.2:1b | 6/11 | 45% | 94 | 2.0 s | 1.4 GB |
+| **qwen2.5:1.5b-instruct** | **9/11** | **18%** | **102** | **1.2 s** | **1.1 GB** |
+| qwen2.5:3b-instruct | 8/11 | 27% | 63 | 2.0 s | 2.0 GB |
+| **llama3.2:3b** | **9/11** | **18%** | 62 | 2.2 s | 2.4 GB |
+| Stheno 8B (reference) | 7/11 | 36% | 15.5 | 7.8 s | 3.9 GB |
+| qwen3:8b (ceiling) | 8/11 | 27% | 12.7 | 4.8 s | 3.9 GB |
+
+**The verdict: the Language Organ idea survives, strongly.** Neither falsifier fired:
+the plan is renderable (every model passed the majority of fixtures from the plan
+alone), and fidelity does NOT require 8B — the 1.5B ties for best at 7× Stheno's
+speed and a quarter of its VRAM. The reference model is the point made measurable:
+**Stheno leaked worst-in-class (36%), reproducing its live failure classes inside the
+bench** — invented apology on the agreement inversion, pizza/pepperoni/Precious
+palette contamination, superseded-fragile re-assertion. The residual small-model
+failures are exactly the adaptation-gap shape: the quokka pretrained-knowledge leak,
+apology priors on the inversion, and one newly named mode — **plan-echo** (the 1.5B
+recited the plan's MustState text near-verbatim on dont-break; the harness now checks
+for it). Nobody passes 11/11 prompted, which is the measured headroom the LoRA step
+(§7.2) exists to close, with a target of 11/11 on a held-out fixture split.
+
 ## Status
 
 - **2026-08-20** — project started: audit, serialization, harness, corpus, shortlist
-  recorded; baseline run in progress. No training, no production changes.
+  recorded; baseline run complete (table above); raw transcripts in
+  `training/renderer/baseline-*.md`. No training, no production changes.
