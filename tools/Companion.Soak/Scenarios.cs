@@ -394,9 +394,9 @@ public static class Scenarios
         }
 
         var answer = await SayAsync(api, conv, "Woodworking.", turns, faults, budget);
+        Describe(answer, notes);
 
         var decisions = answer.Decisions ?? Array.Empty<string>();
-        notes.Add($"decisions: {string.Join("; ", decisions)}");
         if (!decisions.Contains("interpretation=answers-open-question"))
         {
             faults.Add(new Fault(
@@ -410,7 +410,46 @@ public static class Scenarios
             ? "reply engaged with the bound answer"
             : $"reply did not mention the bound answer (model-side; not a fault): {Flat(answer.Reply)}");
 
+        // ---- stage 2: an ordinal against her own enumeration ----
+        var list = await SayAsync(api, conv,
+            "Suggest exactly three small workshop upgrades as a bulleted list, one short line each. No other text.",
+            turns, faults, budget);
+        if (list.Reply.Split('\n').Count(l => l.TrimStart().StartsWith('-') || l.TrimStart().StartsWith('*')) >= 2)
+        {
+            var pick = await SayAsync(api, conv, "Let's do the second one.", turns, faults, budget);
+            Describe(pick, notes);
+            var d2 = pick.Decisions ?? Array.Empty<string>();
+            if (!d2.Contains("interpretation=resolves-reference") && !d2.Contains("interpretation=answers-open-question"))
+            {
+                faults.Add(new Fault(
+                    "ordinal-not-resolved",
+                    "\"the second one\" against her own bulleted list was not resolved by the system",
+                    Flat(list.Reply)));
+            }
+        }
+        else
+        {
+            notes.Add($"model did not produce a bulleted list; ordinal case unmeasurable this run: {Flat(list.Reply)}");
+        }
+
+        // ---- stage 3: a pronoun back to a named person (heuristic — reported, not faulted) ----
+        await SayAsync(api, conv, "My sister Beth is visiting on Saturday.", turns, faults, budget);
+        var pronoun = await SayAsync(api, conv, "I'm planning a small dinner for her.", turns, faults, budget);
+        Describe(pronoun, notes);
+
         return new Result("context", faults, turns, notes);
+    }
+
+    /// <summary>The working-context evidence for one turn, written into the scenario notes.</summary>
+    private static void Describe(Turn turn, List<string> notes)
+    {
+        if (turn.WorkingContext is { } wc)
+            notes.Add($"[{Flat(turn.Sent)}] {wc}");
+        if (turn.RetrievedRaw is { Count: > 0 } raw)
+        {
+            notes.Add($"  retrieved (raw query): {string.Join(" / ", raw.Select(Flat))}");
+            notes.Add($"  retrieved (resolved):  {string.Join(" / ", (turn.Retrieved ?? Array.Empty<string>()).Select(Flat))}");
+        }
     }
 
     private static async Task<Turn> SayAsync(

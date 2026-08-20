@@ -196,6 +196,16 @@ public static class Prompts
             "The user's \"{answer}\" answers the question you just asked: \"{question}\". " +
             "Respond to it as that answer — do not treat it as a new topic or bend it toward " +
             "anything else. If you don't know what their answer means, ask them about it.");
+        Define("interpretation.reference",
+            "Injected when a reference in the user's message resolved exactly against the " +
+            "recent conversation. {marker} {referent}",
+            "When the user says \"{marker}\", they mean: \"{referent}\" (from the recent " +
+            "conversation just above). Read their message with that meaning.");
+        Define("interpretation.correction",
+            "Injected when the user's message is a correction of something recent.",
+            "The user is correcting something from the recent conversation. Their newest " +
+            "wording wins — over your last reply and over anything remembered. Acknowledge " +
+            "the correction naturally; don't defend the earlier version.");
 
         Define("renderer.openloops.header", "Heading over unresolved open loops.",
             "## Open loops — unresolved; recall if relevant, don't nag");

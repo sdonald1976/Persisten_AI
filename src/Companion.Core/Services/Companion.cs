@@ -326,28 +326,46 @@ public sealed class Companion : ICompanion
             .Where(m => m.Id != extractionSource.Id)
             .ToList();
 
-        // 3c. Working context (language-organ Phase 1): if she just asked a question and the
-        // user's reply is a short elliptical answer, the SYSTEM says so — in the packet, as an
-        // authoritative reading — and retrieval searches question + answer together instead of
-        // embedding a near-anchorless fragment alone. Interpretation was the chat model's job by
-        // default, and it demonstrably bent short answers toward whatever else was in the prompt.
-        var binding = AnswerBindingDetector.Detect(recent, promptText);
+        // 3c. Working context (language-organ Phase 1): the system's explicit read of the
+        // conversation — open questions, topic, salient entities, what the user's references
+        // point at, and what kind of turn this is. Interpretation was the chat model's job by
+        // default, and it demonstrably bent short answers toward whatever else was in the
+        // prompt. Deterministic, ephemeral (recent dialogue stays dialogue — none of this is
+        // stored), and traced in full on the diagnostics ring.
+        var working = WorkingContext.Read(
+            recent, promptText, projectContext.ResolvedProjectName,
+            identityProjection.UserName, identityProjection.CompanionName);
         decisions.Add(new DecisionRecord
         {
             Stage = "interpretation", Decider = "rule",
-            Verdict = binding is null ? "unbound" : "answers-open-question",
-            Reason = binding?.Question,
+            Verdict = working.Move,
+            Reason = working.BoundQuestion
+                ?? (working.ResolvedReference is null ? null
+                    : $"{working.ReferenceMarkers.FirstOrDefault()} -> {working.ResolvedReference}"),
         });
-        var retrievalQuery = binding is null ? promptText : $"{binding.Question} {binding.Answer}";
-        var interpretationNote = binding is null ? null
-            : Prompts.Format("interpretation.answer-binding",
-                ("answer", binding.Answer), ("question", binding.Question));
+        var retrievalQuery = working.RetrievalQuery;
+        var interpretationNote = working.InterpretationNote;
 
-        // 4. Retrieve relevant memories, boosted by the resolved project.
+        // 4. Retrieve relevant memories, boosted by the resolved project — searching what the
+        // message MEANS (question + answer, reference + referent), not just what it says.
         var outcome = await _retriever.RetrieveAsync(userId, retrievalQuery, projectContext.ResolvedProjectName, ct);
         var associative = await _associativeRecall.ExpandAsync(
             userId, retrievalQuery, outcome.Selected, _options.MaxAssociativeMemories, ct);
         var selectedMemories = outcome.Selected.Concat(associative).ToList();
+
+        // When the query was rewritten and capture is on, also retrieve with the RAW message
+        // and trace both result sets — the before/after evidence for whether resolution
+        // actually changes what reaches the prompt. Costs one extra embedding on rewritten
+        // turns only, and only while measuring.
+        IReadOnlyList<string> rawQueryRetrieved = Array.Empty<string>();
+        if (retrievalQuery != working.RawQuery && _shadow.IsRecording)
+        {
+            var rawOutcome = await _retriever.RetrieveAsync(
+                userId, working.RawQuery, projectContext.ResolvedProjectName, ct);
+            rawQueryRetrieved = rawOutcome.Selected.Take(5)
+                .Select(r => (r.Memory.Content.Length <= 120 ? r.Memory.Content : r.Memory.Content[..120])
+                    + $" (score {r.Score:F2})").ToList();
+        }
 
         // 4b. Relational/emotional layer: read this message's tone and append it to the signal log
         // (gated by privacy), then derive how things have been feeling so the reply can attune its
@@ -550,14 +568,30 @@ public sealed class Companion : ICompanion
                 await _capture.CaptureUserMessageAsync(extractionSource.Content, ct);
                 await _capture.CaptureReplyAsync(response, ct);
 
-                // Same discipline for the answer-binding rule: whenever the previous turn left a
-                // question hanging, record what the rule decided about the reply — that is the
-                // population whose base rate the heuristic's precision depends on, and it has
-                // never been measured (the ToolNudge lesson). Capture-only; changes nothing.
+                // Same discipline for the working-context rules: record what they decided on
+                // the populations they decide about — that is the base rate every precision
+                // claim depends on, and it has never been measured (the ToolNudge lesson).
+                // Capture-only; changes nothing it observes.
                 if (AnswerBindingDetector.TrailingQuestion(recent) is { } openQuestion)
                 {
-                    await Shadow.CaptureAsync(_shadow, "context.binding", binding is not null,
+                    await Shadow.CaptureAsync(_shadow, "context.binding",
+                        working.BoundQuestion is not null,
                         $"{openQuestion} ||| {extractionSource.Content}", ct);
+                }
+                if (working.ReferenceMarkers.Count > 0 && _shadow.IsRecording)
+                {
+                    await _shadow.RecordAsync(new ShadowComparison
+                    {
+                        Id = Guid.NewGuid(),
+                        Subject = "context.reference",
+                        Legacy = $"{working.Move}: {working.ReferenceMarkers.First()}"
+                            + (working.ResolvedReference is null ? " (unresolved)"
+                                : $" -> {working.ResolvedReference}"),
+                        Model = null,
+                        Applied = "legacy",
+                        Input = SecretDetector.LooksLikeSecret(extractionSource.Content)
+                            ? null : extractionSource.Content,
+                    }, ct);
                 }
             }
         }
@@ -611,6 +645,8 @@ public sealed class Companion : ICompanion
                     Source = r.Source == RetrievalSource.Associative ? "associative" : "retrieval",
                 }).ToList(),
             Decisions = decisions,
+            WorkingContext = working,
+            RetrievedWithRawQuery = rawQueryRetrieved,
             ContextSections = PresentSections(packet),
             DetectedProject = projectContext.ResolvedProjectName,
             InCharacterTurn = inCharacter,
