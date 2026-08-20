@@ -199,3 +199,24 @@ speculative inner life, nothing that cannot say where it came from.
   verbatim and faults on the decision record, not the reply prose. The word-count bound
   exists because the first cut bound "Never mind that — I finally got the irrigation pump
   running", which is a topic change, not an answer. 1015 tests green.
+- **2026-08-20 — Phase 1 complete: working context.** `WorkingContext` reads the recent
+  transcript into explicit per-turn state — open questions she asked that no user turn
+  addressed, current topic, salient entities (speaker-tagged), reference markers, a move
+  classification (answers-open-question / resolves-reference / correction /
+  continues-thread / new-topic), and the resolved retrieval query. Three confidence bars:
+  detect (classify only), resolve-by-guess ("her" → most recent user-introduced entity;
+  query rewritten, nothing asserted), resolve-exactly (enumerated item, the user's own
+  prior message; query rewritten AND the packet told). Ephemeral by design — traced on the
+  ring, stored nowhere. Captures: `context.binding`, `context.reference`; rewritten-query
+  turns also trace what the raw message would have retrieved.
+  **Live run against qwen3:8b** (soak `context`, scratch DB, this GPU): all system-side
+  checks clean — binding fired on the Additive-shaped turn, "the second one" resolved
+  against the model's own bulleted list, open questions tracked. One real flaw surfaced
+  and was fixed before proceeding: "her" first resolved to "Will Precious" (an auxiliary
+  verb plus a name lifted from her own reply) — entity extraction now sheds leading
+  function words and pronouns prefer user-introduced entities; the regression is pinned
+  verbatim. Re-validated live: "her" → Beth. Also observed, deliberately not fixed here:
+  extraction stored "a small dinner for someone named her" — the resolved referent is not
+  yet fed to the memory pipeline (recorded as a Phase-2-adjacent candidate); and the
+  first live turn's reply contained a Chinese token, a qwen3 quirk the filters don't
+  touch. 1029 tests green.
