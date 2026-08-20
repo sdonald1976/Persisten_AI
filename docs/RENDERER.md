@@ -167,6 +167,28 @@ recited the plan's MustState text near-verbatim on dont-break; the harness now c
 for it). Nobody passes 11/11 prompted, which is the measured headroom the LoRA step
 (§7.2) exists to close, with a target of 11/11 on a held-out fixture split.
 
+## Human review + serialization A/B (2026-08-20)
+
+The blind naturalness review (judgments preserved verbatim in
+`training/renderer/review/human-judgments-2026-08-20.md`) reordered the leaderboard:
+**llama3.2:3b took 5.5 of 10 human preferences, qwen3:8b took 4.5 — and both
+qwen2.5:1.5b (the fidelity co-leader) and Stheno (the production voice) took ZERO.**
+Naturalness and fidelity are confirmed separate axes; Stheno is Pareto-dominated on
+every axis at once. The hard benchmark stands: no model produced a good
+agreement-inversion reply.
+
+The serialization A/B (`ab-v1.md` / `ab-v2.md`, identical checks both arms, artifact
+and plan-echo detection now counted): **plan/2 roughly halved every finalist's failure
+rate with zero latency cost.** 1.5B: 55%→27% CLR. llama3.2:3b: 45%→27%. And
+**qwen2.5:3b-instruct under plan/2 reached 10/11 at 9% CLR** — 62 tok/s, 2.0 GB — the
+new overall leader, its one deterministic miss a genuine MustState omission (skipped
+the axe definition), plus two soft issues under the checks' radar (mild "I must have
+gotten mixed up" on the inversion; re-asking about food after the Epcot negation).
+Conclusion: a large share of the baseline failure rate belonged to the CONTRACT'S
+presentation, not the models. plan/2 (mechanical third-person acknowledgment facts,
+non-speakable control, separated payloads, keyword style) is adopted as the canonical
+model-facing serialization for all further bench work — production remains untouched.
+
 ## Status
 
 - **2026-08-20** — project started: audit, serialization, harness, corpus, shortlist
