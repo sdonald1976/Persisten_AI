@@ -124,6 +124,7 @@ public sealed class Retriever : IRetriever
                 Score = score,
                 Signals = signals,
                 Reason = BuildReason(signals, memory, projectMatch, applyOpenLoop),
+                Topical = baseRelevance,
             });
         }
 

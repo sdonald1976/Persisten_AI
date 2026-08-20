@@ -258,3 +258,26 @@ speculative inner life, nothing that cannot say where it came from.
   binding detector now refuses bare reactions (laughter/sighs) while keeping polar
   answers (yeah/no/sure). Promotion into generation context is NOT done and awaits the
   shadow verdict. 1069 tests green.
+- **2026-08-20 — Phase 2 evidence pass (no promotion).** Three additions, all
+  evidence-plumbing: `RetrievalResult.Topical` exposes the raw relevance the floor already
+  computed (sim + kw + project), traced per memory and stamped into every `turn.intent`
+  capture; `request-directive` exists as an evidence-only intent candidate capped at 0.55
+  — visible in every competing-candidates list, never selectable; and the canonical
+  clarify specimen is a permanent soak stage (faults if the system misses clarify, notes
+  whether the model asked which). An 18-turn live run against qwen3:8b found:
+  **directives are a real vocabulary gap** (6/6 classified follow-topic-change with
+  request-directive competing at 0.55 every time — a perfectly consistent signature, and
+  the model performed the requested act in every case); **max raw topical does NOT
+  separate known from unknown** (carburetor known 1.95 and dog 1.41 vs treehouse unknown
+  1.49 and fence 1.43 — interrogative scaffolding contaminates the overlap; the promising
+  candidate is focal-entity containment — does any retrieved memory contain the
+  question's subject noun — which separates all four cases here and needs corpus
+  validation before anyone thresholds on it); **the canonical clarify case reproduced**
+  (system clarify 0.75, model hedged plural instead of asking — and when the user
+  volunteered "the taller one", the model INVENTED "Clara has always been the adventurous
+  type"; the store stayed clean); **the model beat the system on the unknowns** (it
+  honestly admitted no treehouse/fence data while the classifier said answer-question) —
+  admit-unknown never fires with the broken retrieved==0 proxy. Recommendation recorded:
+  one more shadow iteration (promote request-directive to selectable, build the
+  focal-entity relevance signal, teach the ordinal resolver prose enumerations) before
+  any controlled promotion. 1078 tests green.

@@ -437,6 +437,27 @@ public static class Scenarios
         var pronoun = await SayAsync(api, conv, "I'm planning a small dinner for her.", turns, faults, budget);
         Describe(pronoun, notes);
 
+        // ---- stage 4: THE CANONICAL CLARIFY SPECIMEN (intent promotion eval) ----
+        // Two possible "her"s: the system must select clarify (deterministic — faulted), and
+        // whether the model then asks which sister or answers anyway is the note the eventual
+        // promotion decision reads. In the first live shadow run it answered anyway.
+        await SayAsync(api, conv, "My other sister Clara is arriving along with Beth as well.", turns, faults, budget);
+        var cook = await SayAsync(api, conv, "What should I cook for her?", turns, faults, budget);
+        Describe(cook, notes);
+        if (!(cook.Decisions ?? Array.Empty<string>()).Contains("intent=clarify"))
+        {
+            faults.Add(new Fault(
+                "clarify-not-selected",
+                "an ambiguous 'her' question did not classify as clarify (shadow intent)",
+                Flat(cook.Reply)));
+        }
+        var askedWhich = cook.Reply.Contains('?')
+            && (cook.Reply.Contains("which", StringComparison.OrdinalIgnoreCase)
+                || (cook.Reply.Contains("Beth") && cook.Reply.Contains("Clara")));
+        notes.Add(askedWhich
+            ? "canonical clarify: model ASKED which sister — agrees with system intent"
+            : $"canonical clarify: model answered without asking (the canonical disagreement): {Flat(cook.Reply)}");
+
         return new Result("context", faults, turns, notes);
     }
 

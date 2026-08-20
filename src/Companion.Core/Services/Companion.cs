@@ -621,6 +621,11 @@ public sealed class Companion : ICompanion
                     // Every turn's intent verdict, with the working-context move as input
                     // context — the corpus that decides whether this vocabulary ever earns
                     // authority over generation.
+                    // The input tag carries the evidence the vocabulary decisions need: the
+                    // working-context move, the top RAW topical relevance this turn (for the
+                    // admit-unknown signal characterization), and whether the message had
+                    // imperative shape (for the request/directive vocabulary question).
+                    var topTopical = outcome.Selected.Count == 0 ? 0.0 : outcome.Selected.Max(r => r.Topical);
                     await _shadow.RecordAsync(new ShadowComparison
                     {
                         Id = Guid.NewGuid(),
@@ -631,7 +636,10 @@ public sealed class Companion : ICompanion
                         Model = null,
                         Applied = "legacy",
                         Input = SecretDetector.LooksLikeSecret(extractionSource.Content)
-                            ? null : $"[{working.Move}] {extractionSource.Content}",
+                            ? null
+                            : $"[{working.Move}|topical={topTopical:F2}" +
+                              $"{(TurnIntentClassifier.LooksDirective(extractionSource.Content) ? "|directive" : "")}] " +
+                              extractionSource.Content,
                     }, ct);
                 }
                 if (working.ReferenceMarkers.Count > 0 && _shadow.IsRecording)
@@ -698,6 +706,7 @@ public sealed class Companion : ICompanion
                 {
                     Content = r.Memory.Content.Length <= 120 ? r.Memory.Content : r.Memory.Content[..120],
                     Score = r.Score,
+                    Topical = r.Topical,
                     Source = r.Source == RetrievalSource.Associative ? "associative" : "retrieval",
                 }).ToList(),
             Decisions = decisions,

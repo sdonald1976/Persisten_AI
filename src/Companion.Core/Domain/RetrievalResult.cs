@@ -17,5 +17,16 @@ public sealed record RetrievalResult
     /// <summary>Short explanation of why this memory matched.</summary>
     public required string Reason { get; init; }
 
+    /// <summary>
+    /// RAW topical relevance (similarity + keyword overlap + project match), unweighted — the
+    /// same quantity the RelevanceFloor gates on. Distinct from <see cref="Score"/>, which
+    /// folds in recency/importance/confidence and therefore cannot say whether a memory is
+    /// ABOUT the query: in a live run, the user's dog memory scored 1.60 against a question
+    /// about a carburetor. This is the candidate signal for "does Ava have relevant evidence
+    /// for this turn" — being characterized from captured distributions before anything is
+    /// allowed to threshold on it (docs/LANGUAGE_ORGAN.md, Phase 2 findings).
+    /// </summary>
+    public double Topical { get; init; }
+
     public RetrievalSource Source { get; init; } = RetrievalSource.Direct;
 }

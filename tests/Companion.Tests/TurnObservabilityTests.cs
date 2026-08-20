@@ -100,6 +100,10 @@ public class TurnObservabilityTests
             Assert.Contains(r.Source, new[] { "retrieval", "associative" });
         });
 
+        // Raw topical relevance rides beside the weighted score — a relevant seeded query
+        // must show topical signal on at least its best direct hit.
+        Assert.Contains(turn.Retrieved, r => r.Source == "retrieval" && r.Topical > 0);
+
         // The structured entries are the same memories the prose summaries describe.
         foreach (var (summary, structured) in turn.RetrievedSummaries.Zip(turn.Retrieved))
             Assert.StartsWith(structured.Content, summary, StringComparison.Ordinal);
