@@ -19,10 +19,14 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoTokenizer, BitsAndBytesConfig
 
 ROOT = Path(__file__).parent
 MODEL_DIR = ROOT / "models" / "Qwen2.5-3B-Instruct"
+
+import sys
+sys.path.insert(0, str(ROOT))
+from train_run1a import load_base  # the same mmap-bypassing loader, single source
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--adapter", default=None)
@@ -33,8 +37,7 @@ print(f"loading {'base + ' + args.adapter if args.adapter else 'base (prompted c
 tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
 bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                          bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.float16)
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_DIR, quantization_config=bnb, dtype=torch.float16, device_map={"": 0})
+model = load_base(MODEL_DIR, bnb)
 if args.adapter:
     from peft import PeftModel
     model = PeftModel.from_pretrained(model, args.adapter)
