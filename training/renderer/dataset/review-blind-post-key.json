@@ -72,7 +72,7 @@
     },
     "18": {
       "id": "know-recall-04",
-      "origin": "teacher-original:qwen3:8b"
+      "origin": "edited:scott"
     },
     "19": {
       "id": "real-bauble-03",
@@ -80,7 +80,7 @@
     },
     "20": {
       "id": "corr-obj-02",
-      "origin": "edited:curator"
+      "origin": "edited:scott"
     }
   }
 }

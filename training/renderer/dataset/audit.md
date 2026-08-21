@@ -41,7 +41,7 @@ _Generated from 690 teacher rows (1107 candidate draws) over 257 scenarios, acro
 
 ## 4. Target-length distribution
 
-median 13 words, mean 16.4, range 1-91
+median 13 words, mean 16.3, range 1-91
 
 | bucket | n | share |
 |---|---|---|
@@ -90,9 +90,9 @@ median 13 words, mean 16.4, range 1-91
 
 | disposition | n | share |
 |---|---|---|
-| teacher target kept unchanged | 89 | 42.0% |
-| edited — Scott's dictated line or named finding | 23 | 10.8% |
-| edited — curator, under Scott's written principles | 84 | 39.6% |
+| teacher target kept unchanged | 88 | 41.5% |
+| edited — Scott's dictated line or named finding | 25 | 11.8% |
+| edited — curator, under Scott's written principles | 83 | 39.2% |
 | curator-authored (every teacher draw failed) | 16 | 7.5% |
 
 - wrapper-quote normalization (mechanical, not an edit): 9 targets
@@ -123,7 +123,7 @@ Edited/authored rows (reasons in `curation-run1a.jsonl`):
 | `corr-name-02` | edit | curator |
 | `corr-name-03` | edit | scott |
 | `corr-obj-01` | edit | curator |
-| `corr-obj-02` | edit | curator |
+| `corr-obj-02` | edit | scott |
 | `corr-obj-03` | edit | curator |
 | `corr-obj-04` | edit | curator |
 | `corr-place-01` | edit | curator |
@@ -150,6 +150,7 @@ Edited/authored rows (reasons in `curation-run1a.jsonl`):
 | `epi-word-03` | author | curator |
 | `know-recall-01` | edit | curator |
 | `know-recall-03` | edit | curator |
+| `know-recall-04` | edit | scott |
 | `know-recall-05` | edit | curator |
 | `know-use-01` | edit | curator |
 | `know-use-02` | edit | curator |

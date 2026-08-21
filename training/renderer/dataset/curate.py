@@ -207,11 +207,25 @@ for f in sorted((ROOT / "scenarios").glob("*.jsonl")):
                                         "transcript": s.get("transcript"),
                                         "userMessage": s.get("userMessage")}
 
+# Canonical plan/2 text for every scenario, re-serialized from the CURRENT plan by
+# the same C# code the bench and trainer use (DatasetGen --plan2-out). Plans amended
+# after the blind review flow into the dataset through this file; the candidates
+# lineage keeps the pre-amendment serialization the teachers actually saw.
+plan2_current = {}
+plan2_file = ROOT / "plan2-current.jsonl"
+if plan2_file.exists():
+    for line in plan2_file.read_text(encoding="utf-8-sig").splitlines():
+        if line.strip():
+            p = json.loads(line)
+            plan2_current[p["id"]] = p["plan2"]
+
 def py_gates(sid, text):
     """The deterministic contract, re-run in-process on every curated target. The C#
     suite already vetted kept teacher targets; edited and authored text passes the
     same required/forbidden/control checks here or the build fails loudly."""
     row = {**meta[sid], **scenario_checks.get(sid, {})}
+    if sid in plan2_current:
+        row["plan2"] = plan2_current[sid]
     fails = []
     for tok in CONTROL_TOKENS:
         if tok in text:
@@ -294,13 +308,21 @@ for d in authored:
                         if re.search(r"STYLE\n\s*(.*)", row["plan2"]) else "",
     })
 
+plan2_updated = 0
 for r in final_rows:
+    if r["id"] in plan2_current and plan2_current[r["id"]] != r["plan2"]:
+        r["plan2"] = plan2_current[r["id"]]
+        r["curation"]["planAmended"] = True
+        plan2_updated += 1
     r["words"] = len(re.findall(r"[\w'-]+", r["target"]))
     r["opening"] = " ".join(re.findall(r"[a-z']+", r["target"].lower())[:3])
-    if r["curation"]["action"] in ("edit", "author"):
-        fails = py_gates(r["id"], r["target"])
-        if fails:
-            gate_failures.append(f"{r['id']}: {fails}")
+    # Post-blind-review, EVERY final target re-passes the deterministic contract —
+    # kept teacher targets included, since amended plans can add requirements.
+    fails = py_gates(r["id"], r["target"])
+    if fails:
+        gate_failures.append(f"{r['id']}: {fails}")
+if plan2_updated:
+    print(f"plan2 refreshed from amended plans: {plan2_updated} rows")
 if gate_failures:
     raise SystemExit("curated targets failing deterministic gates:\n  " + "\n  ".join(gate_failures))
 

@@ -32,6 +32,19 @@ var duplicateIds = scenarios.GroupBy(s => s.Id).Where(g => g.Count() > 1).Select
 if (duplicateIds.Count > 0)
     throw new InvalidOperationException($"duplicate scenario ids: {string.Join(", ", duplicateIds)}");
 
+// --plan2-out: serialize every scenario's CURRENT plan to plan/2 and exit — no
+// teachers, no network. The curator uses this to refresh dataset rows after a plan
+// amendment, keeping the C# serializer the single source of the model-facing text.
+if (Args("--plan2-out") is { } plan2Path)
+{
+    using var plan2Out = new StreamWriter(plan2Path, append: false, Encoding.UTF8);
+    foreach (var s in scenarios)
+        plan2Out.WriteLine(JsonSerializer.Serialize(
+            new { id = s.Id, plan2 = PlanSerialization.CompactV2(s.Plan) }, json));
+    Console.WriteLine($"plan2 for {scenarios.Count} scenarios -> {plan2Path}");
+    return;
+}
+
 // Resume: (scenario, teacher) pairs already generated are never re-spent.
 var done = File.Exists(outPath)
     ? File.ReadAllLines(outPath).Where(l => !string.IsNullOrWhiteSpace(l))

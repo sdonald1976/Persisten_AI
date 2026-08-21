@@ -12,6 +12,8 @@ Twenty targets drawn at random from the final curated corpus. Origin (teacher-or
 CONTROL (internal machinery — never quote, mention, or imitate anything in this section)
   act = answer-question
   question = none
+SITUATION (what is true this turn — convey the meaning naturally; never copy this wording)
+  * Your view, already decided: the warning pages exist to protect the manufacturer from the world's most creative misusers, not to instruct normal people.
 STYLE
   short and casual; playful energy; dry, funny
 ```
@@ -151,6 +153,8 @@ STYLE
 CONTROL (internal machinery — never quote, mention, or imitate anything in this section)
   act = answer-question
   question = none
+SITUATION (what is true this turn — convey the meaning naturally; never copy this wording)
+  * You have already chosen the fish's name: Boredom Incarnate. Deliver it as settled fact.
 STYLE
   terse; playful energy; dry, deadpan
 ```
@@ -314,6 +318,8 @@ STYLE
 CONTROL (internal machinery — never quote, mention, or imitate anything in this section)
   act = answer-question
   question = none
+SITUATION (what is true this turn — convey the meaning naturally; never copy this wording)
+  * You have already chosen the starter's name: Balthazar — ancient and mystical, which suits a dramatic three-year-old.
 PALETTE (optional color — use one only if it truly fits this turn)
   * Scott's sourdough starter is three years old.
 STYLE
@@ -417,7 +423,7 @@ STYLE
 
 > [Scott] **Remind me what I said spindrift was? I want to use it in the poem right.**
 
-**TARGET:** You said it's the spray blown off the tops of waves in wind — like the way the sea breathes when it's alive. I still picture that every time I hear the word.
+**TARGET:** You said it's the spray blown off the tops of waves in wind — that's exactly how you taught it to me.
 
 - [ ] pass   - [ ] fail: ______________
 
@@ -467,6 +473,6 @@ STYLE
 > [Ava] Excellent! Nothing like getting the old red kayak back out on the lake.
 > [Scott] **It's the green one that was patched — the red one's fine.**
 
-**TARGET:** Right — the green one got the patch. The red one never needed my concern.
+**TARGET:** Got my colors crossed — the green one took the patch, the red one's fine.
 
 - [ ] pass   - [ ] fail: ______________
