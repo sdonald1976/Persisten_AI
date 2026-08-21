@@ -21,7 +21,12 @@ TARGETS = {
     "planSerialization": REPO / "tools" / "Companion.RendererBench" / "PlanSerialization.cs",
     "evaluationSuite": REPO / "tools" / "Companion.RendererBench" / "RendererChecks.cs",
     "curationPipeline": ROOT / "curate.py",
+    "curationDecisions": ROOT / "curation-run1a.jsonl",
+    "canonicalPlan2": ROOT / "plan2-current.jsonl",
     "heldOutBenchmark": REPO / "training" / "renderer" / "fixtures.jsonl",
+    "trainingScript": REPO / "training" / "renderer" / "train_run1a.py",
+    "evalServer": REPO / "training" / "renderer" / "serve_tuned.py",
+    "baseModelPin": ROOT / "base-model-pin.json",
 }
 
 def sha256(path: Path) -> str:
@@ -45,11 +50,14 @@ try:
 except Exception:
     commit = None
 
+pin_path = ROOT / "base-model-pin.json"
+pin = json.loads(pin_path.read_text(encoding="utf-8")) if pin_path.exists() else {}
+
 manifest = {
     "runId": "run-1a",
     "status": "PROVISIONAL — awaiting dataset approval" if provisional else "FROZEN",
-    "baseModel": "Qwen/Qwen2.5-3B-Instruct",
-    "baseModelRevision": "PIN AT DOWNLOAD",
+    "baseModel": pin.get("repo", "Qwen/Qwen2.5-3B-Instruct"),
+    "baseModelRevision": pin.get("revision", "PIN AT DOWNLOAD"),
     "repoCommit": commit,
     "artifacts": entries,
     "rule": ("No example may change after freeze. If a checkpoint produces an "
