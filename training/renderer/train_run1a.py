@@ -15,11 +15,28 @@ import math
 import time
 from pathlib import Path
 
+import glob
+
 import torch
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from safetensors.torch import load_file
 from torch.utils.data import DataLoader, Dataset
-from transformers import (AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig,
-                          get_cosine_schedule_with_warmup)
+from transformers import (AutoConfig, AutoTokenizer, BitsAndBytesConfig,
+                          Qwen2ForCausalLM, get_cosine_schedule_with_warmup)
+
+
+def load_base(model_dir, bnb):
+    """Windows workaround: transformers' shard loader slices mmap'd storages, which
+    access-violates on this machine (reproduced on torch 2.7.1 and 2.13, transformers
+    4.57 and 5.15). safetensors' own reader copies cleanly, so the state dict is
+    preloaded and handed over whole. Same weights, same quantization — plumbing only."""
+    sd = {}
+    for f in sorted(glob.glob(str(model_dir / "*.safetensors"))):
+        sd.update(load_file(f))
+    cfg = AutoConfig.from_pretrained(model_dir)
+    return Qwen2ForCausalLM.from_pretrained(
+        None, config=cfg, state_dict=sd, quantization_config=bnb,
+        dtype=torch.float16, device_map={"": 0})
 
 ROOT = Path(__file__).parent
 DATASET = ROOT / "dataset"
@@ -115,8 +132,7 @@ def main():
     bnb = BitsAndBytesConfig(
         load_in_4bit=True, bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.float16)
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_DIR, quantization_config=bnb, dtype=torch.float16, device_map={"": 0})
+    model = load_base(MODEL_DIR, bnb)
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     lora = LoraConfig(**{k: v for k, v in CFG["lora"].items() if k != "task_type"},
                       task_type="CAUSAL_LM")
