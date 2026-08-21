@@ -72,8 +72,12 @@ class PlanDataset(Dataset):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": build_user_prompt(r["plan2"], r["transcript"], r["userMessage"])},
             ]
-            prompt_ids = tokenizer.apply_chat_template(
+            templated = tokenizer.apply_chat_template(
                 messages, tokenize=True, add_generation_prompt=True)
+            # transformers 5.x returns a BatchEncoding; 4.x returned a bare id list.
+            prompt_ids = templated["input_ids"] if not isinstance(templated, list) else templated
+            if prompt_ids and isinstance(prompt_ids[0], list):
+                prompt_ids = prompt_ids[0]
             target_ids = tokenizer(r["target"] + "<|im_end|>", add_special_tokens=False)["input_ids"]
             input_ids = (prompt_ids + target_ids)[:max_len]
             labels = ([-100] * len(prompt_ids) + target_ids)[:max_len]
