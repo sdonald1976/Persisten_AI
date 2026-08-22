@@ -14,6 +14,11 @@ outputs/
 !renderer/dataset/scenarios/*.jsonl
 !renderer/dataset/candidates*.jsonl
 !renderer/dataset/train-*.jsonl
+!renderer/dataset/plan2-current.jsonl
+!renderer/dataset/curation-*.jsonl
+!renderer/unseen/*.jsonl
+!renderer/unseen-plan2.jsonl
+!renderer/run1a-training-log.txt
 
 # Python bytecode from the training scripts
 __pycache__/
