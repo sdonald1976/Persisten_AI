@@ -3,7 +3,7 @@
   "status": "FROZEN",
   "baseModel": "Qwen/Qwen2.5-3B-Instruct",
   "baseModelRevision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
-  "repoCommit": "91eb3800fde5dde93af48ecb2a2cf035f53d3cf3",
+  "repoCommit": "ceefd4612ba39d4ab6a9e008e5da523634e822df",
   "artifacts": {
     "dataset": {
       "path": "training/renderer/dataset/train-200.jsonl",
@@ -52,8 +52,8 @@
     },
     "trainingScript": {
       "path": "training/renderer/train_run1a.py",
-      "sha256": "eab121e03672ccea3fd6c9a0e4d7ea6cd0dce3d08831a53157f6d8955b7f4112",
-      "bytes": 10003
+      "sha256": "1a23c0f02428d1df96c3419d05f6ded6f1bdba2e98da5fd1288711b6d2da5ab7",
+      "bytes": 12265
     },
     "evalServer": {
       "path": "training/renderer/serve_tuned.py",
