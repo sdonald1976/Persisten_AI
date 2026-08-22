@@ -38,12 +38,18 @@ def load_base(model_dir, bnb):
         None, config=cfg, state_dict=sd, quantization_config=bnb,
         dtype=torch.float16, device_map={"": 0})
 
+import os
+
 ROOT = Path(__file__).parent
 DATASET = ROOT / "dataset"
-OUT = ROOT / "runs" / "run-1a"
+# RUN_ID parameterizes config and output dir so run-1b reuses this script verbatim;
+# defaults keep run-1a's behavior byte-identical.
+RUN_ID = os.environ.get("RUN_ID", "run-1a")
+OUT = ROOT / "runs" / RUN_ID
 OUT.mkdir(parents=True, exist_ok=True)
 
-CFG = json.loads((DATASET / "config-run1a.json").read_text(encoding="utf-8"))
+# RUN_ID "run-1a" -> config file "config-run1a.json"
+CFG = json.loads((DATASET / f"config-{RUN_ID.replace('run-', 'run')}.json").read_text(encoding="utf-8"))
 SEED = CFG["training"]["seed"]
 torch.manual_seed(SEED)
 

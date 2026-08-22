@@ -84,6 +84,24 @@ def question_wrong(row, text):
         return "omitted a mandatory question"
     return None
 
+EXPERIENCE_MARKER = re.compile(
+    r"\b(my favou?rite (food|meal|topping|dish|film|movie|show|song|band|album|book|place|trip|order|coffee|drink)"
+    r"|I('|’)ve (been to|tried|eaten|tasted|visited|watched|played|had one)"
+    r"|when I (was|went|tried|ate|visited|watched|played)"
+    r"|I once (had|went|tried|saw|ate)"
+    r"|I remember (eating|seeing|visiting|watching|tasting)"
+    r"|my (go-to|usual) (order|meal|spot))\b", re.I)
+NEGATION_NEARBY = re.compile(r"\b(never|haven't|hasn't|can't|cannot|don't|won't|no)\b[^.!?]{0,20}$", re.I)
+
+def invented_experience(text):
+    """Run-1b directive: prohibit invented experience/preference claims. The worst
+    run-1a output fabricated a favorite Epcot dish; this catches the first-person
+    experience shapes while letting honest negations ('I've never been') through."""
+    for m in EXPERIENCE_MARKER.finditer(text):
+        if not NEGATION_NEARBY.search(text[:m.start()]):
+            return f"invented experience/preference: '{m.group(0)}'"
+    return None
+
 RECALL_MARKER = re.compile(
     r"\b(last time|remember when|you (told|mentioned|said) (me )?(before|last|earlier)|"
     r"as (always|usual)|like (you did )?last|the other (day|week)|you always)\b", re.I)
@@ -132,7 +150,7 @@ for sid, cands in by_scenario.items():
         reasons = list(c["violations"])
         if not reasons:
             for extra in (contrition_wrong(row, c["text"]), question_wrong(row, c["text"]),
-                          unsupported_recall(row, c["text"])):
+                          unsupported_recall(row, c["text"]), invented_experience(c["text"])):
                 if extra:
                     reasons.append(extra)
         c = dict(c, extraReasons=reasons[len(c["violations"]):], gateFail=reasons)
@@ -247,13 +265,19 @@ def py_gates(sid, text):
         fails.append("trailing question on question=none plan")
     if mode == "mandatory" and not ends_q:
         fails.append("mandatory question missing")
+    exp = invented_experience(text)
+    if exp:
+        fails.append(exp)
     return fails
 
 decisions = {}
-for line in (ROOT / "curation-run1a.jsonl").read_text(encoding="utf-8").splitlines():
-    if line.strip():
-        d = json.loads(line)
-        decisions[d["id"]] = d
+for df in ("curation-run1a.jsonl", "curation-run1b.jsonl"):
+    p = ROOT / df
+    if p.exists():
+        for line in p.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                d = json.loads(line)
+                decisions[d["id"]] = d
 
 missing_decisions = [r["id"] for r in accepted if r["id"] not in decisions]
 if missing_decisions:
@@ -337,13 +361,20 @@ accepted = sorted(final_rows, key=lambda r: r["id"])
 # ---- family-level split -----------------------------------------------------------
 rng = random.Random(SEED)
 families = sorted({r["family"] for r in accepted})
-# Validation families are drawn one per stratum where the stratum has >= 3 families,
-# so validation covers behavior rather than a random slice of one topic.
+# Split stability across runs: every run-1a family keeps its run-1a assignment (the
+# pinned manifest), so run-1b never trains on a family that run-1a validated on and
+# the three-arm comparison stays honest. New families get their own per-stratum
+# validation draw.
+pinned_path = ROOT / "splits-run1a-pinned.json"
+pinned = json.loads(pinned_path.read_text(encoding="utf-8")) if pinned_path.exists() else {}
+pinned_val = set(pinned.get("validationFamilies", []))
+pinned_all = pinned_val | set(pinned.get("trainFamilies", []))
+new_families = [f for f in families if f not in pinned_all]
 by_stratum = defaultdict(list)
-for f in families:
+for f in new_families:
     stratum = next(r["stratum"] for r in accepted if r["family"] == f)
     by_stratum[stratum].append(f)
-val_families = set()
+val_families = set(f for f in pinned_val if f in families)
 for stratum, fams in sorted(by_stratum.items()):
     if len(fams) >= 2:
         val_families.add(rng.choice(sorted(fams)))
