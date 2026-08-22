@@ -152,12 +152,17 @@ def main():
     pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
     ga = tcfg["gradient_accumulation_steps"]
 
-    gen = torch.Generator().manual_seed(SEED)
-    loader = DataLoader(train_ds, batch_size=tcfg["per_device_train_batch_size"],
-                        shuffle=True, generator=gen,
-                        collate_fn=lambda b: collate(b, pad_id))
+    # Deterministic per-epoch permutations (seed + epoch), so a resumed run walks the
+    # exact same example order the crashed one did. Batch size is 1 per the config;
+    # this loop indexes the dataset directly instead of trusting a DataLoader's
+    # generator state to survive process death (this machine crashes under sustained
+    # GPU load — twice now — so exact resume is a requirement, not a nicety).
+    assert tcfg["per_device_train_batch_size"] == 1
+    def epoch_order(epoch):
+        g = torch.Generator().manual_seed(SEED + epoch)
+        return torch.randperm(len(train_ds), generator=g).tolist()
 
-    steps_per_epoch = math.ceil(len(loader) / ga)
+    steps_per_epoch = math.ceil(len(train_ds) / ga)
     total_steps = steps_per_epoch * tcfg["num_train_epochs"]
     import bitsandbytes as bnb_opt
     optimizer = bnb_opt.optim.PagedAdamW8bit(
@@ -165,6 +170,31 @@ def main():
     scheduler = get_cosine_schedule_with_warmup(
         optimizer, int(total_steps * tcfg["warmup_ratio"]), total_steps)
     print(f"optimizer steps: {total_steps} ({steps_per_epoch}/epoch)")
+
+    checkpoint_every = int(os.environ.get("CHECKPOINT_EVERY", tcfg["save_steps"]))
+
+    def save_state(step, epoch, tag):
+        path = OUT / f"checkpoint-{tag}"
+        model.save_pretrained(path)
+        torch.save({"optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "step": step, "epoch": epoch}, path / "trainer-state.pt")
+
+    # Resume: newest checkpoint with trainer-state wins. Examples consumed inside a
+    # partially accumulated batch are re-run (their gradients were zeroed at save).
+    resume_step, resume_epoch = 0, 0
+    ckpts = sorted((p for p in OUT.glob("checkpoint-*") if (p / "trainer-state.pt").exists()),
+                   key=lambda p: (p / "trainer-state.pt").stat().st_mtime)
+    if ckpts:
+        latest = ckpts[-1]
+        state = torch.load(latest / "trainer-state.pt", weights_only=False)
+        from peft import set_peft_model_state_dict
+        from safetensors.torch import load_file as load_sft
+        set_peft_model_state_dict(model, load_sft(str(latest / "adapter_model.safetensors")))
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        resume_step, resume_epoch = state["step"], state["epoch"]
+        print(f"RESUMING from {latest.name}: step {resume_step}, epoch {resume_epoch}")
 
     def evaluate():
         model.eval()
@@ -186,13 +216,21 @@ def main():
         print("  " + json.dumps(kw))
 
     t0 = time.time()
-    val0 = evaluate()
-    record(step=0, valLoss=round(val0, 4))
+    if resume_step == 0:
+        record(step=0, valLoss=round(evaluate(), 4))
 
-    step, accum, running = 0, 0, 0.0
+    # Accumulation carries across epoch boundaries (run-1a's exact semantics), so one
+    # optimizer step always consumes exactly `ga` examples and the global example
+    # cursor is simply step*ga. Resume converts that cursor back to (epoch, offset).
+    n = len(train_ds)
+    step, accum, running = resume_step, 0, 0.0
+    consumed = resume_step * ga
     model.train()
-    for epoch in range(tcfg["num_train_epochs"]):
-        for b in loader:
+    for epoch in range(consumed // n, tcfg["num_train_epochs"]):
+        order = epoch_order(epoch)
+        start = consumed % n if epoch == consumed // n else 0
+        for idx in order[start:]:
+            b = collate([train_ds[idx]], pad_id)
             ids, labels, mask = (t.cuda() for t in b)
             out = model(input_ids=ids, attention_mask=mask, labels=labels)
             (out.loss / ga).backward()
@@ -211,9 +249,10 @@ def main():
                            lr=scheduler.get_last_lr()[0],
                            vramGb=round(torch.cuda.max_memory_allocated() / 2**30, 2))
                     running = 0.0
+                if step % checkpoint_every == 0:
+                    save_state(step, epoch, str(step))
                 if step % tcfg["eval_steps"] == 0:
                     record(step=step, valLoss=round(evaluate(), 4))
-                    model.save_pretrained(OUT / f"checkpoint-{step}")
     final_val = evaluate()
     record(step=step, valLoss=round(final_val, 4), final=True)
     model.save_pretrained(OUT / "adapter-final")
