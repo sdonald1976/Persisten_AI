@@ -1,0 +1,12 @@
+{"step": 0, "valLoss": 3.9508, "elapsedSec": 254.4}
+{"step": 0, "valLoss": 3.9508, "elapsedSec": 256.9}
+{"step": 5, "epoch": 0, "trainLoss": 2.9099, "lr": 9.766981960274653e-05, "vramGb": 3.95, "elapsedSec": 985.4}
+{"step": 10, "epoch": 0, "trainLoss": 2.0904, "lr": 8.857445899109715e-05, "vramGb": 4.01, "elapsedSec": 1769.0}
+{"step": 15, "epoch": 0, "trainLoss": 2.0326, "lr": 7.388599092561315e-05, "vramGb": 4.07, "elapsedSec": 2532.8}
+{"step": 20, "epoch": 0, "trainLoss": 1.9546, "lr": 5.573417126992003e-05, "vramGb": 4.07, "elapsedSec": 3448.2}
+{"step": 25, "epoch": 1, "trainLoss": 1.8227, "lr": 3.675092489016693e-05, "vramGb": 4.07, "elapsedSec": 4383.8}
+{"step": 25, "valLoss": 1.8957, "elapsedSec": 4679.2}
+{"step": 30, "epoch": 1, "trainLoss": 1.664, "lr": 1.9688729451668114e-05, "vramGb": 4.07, "elapsedSec": 5518.6}
+{"step": 35, "epoch": 1, "trainLoss": 1.6784, "lr": 7.0215196506399515e-06, "vramGb": 4.07, "elapsedSec": 6357.8}
+{"step": 40, "epoch": 1, "trainLoss": 1.6349, "lr": 5.859788109825793e-07, "vramGb": 4.07, "elapsedSec": 7215.2}
+{"step": 41, "valLoss": 1.8781, "final": true, "elapsedSec": 7719.1}
