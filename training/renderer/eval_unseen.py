@@ -15,12 +15,18 @@ from train_run1a import SYSTEM_PROMPT, build_user_prompt  # noqa: E402
 parser = argparse.ArgumentParser()
 parser.add_argument("--ollama", default="http://localhost:11435")
 parser.add_argument("--out", required=True)
+parser.add_argument("--family-prefix", default=None,
+                    help="evaluate only scenario ids with this prefix (e.g. u1b-)")
 args = parser.parse_args()
 
-scenarios = {json.loads(l)["id"]: json.loads(l)
-             for l in (ROOT / "unseen" / "unseen-family.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()}
+scenarios = {}
+for f in sorted((ROOT / "unseen").glob("*.jsonl")):
+    for l in f.read_text(encoding="utf-8").splitlines():
+        if l.strip():
+            s = json.loads(l)
+            scenarios[s["id"]] = s
 plan2 = {json.loads(l)["id"]: json.loads(l)["plan2"]
-         for l in (ROOT / "unseen" / "plan2.jsonl").read_text(encoding="utf-8-sig").splitlines() if l.strip()}
+         for l in (ROOT / "unseen-plan2.jsonl").read_text(encoding="utf-8-sig").splitlines() if l.strip()}
 
 CONTROL_TOKENS = ["[plan/2]", "CONTROL", "SITUATION", "PALETTE", "CONSTRAINTS", "act =", "question ="]
 
@@ -44,6 +50,8 @@ def check(s, reply):
             fails.append(f"forbidden '{term}'")
     return fails
 
+if args.family_prefix:
+    scenarios = {k: v for k, v in scenarios.items() if k.startswith(args.family_prefix)}
 results = []
 for i, (sid, s) in enumerate(sorted(scenarios.items()), 1):
     payload = json.dumps({
