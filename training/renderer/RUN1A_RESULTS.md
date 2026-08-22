@@ -57,7 +57,7 @@ plan/2 baseline, same stack, same draws policy (temperature 0.6, single draw).
 | 4 | hard classes | **inversion contrition 0: PASS** (the fully held-out composition renders correctly: "You're right — the Cheshire Cat said it."); epistemic leak 0: PASS (base leaked "Australia" on the quokka; tuned answered "No idea — I've never heard of it."); palette ≤1/10: **FAIL** (3/11) |
 | 5 | naturalness blind review (tuned must not lose would-use to its own base) | **PENDING — Scott's review** (transcripts in `eval-run1a-tuned.md` / `-base.md`) |
 | 6 | latency/VRAM within 10% of base | VRAM PASS (+5%); tok/s FAIL as served (−48%) — attributable to unmerged LoRA matmuls; a merged export or GGUF conversion removes that overhead and should be measured before treating this as real |
-| 7 | post-training-authored unseen family, CLR ≤ 2× held-out | **OPEN** — that family is authored only now that training is done, per design |
+| 7 | post-training-authored unseen family, CLR ≤ 2× held-out | **FAIL on the absolute threshold, strong relative win** — tuned 3/8 (37.5%) vs the 17% bar; the prompted base fails 5/8 (62.5%) on the same family. Details below |
 | 8 | over-specialization (opening diversity ≥ 0.60, no formulaic convergence) | **PASS** — 0.96, more varied than the base's 0.87 |
 
 ## What the failures actually are
@@ -78,6 +78,29 @@ behavior with the least clean training signal is the one that didn't move. The
 inversion result shows the opposite: decomposed skills (ownership + agreement +
 proportionality), each well-represented, composed correctly on a structure the model
 never saw.
+
+## Gate 7: the unseen family (authored after training)
+
+Because the curator had already seen the model's failures by authoring time, the
+composition was chosen mechanically: every pair of cognitive primitives present
+individually in training but never in combination was enumerated, and the sha256 of
+the freeze manifest — committed before any evaluation existed — picked
+**epistemic-unknown × superseded**: turns where Ava must admit she hasn't learned a
+concept *and* not re-assert a superseded fact, at once. Eight scenarios
+(`unseen/unseen-family.jsonl`, selection script alongside).
+
+Tuned: 3/8 fail (37.5%) — against a 17% bar: **gate fails as declared.** But the
+composition's anatomy is precise: the epistemic half rendered honestly in 8/8
+("HEMA — I don't know what that is. You tell me."), the superseded fact was never
+re-asserted, and all three failures are the **must-state half going missing** (the
+new team name, the new tool, the new book title dropped). Two of the three are
+partly check artifacts — "No, I haven't. What's it about so far?" is an honest
+admission the term list didn't recognize — but the must-state omissions are real.
+
+Base on the same family: 5/8 fail (62.5%), and qualitatively worse in kind — two
+replies leak instruction-following meta-text ("Sure, here's how Ava might reply:"),
+one invents "when I was designed", one asks Scott his own question back. The tuned
+model's failures are omissions; the base's are collapses.
 
 ## Read on the learning curve
 
