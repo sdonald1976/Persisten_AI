@@ -36,14 +36,21 @@ for r in rows:
             if a < b:
                 seen_pairs.add((a, b))
 
+# The run-1a unseen family (epistemic-unknown x superseded) is already a permanent
+# regression set; it is excluded so new picks never collide with it.
+EXCLUDED = {("epistemic-unknown", "superseded")}
 candidates = sorted(
     (a, b) for i, a in enumerate(sorted(seen_single)) for b in sorted(seen_single)[i+1:]
-    if (a, b) not in seen_pairs)
+    if (a, b) not in seen_pairs and (a, b) not in EXCLUDED)
 print(f"primitives individually present: {sorted(seen_single)}")
 print(f"pairs never co-occurring in training: {len(candidates)}")
 for c in candidates:
     print(f"  {c}")
 
+# Run-1b needs two families; both indices derive from the run-1a freeze hash, which
+# predates every evaluation result in the project.
 seed = int(hashlib.sha256((ROOT / "dataset" / "freeze-run1a.json").read_bytes()).hexdigest(), 16)
-pick = candidates[seed % len(candidates)]
-print(f"\nfreeze-hash selection: {pick}")
+first = candidates[seed % len(candidates)]
+rest = [c for c in candidates if c != first]
+second = rest[(seed // len(candidates)) % len(rest)]
+print(f"\nfreeze-hash selections: {first} and {second}")
