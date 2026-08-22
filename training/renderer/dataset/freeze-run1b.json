@@ -1,0 +1,90 @@
+{
+  "runId": "run-1b",
+  "status": "FROZEN",
+  "baseModel": "Qwen/Qwen2.5-3B-Instruct",
+  "baseModelRevision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+  "repoCommit": "91eb3800fde5dde93af48ecb2a2cf035f53d3cf3",
+  "artifacts": {
+    "dataset": {
+      "path": "training/renderer/dataset/train-200.jsonl",
+      "sha256": "9b3067729c296a1c409aebe325fd03b076083ab5aa3faa74d186bdd892621af6",
+      "bytes": 589249
+    },
+    "splitManifest": {
+      "path": "training/renderer/dataset/splits.json",
+      "sha256": "6fc0463d77af3f514ac9d93f9f1baa12ed7a1d0ac619f0fe30600f4df98ff754",
+      "bytes": 5067
+    },
+    "trainingConfig": {
+      "path": "training/renderer/dataset/config-run1b.json",
+      "sha256": "3f1b0220639fa7f45ffd90ab79093b37cb1d227b68a51c14e686ab50e54c922e",
+      "bytes": 3480
+    },
+    "planSerialization": {
+      "path": "tools/Companion.RendererBench/PlanSerialization.cs",
+      "sha256": "f4a8935d6fcba9d25339708df09fda78e4f1c96407b27691a2619fd651e6816e",
+      "bytes": 8620
+    },
+    "evaluationSuite": {
+      "path": "tools/Companion.RendererBench/RendererChecks.cs",
+      "sha256": "d29239e6a114eaeb8cfaa451e1260e96fecb2d2aa2ffb46cb7c06c4ded83092e",
+      "bytes": 5873
+    },
+    "curationPipeline": {
+      "path": "training/renderer/dataset/curate.py",
+      "sha256": "e1a740cb259e0ecb3c4b68b2fe41cce1c348c739c570cc1b65edd4ec0ec38360",
+      "bytes": 39316
+    },
+    "curationDecisions": {
+      "path": "training/renderer/dataset/curation-run1a.jsonl",
+      "sha256": "7de4fe58d07d826d5eb4f7457afb9ccb9a5dcd385f4094248ae9c436dff54e8b",
+      "bytes": 33606
+    },
+    "canonicalPlan2": {
+      "path": "training/renderer/dataset/plan2-current.jsonl",
+      "sha256": "40db7a2eaaab6cc6f31b45c3fed6499321b729588fcfd9ac41ee0cb5574a8980",
+      "bytes": 126922
+    },
+    "heldOutBenchmark": {
+      "path": "training/renderer/fixtures.jsonl",
+      "sha256": "dee97bf8c0ef1b4788c89a6987a4c7a121de0700edc2e2a0f489f2aae852d1a4",
+      "bytes": 13465
+    },
+    "trainingScript": {
+      "path": "training/renderer/train_run1a.py",
+      "sha256": "eab121e03672ccea3fd6c9a0e4d7ea6cd0dce3d08831a53157f6d8955b7f4112",
+      "bytes": 10003
+    },
+    "evalServer": {
+      "path": "training/renderer/serve_tuned.py",
+      "sha256": "e7909061a41580916db04581bcc67044b781a0233559a10c21ad9c253f9e1cf7",
+      "bytes": 4116
+    },
+    "baseModelPin": {
+      "path": "training/renderer/dataset/base-model-pin.json",
+      "sha256": "1c04fe9481612c5de335b7ecfb2e732830d280900e6284e7434eaf1f7710d688",
+      "bytes": 103
+    },
+    "curationDelta": {
+      "path": "training/renderer/dataset/curation-run1b.jsonl",
+      "sha256": "f1864bd3fec13bc68ab6f930cad920cfc83e1fc62649918cc6bcfc0fc69d1eeb",
+      "bytes": 35841
+    },
+    "pinnedRun1aSplits": {
+      "path": "training/renderer/dataset/splits-run1a-pinned.json",
+      "sha256": "47b853881546f6c4e5c5368eafd27a7799b7a5452a3de8d2c5a5619562ff087b",
+      "bytes": 3326
+    },
+    "unseenFamily:run1b-corru-optq": {
+      "path": "training/renderer/unseen/run1b-corru-optq.jsonl",
+      "sha256": "b074cd62dc3ff20fea32f8e0b5ab71eaeab0e848e9070ff9d817ec16f820b78d",
+      "bytes": 6815
+    },
+    "unseenFamily:run1b-epi-mandq": {
+      "path": "training/renderer/unseen/run1b-epi-mandq.jsonl",
+      "sha256": "d2abd12b832914f9018d98636b3aaa5ad4a4d2ea5820b30f67d3bcbb52dfc336",
+      "bytes": 5207
+    }
+  },
+  "rule": "No example may change after freeze. If a checkpoint produces an embarrassing failure, the failure is the result."
+}
