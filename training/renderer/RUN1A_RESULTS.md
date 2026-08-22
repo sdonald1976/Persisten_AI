@@ -42,7 +42,7 @@ plan/2 baseline, same stack, same draws policy (temperature 0.6, single draw).
 | questions on closed plans | 11/36 (31%) | **1/36 (3%)** |
 | opening-trigram diversity | 0.87 | **0.96** |
 | **Benchmark fixtures (11 permanent holdouts)** | 9/11 (18% CLR) | 8/11 (27% CLR) |
-| MustState omissions | 0 | 0 |
+| MustState omissions (fixtures + validation set only; the gate-7 unseen family later showed 3 — see below) | 0 | 0 |
 | plan-echo / control-vocabulary artifacts | 0 | 0 |
 | VRAM (serving) | 1.9 GB | 2.0 GB |
 | tok/s (this stack; see caveat) | 3.1 | 1.6 |
@@ -118,5 +118,16 @@ appeared at all.
 
 - Adapter: `runs/run-1a/adapter-final` (machine-local; hash recorded below)
 - adapter_model.safetensors sha256: `fb4b1098b7585d86270e3df6a61d38323a9082cd18f20e74f5524708ff9a082a`
-- Awaiting: Scott's blind naturalness review (gate 5) and the post-training unseen
-  family (gate 7) before any run-1b decision.
+- **Gate 5: PASSED** (2026-08-22). Scott preferred the tuned arm on ~9 of 11
+  responses — substantially more direct and conversational, much less padding,
+  performative contrition, and unnecessary questioning; voice not dead or formulaic.
+  Named exceptions: `hatter-muddle` grammatically awkward; `epcot-pizza` the worst
+  response in either arm (fabricated personal preference/experience plus forced
+  palette content).
+- **Gate 7: completed and FAILED on the absolute threshold** (37.5% vs the 17% bar;
+  prompted base 62.5% on the same family) — see the gate-7 section above. All
+  measurable gates are now scored.
+- **Decision: proceed to Run-1b/400**, targeting palette silence, prohibition of
+  invented experience/preferences, and multi-obligation MustState completeness; all
+  run-1a frozen fixtures preserved; new held-out compositions authored before
+  training; evaluation is three-arm (base vs run-1a vs run-1b).
