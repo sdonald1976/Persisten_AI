@@ -281,7 +281,30 @@ for df in ("curation-run1a.jsonl", "curation-run1b.jsonl"):
 
 missing_decisions = [r["id"] for r in accepted if r["id"] not in decisions]
 if missing_decisions:
-    raise SystemExit(f"accepted rows without a curation decision: {missing_decisions}")
+    # Refuse to build — but emit the curation worksheet: each undecided scenario's
+    # auto-selected best candidate with its flags, for the human/curator pass.
+    lines_p = ["# Pending curation — auto-selected best candidates (NOT accepted yet)\n"]
+    for r in accepted:
+        if r["id"] not in missing_decisions:
+            continue
+        lines_p.append(f"\n## `{r['id']}` [{r['stratum']}] ({r['source']['teacherModel']}, "
+                       f"{r['source'].get('candidatesConsidered', '?')} draws)")
+        lines_p.append(f"PLAN core: {' | '.join(l.strip('* ') for l in r['plan2'].splitlines() if l.startswith('  * '))[:400]}")
+        lines_p.append(f"USER: {r['userMessage']}")
+        lines_p.append(f"TARGET: {r['target']}")
+        extra = [x for x in (invented_experience(r['target']), unsupported_recall(r, r['target'])) if x]
+        if r["source"].get("sludgeFlags") or extra:
+            lines_p.append(f"FLAGS: {r['source'].get('sludgeFlags', [])} {extra}")
+    (ROOT / "pending-review.md").write_text("\n".join(lines_p), encoding="utf-8")
+    rejected_new = [rej for rej in rejected if rej["id"] not in decisions]
+    lines_r = ["# Scenarios with no eligible candidate (need author decisions or stay rejected)\n"]
+    for rej in rejected_new:
+        lines_r.append(f"- `{rej['id']}` ({rej['stratum']}): " + "; ".join(
+            f"[{a['teacher']}#{a['attempt']}] {a['violations'] + a['sludge']}" for a in rej["reasons"][:4]))
+    (ROOT / "pending-rejected.md").write_text("\n".join(lines_r), encoding="utf-8")
+    raise SystemExit(f"{len(missing_decisions)} accepted rows lack curation decisions "
+                     f"(+{len(rejected_new)} rejected without decisions) -> "
+                     f"pending-review.md / pending-rejected.md written; no dataset built")
 
 gate_failures, normalized_count = [], 0
 final_rows = []
@@ -292,6 +315,14 @@ for r in accepted:
         r["review"] = {"gated": True, "humanReviewed": True,
                        "humanEdited": True, "editBasis": d["basis"]}
         r["curation"] = {"action": "edit", "basis": d["basis"], "note": d.get("note")}
+    elif d["action"] == "author":
+        # An author decision written when no draw was eligible; a later pass produced
+        # one. The authored target stays the curated choice — the teacher candidate
+        # remains in lineage as the road not taken.
+        r["target"] = d["target"]
+        r["review"] = {"gated": True, "humanReviewed": True, "humanEdited": False,
+                       "curatorAuthored": True, "editBasis": d["basis"]}
+        r["curation"] = {"action": "author", "basis": d["basis"], "note": d.get("note")}
     elif d["action"] == "keep":
         r["review"] = {"gated": True, "humanReviewed": True, "humanEdited": False}
         r["curation"] = {"action": "keep", "basis": d["basis"], "note": d.get("note")}
@@ -311,7 +342,7 @@ for d in authored:
     if sid not in meta:
         raise SystemExit(f"authored target for unknown scenario {sid}")
     if any(r["id"] == sid for r in final_rows):
-        raise SystemExit(f"authored target for already-accepted scenario {sid}")
+        continue  # already applied in the accepted loop (a later pass made it eligible)
     row = meta[sid]
     current = scenario_checks.get(sid, {})
     target, stripped = normalize(d["target"])
