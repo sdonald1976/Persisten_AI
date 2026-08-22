@@ -224,3 +224,15 @@ pins both.
 - **2026-08-20** — two blind review rounds complete; plan/2 adopted; QLoRA experiment 1
   designed and approved with ten amendments; run-1a dataset built and audited. Still
   nothing trained, production still untouched.
+- **2026-08-22** — **run 1a trained and evaluated** (`../training/renderer/RUN1A_RESULTS.md`):
+  validation CLR 29.8%→8.5%, held-out inversion composes correctly, question reflex
+  31%→3%; failures concentrated in palette silence, the corpus's thinnest stratum.
+  Gate 5 (blind naturalness) passed ~9/11 in the tuned arm's favor.
+- **2026-08-23** — **run 1b trained and evaluated three-arm**
+  (`../training/renderer/RUN1B_RESULTS.md`): **11/11 on the permanent benchmark — the
+  project's first perfect score** — palette contamination 3→0, validation CLR 5.0% vs
+  the base's 30.7%, zero MustState omissions. Cost, on schedule: mandatory-clarify
+  regressed under the doubled don't-ask signal, and the pre-registered
+  epistemic×mandatory-question composition fails by dropping the question. Two curve
+  points, one law: the corpus's density map prints itself onto the model. Awaiting the
+  blind read and the run-1c/730 decision. Production untouched throughout.
