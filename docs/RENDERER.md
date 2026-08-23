@@ -236,3 +236,16 @@ pins both.
   epistemic×mandatory-question composition fails by dropping the question. Two curve
   points, one law: the corpus's density map prints itself onto the model. Awaiting the
   blind read and the run-1c/730 decision. Production untouched throughout.
+- **2026-08-23** — **run 1c trained and evaluated four-arm**
+  (`../training/renderer/RUN1C_RESULTS.md`): validation CLR 26.8/8.1/9.4/**2.7**%
+  (base/1a/1b/1c on the same 149 scenarios); mandatory-clarify failures 13→**2** with
+  closed-plan questions still at 2/113 — both question disciplines in one adapter; the
+  run-1b holdout `u1b-epimq` goes 0/6→**6/6** now that both components are dense, and
+  the two new hash-chosen compositions (agreement×user-correction,
+  user-correction×palette) pass 11/12 without ever co-occurring in training. Third
+  curve point, same law, positive direction. Multi-sample fixtures revealed run-1b's
+  11/11 was a lucky single draw (protocol note in the results); run-1c's profile is
+  the best measured either way. One letter-gate fail (new-family CLR 8.3% vs 5.4%
+  threshold — a single token-literal miss at n=12), disclosed. Awaiting Scott's blind
+  naturalness read (`eval-run1c-blind.md`) and the ship/iterate decision. Production
+  untouched throughout.

@@ -1,0 +1,102 @@
+{
+ "sealed": "DO NOT OPEN BEFORE JUDGING",
+ "seed": 20260823,
+ "map": {
+  "sil2-load-08": {
+   "A": "1b",
+   "B": "1a",
+   "C": "base",
+   "D": "1c"
+  },
+  "mob-mixed-05": {
+   "A": "base",
+   "B": "1b",
+   "C": "1c",
+   "D": "1a"
+  },
+  "r1b-play-05": {
+   "A": "1a",
+   "B": "1b",
+   "C": "base",
+   "D": "1c"
+  },
+  "cl2-obj-08": {
+   "A": "1c",
+   "B": "base",
+   "C": "1b",
+   "D": "1a"
+  },
+  "r1b-shb-04": {
+   "A": "1a",
+   "B": "1b",
+   "C": "1c",
+   "D": "base"
+  },
+  "terse-banter-03": {
+   "A": "1a",
+   "B": "1c",
+   "C": "base",
+   "D": "1b"
+  },
+  "r1b-know-03": {
+   "A": "1b",
+   "B": "1c",
+   "C": "1a",
+   "D": "base"
+  },
+  "ms-multi-04": {
+   "A": "1c",
+   "B": "1a",
+   "C": "base",
+   "D": "1b"
+  },
+  "r1c-know-06": {
+   "A": "base",
+   "B": "1a",
+   "C": "1c",
+   "D": "1b"
+  },
+  "ack-good-05": {
+   "A": "1a",
+   "B": "base",
+   "C": "1b",
+   "D": "1c"
+  },
+  "r1c-terse-11": {
+   "A": "1a",
+   "B": "base",
+   "C": "1c",
+   "D": "1b"
+  },
+  "r1b-sup-04": {
+   "A": "base",
+   "B": "1a",
+   "C": "1b",
+   "D": "1c"
+  },
+  "ack-good-02": {
+   "A": "base",
+   "B": "1b",
+   "C": "1a",
+   "D": "1c"
+  },
+  "tu-shb-04": {
+   "A": "1b",
+   "B": "1a",
+   "C": "base",
+   "D": "1c"
+  },
+  "nix-media-08": {
+   "A": "1a",
+   "B": "1c",
+   "C": "base",
+   "D": "1b"
+  },
+  "r1c-ms-06": {
+   "A": "1b",
+   "B": "1a",
+   "C": "1c",
+   "D": "base"
+  }
+ }
+}
