@@ -271,7 +271,7 @@ def py_gates(sid, text):
     return fails
 
 decisions = {}
-for df in ("curation-run1a.jsonl", "curation-run1b.jsonl"):
+for df in ("curation-run1a.jsonl", "curation-run1b.jsonl", "curation-run1c.jsonl"):
     p = ROOT / df
     if p.exists():
         for line in p.read_text(encoding="utf-8").splitlines():
@@ -396,10 +396,13 @@ families = sorted({r["family"] for r in accepted})
 # pinned manifest), so run-1b never trains on a family that run-1a validated on and
 # the three-arm comparison stays honest. New families get their own per-stratum
 # validation draw.
-pinned_path = ROOT / "splits-run1a-pinned.json"
-pinned = json.loads(pinned_path.read_text(encoding="utf-8")) if pinned_path.exists() else {}
-pinned_val = set(pinned.get("validationFamilies", []))
-pinned_all = pinned_val | set(pinned.get("trainFamilies", []))
+pinned_val, pinned_all = set(), set()
+for pin_name in ("splits-run1a-pinned.json", "splits-run1b-pinned.json"):
+    pin_path = ROOT / pin_name
+    if pin_path.exists():
+        pinned = json.loads(pin_path.read_text(encoding="utf-8"))
+        pinned_val |= set(pinned.get("validationFamilies", []))
+        pinned_all |= pinned_val | set(pinned.get("trainFamilies", []))
 new_families = [f for f in families if f not in pinned_all]
 by_stratum = defaultdict(list)
 for f in new_families:
