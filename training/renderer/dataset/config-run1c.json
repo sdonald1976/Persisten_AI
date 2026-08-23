@@ -1,0 +1,85 @@
+{
+  "runId": "run-1c",
+  "status": "AWAITING FREEZE",
+  "baseModel": {
+    "id": "Qwen/Qwen2.5-3B-Instruct",
+    "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "computeDtype": "float16",
+    "note": "Identical base and revision to run-1a/1b; the dataset is the only experimental variable."
+  },
+  "quantization": {
+    "load_in_4bit": true,
+    "bnb_4bit_quant_type": "nf4",
+    "bnb_4bit_use_double_quant": true,
+    "bnb_4bit_compute_dtype": "float16"
+  },
+  "lora": {
+    "r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "bias": "none",
+    "task_type": "CAUSAL_LM",
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj",
+                       "gate_proj", "up_proj", "down_proj"]
+  },
+  "training": {
+    "learning_rate": 1e-4,
+    "lr_scheduler_type": "cosine",
+    "warmup_ratio": 0.03,
+    "num_train_epochs": 2,
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 8,
+    "max_seq_length": 1024,
+    "gradient_checkpointing": true,
+    "optim": "paged_adamw_8bit",
+    "seed": 20260821,
+    "eval_steps": 25,
+    "save_steps": 25,
+    "save_total_limit": 3,
+    "logging_steps": 5
+  },
+  "prompt": {
+    "serialization": "plan/2",
+    "systemPrompt": "PlanSerialization.SystemPromptV2 — unchanged from run-1a",
+    "userTemplate": "PlanSerialization.BuildUserPrompt — unchanged from run-1a",
+    "lossOn": "assistant turn only",
+    "note": "Identical recipe to run-1a and run-1b, per the rebalance-not-redesign directive. The dataset is the only variable."
+  },
+  "dataset": {
+    "file": "train-200.jsonl",
+    "splits": "splits.json",
+    "splitUnit": "semantic scenario family; run-1a and run-1b family assignments pinned via splits-run1a-pinned.json and splits-run1b-pinned.json",
+    "checkpointSizes": [200, 400, 730],
+    "thisRun": 730,
+    "targets": "mandatory-clarify density; epistemic x mandatory-clarify composition; contrastive question discipline (silent optional vs fired mandatory) — while holding run-1b's gains without further overweighting them"
+  },
+  "evaluation": {
+    "suite": "tools/Companion.RendererBench (RendererChecks.Check, serialization v2) — unchanged instrument",
+    "arms": ["base (prompted)", "run-1a adapter", "run-1b adapter", "run-1c adapter"],
+    "principalQuestion": "Can the renderer learn when a question is required without regressing into automatic question-asking, and does increased density of both component behaviors improve unseen composition?",
+    "heldOut": [
+      "training/renderer/fixtures.jsonl (11 originals)",
+      "false-correction / agreement-inversion family",
+      "epistemic: quokka, axe-with-provenance",
+      "palette: Epcot/pizza, Precious",
+      "run-1a unseen family (epistemic x superseded) — permanent regression set",
+      "run-1b unseen families (u1b-epimq, u1b-cuoq) — their composition classes entered run-1c training; now the key WITHIN-CLASS generalization measure",
+      "new held-out compositions authored before run-1c training (unseen/run1c-*): agreement x correction-user, correction-user x palette — pairs selected by sha256(freeze-run1b.json)"
+    ],
+    "gates": {
+      "clr": "not worse than run-1b on validation (same-set comparison across all four arms)",
+      "questionDiscipline": "the target of this run: mandatory-clarify validation failures strictly below run-1b's; question-asking rate on question=none validation scenarios must not rise above run-1b's",
+      "u1bComposition": "u1b-epimq (failed 5/6 at run-1b) must improve now that the class is trained; u1b-cuoq must not regress from 6/6",
+      "fidelity": ">= run-1b on every check class; MustState omission = 0 on fixtures and validation",
+      "artifacts": "plan-echo + control vocabulary = 0 tolerated",
+      "inversionContrition": "0 on the held-out agreement family",
+      "epistemicLeak": "<=1 in 10",
+      "paletteContamination": "fixtures palette hits must hold at run-1b's 0; validation palette-class failures must not rise",
+      "inventedExperience": "0 tolerated on the no-invented-experience validation families and the epcot-pizza fixture",
+      "naturalness": "blind review vs run-1b and base; must not lose would-use rate to run-1b",
+      "latencyVram": "within 10% of run-1b through the same serving stack",
+      "generalization": "new pre-registered unseen families CLR <= 2x validation CLR",
+      "overSpecialization": "distinct-opening-trigram ratio >= 0.60"
+    }
+  }
+}

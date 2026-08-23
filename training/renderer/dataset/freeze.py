@@ -37,6 +37,10 @@ if RUN != "run-1a":
     TARGETS["pinnedRun1aSplits"] = ROOT / "splits-run1a-pinned.json"
     for f in sorted((REPO / "training" / "renderer" / "unseen").glob(f"{RUN.replace('run-', 'run')}-*.jsonl")):
         TARGETS[f"unseenFamily:{f.stem}"] = f
+if RUN == "run-1c":
+    # run-1b's decisions and split pins are build inputs of the 730 corpus too.
+    TARGETS["curationRun1b"] = ROOT / "curation-run1b.jsonl"
+    TARGETS["pinnedRun1bSplits"] = ROOT / "splits-run1b-pinned.json"
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
