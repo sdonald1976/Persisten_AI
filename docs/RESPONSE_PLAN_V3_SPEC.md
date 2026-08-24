@@ -386,9 +386,16 @@ never a Cartesian product; the procedure audit is explicit and tested).
   lifecycle, stable question keys, bound answers, diagnosed selection
   failure), the audited procedure authority grant, the contributor, and unit
   proof. Synthetic only.
-- **Source 1b — PENDING**: activation, isolated state lifecycle, question
-  selection, real turn-path assembly, persistence, and simulated/live shadow
-  evidence. "Integrated" requires at least one native plan assembled through
+- **Source 1b — PARTIAL**: the runtime/strategy separation, explicit
+  activation, transactional idempotent transitions, the hybrid selector
+  (deterministic bank + untrusted structured proposals + deterministic
+  validation with bounded retries), open-domain hypothesis state, and the
+  final-guess lifecycle are IMPLEMENTED and unit-proven, including a complete
+  simulated session that reaches a correct open-domain guess appearing in no
+  hard-coded list. STILL PENDING: the shadow-isolated persistent store, the
+  real turn-path assembly call site, activation resolution from a live user
+  request, LifeRunner-driven session volume, labeled shadow rows, and
+  diagnostics/forget wiring. Design: `SOURCE1B_SELECTOR_DESIGN.md`. "Integrated" requires at least one native plan assembled through
   the real turn-path integration AND persisted through the native shadow
   recorder; that has not happened. Inspection complete and the item-5 stop
   condition reached — no question selector exists in production, so the
