@@ -26,6 +26,9 @@ public static class PlanV3Assembler
     {
         ["tool-authorization."] = ["tool-authorization"],
         ["epistemic-integrity."] = ["concepts", "supersession", "retrieval", "procedure"],
+        // NOTE: family ownership is necessary but NOT sufficient — the grant's exact
+        // ReasonPrefix decides scope (e.g. procedure owns only
+        // "epistemic-integrity.activity-state.", never the family at large).
         ["privacy-audience."] = ["privacy", "working-context"],
         ["user-preference."] = ["user-preference"],
         ["hosting-config."] = ["hosting-config"],
@@ -203,44 +206,36 @@ public static class PlanV3Assembler
                 violations.Add($"{sourceId}: unregistered source proposed {proposal.ProposedPolicy}");
                 return ("rejected", null, "unregistered-source-privileged-policy");
             }
-            // A reason code IS an authority claim; an unregistered source owns no family,
-            // so the item is refused rather than admitted carrying a false claim.
             if (proposal.ReasonCode is not null)
             {
                 violations.Add($"{sourceId}: unregistered source claimed reason code authority");
                 return ("rejected", null, "unregistered-source-reason-code");
             }
-            // Informational content from an unknown source: background pending registration.
             return ("downgraded", ExpressionPolicy.background_only, "unregistered-source-background-only");
         }
 
-        if (!cap!.AllowedCategories.Contains(proposal.Category))
+        if (!cap!.AllowsCategory(proposal.Category))
             return ("rejected", null, "category-not-permitted");
 
-        if (proposal.Provenance?.Origin is { } origin
-            && cap.AllowedOrigins.Count > 0 && !cap.AllowedOrigins.Contains(origin))
-        {
-            violations.Add($"{sourceId}: claimed origin '{origin}' outside capability");
-            return ("rejected", null, "origin-not-permitted");
-        }
+        // THE TUPLE CHECK: the exact (category, policy) combination must be granted.
+        var grant = cap.Find(proposal.Category, proposal.ProposedPolicy);
 
-        if (proposal.ReasonCode is { } code)
+        if (grant is null)
         {
-            var family = FamilyOwners.Keys.FirstOrDefault(f => code.StartsWith(f, StringComparison.Ordinal));
-            if (family is null)
-                return ("rejected", null, "reason-code-outside-permitted-families");
-            if (!FamilyOwners[family].Contains(sourceId))
+            // Planner promotion is itself a granted tuple, never a bypass.
+            if (proposal.PlanningPromotion)
             {
-                violations.Add($"{sourceId}: claimed {family}* it does not own");
-                return ("rejected", null, "reason-family-not-owned");
+                var promotionGrant = cap.Find(proposal.Category, proposal.ProposedPolicy);
+                if (promotionGrant is { PromotionAllowed: true })
+                    grant = promotionGrant;
             }
-            if (!cap.ReasonCodeFamilies.Contains(family))
-                return ("rejected", null, "reason-family-not-in-capability");
-            if (EvidenceRequired.Any(f => code.StartsWith(f, StringComparison.Ordinal))
-                && string.IsNullOrEmpty(proposal.Provenance?.EvidenceRef))
+            if (grant is null)
             {
-                violations.Add($"{sourceId}: {code} without an evidence reference");
-                return ("rejected", null, "authority-claimed-without-evidence");
+                if (privileged)
+                    violations.Add($"{sourceId}: proposed {proposal.Category}+{proposal.ProposedPolicy} — combination not granted");
+                return cap.FallbackPolicy is { } fb
+                    ? ("downgraded", fb, "combination-not-granted")
+                    : ("rejected", null, "combination-not-granted");
             }
         }
 
@@ -250,20 +245,52 @@ public static class PlanV3Assembler
             return ("rejected", null, "questions-not-permitted");
         }
 
-        if (cap.AllowedPolicies.Contains(proposal.ProposedPolicy))
-            return ("accepted", proposal.ProposedPolicy, null);
+        // Provenance requirements are per-GRANT, not per-source.
+        var origin = proposal.Provenance?.Origin ?? cap.DefaultOrigin;
+        if (grant.RequiredOrigins.Count > 0 && !grant.RequiredOrigins.Contains(origin))
+        {
+            violations.Add($"{sourceId}: origin '{origin}' not permitted for this grant");
+            return ("rejected", null, "origin-not-permitted-for-grant");
+        }
+        if (grant.RequiresEvidence && string.IsNullOrEmpty(proposal.Provenance?.EvidenceRef))
+        {
+            violations.Add($"{sourceId}: grant requires an evidence reference");
+            return ("rejected", null, "grant-requires-evidence");
+        }
 
-        // Planning promotion: cognition asked, and the capability allows being promoted.
-        if (proposal.PlanningPromotion && cap.PromotableByPlanner
-            && proposal.ProposedPolicy is ExpressionPolicy.must_express or ExpressionPolicy.may_express)
-            return ("promoted", proposal.ProposedPolicy, "planner-authorized-promotion");
+        // Reason codes are scoped by the grant's exact prefix — family ownership alone is
+        // never enough (a procedure owning epistemic-integrity.activity-state.* cannot
+        // declare unrelated conversational knowledge stale).
+        if (proposal.ReasonCode is { } code)
+        {
+            if (grant.ReasonPrefix is null)
+                return ("rejected", null, "grant-carries-no-reason-code");
+            if (!code.StartsWith(grant.ReasonPrefix, StringComparison.Ordinal))
+            {
+                violations.Add($"{sourceId}: reason '{code}' outside granted scope '{grant.ReasonPrefix}*'");
+                return ("rejected", null, "reason-outside-granted-scope");
+            }
+            var family = FamilyOwners.Keys.FirstOrDefault(f => code.StartsWith(f, StringComparison.Ordinal));
+            if (family is null || !FamilyOwners[family].Contains(sourceId))
+            {
+                violations.Add($"{sourceId}: claimed a reason family it does not own");
+                return ("rejected", null, "reason-family-not-owned");
+            }
+            if (EvidenceRequired.Any(f => code.StartsWith(f, StringComparison.Ordinal))
+                && string.IsNullOrEmpty(proposal.Provenance?.EvidenceRef))
+            {
+                violations.Add($"{sourceId}: {code} without an evidence reference");
+                return ("rejected", null, "authority-claimed-without-evidence");
+            }
+        }
+        else if (proposal.ProposedPolicy == ExpressionPolicy.must_not_express)
+        {
+            return ("rejected", null, "must-not-express-requires-reason-code");
+        }
 
-        if (privileged)
-            violations.Add($"{sourceId}: proposed {proposal.ProposedPolicy} beyond capability");
-
-        return cap.FallbackPolicy is { } fallback
-            ? ("downgraded", fallback, "policy-beyond-capability")
-            : ("rejected", null, "policy-beyond-capability");
+        return proposal.PlanningPromotion && grant.PromotionAllowed
+            ? ("promoted", proposal.ProposedPolicy, "planner-authorized-promotion")
+            : ("accepted", proposal.ProposedPolicy, null);
     }
 
     /// <summary>

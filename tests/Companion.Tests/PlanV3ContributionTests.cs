@@ -72,8 +72,12 @@ public class PlanV3ContributionTests
             "user-preference.the-user-loves-dreams", id: "vision", evidence: "preference:9999",
             category: RenderCategory.observation));
 
-        Assert.Contains(report.Outcomes, o => o.Decision == "rejected" && o.Reason == "reason-family-not-owned");
-        Assert.Contains(report.AuthorityViolations, v => v.Contains("claimed user-preference.* it does not own"));
+        // Under the P5b grant model the refusal comes EARLIER and harder: none of
+        // vision's grants carries a reason prefix, so the authority claim dies before
+        // family ownership is even consulted.
+        Assert.Contains(report.Outcomes, o => o.Decision == "rejected"
+            && o.Reason == "grant-carries-no-reason-code");
+        Assert.Empty(report.Plan.Items);
 
         // And an UNREGISTERED source fares no better, for its own reason.
         var unknown = Assemble(new FakeOrgan(ExpressionPolicy.background_only,

@@ -9,67 +9,106 @@ namespace Companion.PlanV3;
 /// </summary>
 public static class SourceRegistry
 {
-    private static SourceCapability Cap(
-        string id, RenderCategory[] categories, ExpressionPolicy[] policies, string origin,
-        string[]? families = null, bool questions = false, bool register = false,
-        bool restrictions = false, Disclosure disclosure = Disclosure.participants,
-        Retention retention = Retention.full, ExpressionPolicy? fallback = ExpressionPolicy.background_only,
-        bool promotable = false, string[]? origins = null)
+    private static Grant G(RenderCategory category, ExpressionPolicy policy, string useCase,
+        string? reasonPrefix = null, string[]? origins = null, bool evidence = false,
+        bool promotable = false)
         => new()
         {
-            SourceId = id,
-            AllowedCategories = new HashSet<RenderCategory>(categories),
-            AllowedPolicies = new HashSet<ExpressionPolicy>(policies),
-            ReasonCodeFamilies = new HashSet<string>(families ?? []),
-            MayProposeQuestions = questions,
-            MayInfluenceRegister = register,
+            Category = category, Policy = policy, UseCase = useCase,
+            ReasonPrefix = reasonPrefix,
+            RequiredOrigins = new HashSet<string>(origins ?? []),
+            RequiresEvidence = evidence, PromotionAllowed = promotable,
+        };
+
+    private static SourceCapability Cap(string id, string origin, Grant[] grants,
+        bool questions = false, bool register = false, bool restrictions = false,
+        Disclosure disclosure = Disclosure.participants, Retention retention = Retention.full,
+        ExpressionPolicy? fallback = ExpressionPolicy.background_only)
+        => new()
+        {
+            SourceId = id, Grants = grants, DefaultOrigin = origin,
+            MayProposeQuestions = questions, MayInfluenceRegister = register,
             MayProposeRegisterRestrictions = restrictions,
-            AllowedOrigins = new HashSet<string>(origins ?? []),
-            DefaultOrigin = origin,
-            DefaultDisclosure = disclosure,
-            DefaultRetention = retention,
+            DefaultDisclosure = disclosure, DefaultRetention = retention,
             FallbackPolicy = fallback,
-            PromotableByPlanner = promotable,
         };
 
     public static IReadOnlyDictionary<string, SourceCapability> Default { get; } =
         new[]
         {
-            // Procedures own activity state and next-action selection.
-            Cap("procedure",
-                [RenderCategory.clarify, RenderCategory.state, RenderCategory.claim],
-                [ExpressionPolicy.ask_required, ExpressionPolicy.background_only, ExpressionPolicy.must_express],
-                origin: "derived", families: ["epistemic-integrity."], questions: true),
+            // PROCEDURE (audited P5b): may ask the activity's own question and frame the
+            // activity. NO general must_express. Its epistemic-integrity authority is
+            // scoped to `activity-state.` — it can mark its OWN prior activity state
+            // stale, never unrelated conversational knowledge — and requires evidence
+            // (the activity instance id).
+            Cap("procedure", "derived",
+            [
+                G(RenderCategory.clarify, ExpressionPolicy.ask_required,
+                    "the next question selected by the active procedure instance"),
+                G(RenderCategory.curiosity, ExpressionPolicy.ask_required,
+                    "an activity question phrased as curiosity by the procedure"),
+                G(RenderCategory.state, ExpressionPolicy.background_only,
+                    "minimal activity framing: activity name, asker role, question number"),
+                G(RenderCategory.state, ExpressionPolicy.must_not_express,
+                    "retiring the procedure's OWN superseded activity state",
+                    reasonPrefix: "epistemic-integrity.activity-state.", evidence: true),
+            ], questions: true),
 
-            // Tool RESULTS are processing context by default and promotable only by the
-            // planner; the separate tool-authorization source owns disclosure decisions.
-            Cap("tool",
-                [RenderCategory.observation, RenderCategory.claim, RenderCategory.note],
-                [ExpressionPolicy.background_only],
-                origin: "tool", retention: Retention.no_training, promotable: true),
-            Cap("tool-authorization",
-                [RenderCategory.note],
-                [ExpressionPolicy.must_not_express, ExpressionPolicy.background_only],
-                origin: "derived", families: ["tool-authorization."]),
+            // TOOL RESULTS: processing context; promotion only via the planner, and only
+            // for the claim category (a tool cannot promote an observation into a claim).
+            Cap("tool", "tool",
+            [
+                G(RenderCategory.observation, ExpressionPolicy.background_only,
+                    "structured tool output as processing context", origins: ["tool"]),
+                G(RenderCategory.claim, ExpressionPolicy.background_only,
+                    "a disclosable result awaiting planner authorization", origins: ["tool"]),
+                G(RenderCategory.claim, ExpressionPolicy.must_express,
+                    "a disclosable result the planner requires in the reply",
+                    origins: ["tool"], promotable: true),
+            ], retention: Retention.no_training),
 
-            // World/perception: physical truth stays AvaWorld's; the mouth gets background.
-            Cap("world", [RenderCategory.observation, RenderCategory.state],
-                [ExpressionPolicy.background_only], origin: "observed", promotable: true),
-            Cap("vision", [RenderCategory.observation],
-                [ExpressionPolicy.background_only], origin: "observed", promotable: true),
-            Cap("embodiment", [RenderCategory.observation, RenderCategory.state],
-                [ExpressionPolicy.background_only], origin: "observed", promotable: true),
+            Cap("tool-authorization", "derived",
+            [
+                G(RenderCategory.note, ExpressionPolicy.must_not_express,
+                    "withholding an unauthorized tool result",
+                    reasonPrefix: "tool-authorization.", evidence: false),
+            ]),
 
-            // Register sources: influence only, no items.
-            Cap("persona", [], [], origin: "derived", register: true),
-            Cap("relationship", [], [], origin: "derived", register: true),
-            Cap("mood", [], [], origin: "derived", register: true),
-            Cap("working-context-register", [], [], origin: "derived", register: true),
-            Cap("mirror", [], [], origin: "observed", register: true),
-            Cap("user-preference", [], [], origin: "told-by-user",
-                families: ["user-preference."], register: true, restrictions: true),
-            Cap("hosting-config", [], [], origin: "derived",
-                families: ["hosting-config."], register: true, restrictions: true),
+            // PERCEPTION: background by default; promotion to may_express only, never to
+            // must_express — physical truth stays AvaWorld's, not the mouth's.
+            Cap("world", "observed",
+            [
+                G(RenderCategory.observation, ExpressionPolicy.background_only,
+                    "world observation as tone context", origins: ["observed"]),
+                G(RenderCategory.observation, ExpressionPolicy.may_express,
+                    "an observation the planner chose to mention", origins: ["observed"], promotable: true),
+                G(RenderCategory.state, ExpressionPolicy.background_only,
+                    "world state as tone context", origins: ["observed"]),
+            ]),
+            Cap("vision", "observed",
+            [
+                G(RenderCategory.observation, ExpressionPolicy.background_only,
+                    "visual observation as tone context", origins: ["observed"]),
+                G(RenderCategory.observation, ExpressionPolicy.may_express,
+                    "a visual observation the planner chose to mention", origins: ["observed"], promotable: true),
+            ]),
+            Cap("embodiment", "observed",
+            [
+                G(RenderCategory.observation, ExpressionPolicy.background_only,
+                    "embodiment signal as tone context", origins: ["observed"]),
+                G(RenderCategory.state, ExpressionPolicy.background_only,
+                    "embodiment state as tone context", origins: ["observed"]),
+            ]),
+
+            // REGISTER SOURCES: votes only — zero item grants, so none of them can put a
+            // single word into the plan.
+            Cap("persona", "derived", [], register: true),
+            Cap("relationship", "derived", [], register: true),
+            Cap("mood", "derived", [], register: true),
+            Cap("working-context-register", "derived", [], register: true),
+            Cap("mirror", "observed", [], register: true),
+            Cap("user-preference", "told-by-user", [], register: true, restrictions: true),
+            Cap("hosting-config", "derived", [], register: true, restrictions: true),
         }
         .ToDictionary(c => c.SourceId);
 }
