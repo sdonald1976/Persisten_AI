@@ -33,3 +33,16 @@ __pycache__/
 .venv-train/
 renderer/models/
 renderer/runs/
+
+# Exception: the trained adapters themselves. 130MB each, but they ARE the experiment's
+# product — a result that exists on one machine is one disk failure from never having
+# happened. Checkpoints stay local; the final adapters travel with the repo.
+!renderer/runs/
+renderer/runs/*/checkpoint-*/
+renderer/runs/*/*.jsonl
+renderer/runs/*/*.log
+renderer/runs/*/*.txt
+renderer/runs/*/*.md
+!renderer/runs/run-1a/adapter-final/
+!renderer/runs/run-1b/adapter-final/
+!renderer/runs/run-1c/adapter-final/

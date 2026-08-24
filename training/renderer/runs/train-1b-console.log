@@ -1,0 +1,29 @@
+C:\Source\Persisten_AI\training\.venv-train\lib\site-packages\transformers\modeling_utils.py:6105: UserWarning: expandable_segments not supported on this platform (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\pytorch\c10/cuda/CUDAAllocatorConfig.h:28.)
+  _ = torch.empty(byte_count // factor, dtype=torch.float16, device=device, requires_grad=False)
+`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+C:\Source\Persisten_AI\training\.venv-train\lib\site-packages\torch\_dynamo\eval_frame.py:838: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.5 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  return fn(*args, **kwargs)
+train 315 / val 101
+trainable params: 29,933,568 || all params: 3,115,872,256 || trainable%: 0.9607
+optimizer steps: 80 (40/epoch)
+  {"step": 0, "valLoss": 3.665, "elapsedSec": 545.2}
+  {"step": 5, "epoch": 0, "trainLoss": 2.801, "lr": 9.96354437049027e-05, "vramGb": 4.03, "elapsedSec": 1220.1}
+  {"step": 10, "epoch": 0, "trainLoss": 2.5735, "lr": 9.742682209735727e-05, "vramGb": 4.03, "elapsedSec": 1912.7}
+  {"step": 15, "epoch": 0, "trainLoss": 1.9831, "lr": 9.330127018922194e-05, "vramGb": 4.03, "elapsedSec": 2616.0}
+  {"step": 20, "epoch": 0, "trainLoss": 1.9879, "lr": 8.742553740855506e-05, "vramGb": 4.03, "elapsedSec": 3276.8}
+  {"step": 25, "epoch": 0, "trainLoss": 2.2028, "lr": 8.003711321189895e-05, "vramGb": 4.03, "elapsedSec": 4001.4}
+  {"step": 25, "valLoss": 1.9599, "elapsedSec": 4638.7}
+  {"step": 30, "epoch": 0, "trainLoss": 2.1682, "lr": 7.143462807015271e-05, "vramGb": 4.03, "elapsedSec": 5324.9}
+  {"step": 35, "epoch": 0, "trainLoss": 2.0397, "lr": 6.19657832143779e-05, "vramGb": 4.07, "elapsedSec": 6059.0}
+  {"step": 40, "epoch": 1, "trainLoss": 2.0575, "lr": 5.201329700547076e-05, "vramGb": 4.07, "elapsedSec": 6926.1}
+  {"step": 45, "epoch": 1, "trainLoss": 1.8328, "lr": 4.197943595711198e-05, "vramGb": 4.07, "elapsedSec": 7765.8}
+  {"step": 50, "epoch": 1, "trainLoss": 1.5846, "lr": 3.226975564787322e-05, "vramGb": 4.07, "elapsedSec": 8654.4}
+  {"step": 50, "valLoss": 1.897, "elapsedSec": 9512.6}
+  {"step": 55, "epoch": 1, "trainLoss": 1.7198, "lr": 2.3276708693609943e-05, "vramGb": 4.07, "elapsedSec": 10405.1}
+  {"step": 60, "epoch": 1, "trainLoss": 1.4997, "lr": 1.536378232452003e-05, "vramGb": 4.07, "elapsedSec": 11258.2}
+  {"step": 65, "epoch": 1, "trainLoss": 1.7877, "lr": 8.850806705317183e-06, "vramGb": 4.07, "elapsedSec": 12168.8}
+  {"step": 70, "epoch": 1, "trainLoss": 1.571, "lr": 4.001027817058789e-06, "vramGb": 4.1, "elapsedSec": 13063.0}
+  {"step": 75, "epoch": 1, "trainLoss": 1.7519, "lr": 1.0104673978866164e-06, "vramGb": 4.1, "elapsedSec": 13940.2}
+  {"step": 75, "valLoss": 1.8792, "elapsedSec": 14666.5}
+  {"step": 78, "valLoss": 1.879, "final": true, "elapsedSec": 16058.4}
+done: 78 steps, final val loss 1.8790 -> C:\Source\Persisten_AI\training\renderer\runs\run-1b\adapter-final

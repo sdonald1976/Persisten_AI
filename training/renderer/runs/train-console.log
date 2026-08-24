@@ -1,0 +1,20 @@
+C:\Source\Persisten_AI\training\.venv-train\lib\site-packages\transformers\modeling_utils.py:6105: UserWarning: expandable_segments not supported on this platform (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\pytorch\c10/cuda/CUDAAllocatorConfig.h:28.)
+  _ = torch.empty(byte_count // factor, dtype=torch.float16, device=device, requires_grad=False)
+`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+C:\Source\Persisten_AI\training\.venv-train\lib\site-packages\torch\_dynamo\eval_frame.py:838: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.5 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  return fn(*args, **kwargs)
+train 165 / val 47
+trainable params: 29,933,568 || all params: 3,115,872,256 || trainable%: 0.9607
+optimizer steps: 42 (21/epoch)
+  {"step": 0, "valLoss": 3.9508, "elapsedSec": 256.9}
+  {"step": 5, "epoch": 0, "trainLoss": 2.9099, "lr": 9.766981960274653e-05, "vramGb": 3.95, "elapsedSec": 985.4}
+  {"step": 10, "epoch": 0, "trainLoss": 2.0904, "lr": 8.857445899109715e-05, "vramGb": 4.01, "elapsedSec": 1769.0}
+  {"step": 15, "epoch": 0, "trainLoss": 2.0326, "lr": 7.388599092561315e-05, "vramGb": 4.07, "elapsedSec": 2532.8}
+  {"step": 20, "epoch": 0, "trainLoss": 1.9546, "lr": 5.573417126992003e-05, "vramGb": 4.07, "elapsedSec": 3448.2}
+  {"step": 25, "epoch": 1, "trainLoss": 1.8227, "lr": 3.675092489016693e-05, "vramGb": 4.07, "elapsedSec": 4383.8}
+  {"step": 25, "valLoss": 1.8957, "elapsedSec": 4679.2}
+  {"step": 30, "epoch": 1, "trainLoss": 1.664, "lr": 1.9688729451668114e-05, "vramGb": 4.07, "elapsedSec": 5518.6}
+  {"step": 35, "epoch": 1, "trainLoss": 1.6784, "lr": 7.0215196506399515e-06, "vramGb": 4.07, "elapsedSec": 6357.8}
+  {"step": 40, "epoch": 1, "trainLoss": 1.6349, "lr": 5.859788109825793e-07, "vramGb": 4.07, "elapsedSec": 7215.2}
+  {"step": 41, "valLoss": 1.8781, "final": true, "elapsedSec": 7719.1}
+done: 41 steps, final val loss 1.8781 -> C:\Source\Persisten_AI\training\renderer\runs\run-1a\adapter-final
