@@ -604,6 +604,40 @@ public sealed class Companion : ICompanion
             });
         }
 
+        // P4 (docs/RESPONSE_PLAN_V3_SPEC.md §15): the NATIVE v3 plan, built from the same
+        // upstream state as the v2 plan — never FROM it. Shadow evidence only: a failed
+        // build records a content-safe diagnostic and the turn continues unchanged.
+        global::Companion.PlanV3.PlanV3? nativeV3 = null;
+        string? nativeBuildError = null;
+        IReadOnlyList<string> nativeLintRejections = [];
+        if (_rendererShadow.IsObserving || _rendererShadow.IsCanaryFor(userId))
+        {
+            try
+            {
+                var nativeResult = global::Companion.PlanV3.PlanV3Builder.Build(
+                    traceId, intent, working, promptText, selectedMemories, knowledge,
+                    curiosity?.Question, sensitiveTurn: sensitive,
+                    userParticipantId: userId, userDisplay: userId,
+                    companionParticipantId: "companion-ava",
+                    companionDisplay: identityProjection?.CompanionName ?? "Ava");
+                nativeV3 = nativeResult.Plan;
+                nativeLintRejections = nativeResult.LintRejections;
+            }
+            catch (Exception ex)
+            {
+                nativeBuildError = $"{ex.GetType().Name}: {Truncate(ex.Message, 120)}";
+                _logger.LogDebug(ex, "Native v3 build failed for {TraceId}; production unaffected.", traceId);
+            }
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "plan.native-v3", Decider = "rule",
+                Verdict = nativeV3 is not null ? "built" : "failed",
+                Reason = nativeBuildError
+                    ?? (nativeLintRejections.Count > 0
+                        ? $"lint-rejected:{nativeLintRejections.Count}" : null),
+            });
+        }
+
         var planningContext = BuildPlanningContext(recent, selectedMemories, projectContext.ResolvedProjectName);
         var toolOutcome = await _toolLoop.RunAsync(userId, planningContext, promptText, ct);
         if (toolOutcome.ResultsSection is not null)
@@ -659,6 +693,9 @@ public sealed class Companion : ICompanion
                     .ToList(),
                 UserMessage = promptText,
                 ProductionResponse = response,
+                NativeV3 = nativeV3,
+                NativeBuildError = nativeBuildError,
+                NativeLintRejections = nativeLintRejections,
             }, record: !sensitive, ct);
 
             var displayedRenderer = canaryResult is { CriticalFailure: false } ? "run-1c" : "production";
@@ -785,6 +822,9 @@ public sealed class Companion : ICompanion
                         .ToList(),
                     UserMessage = promptText,
                     ProductionResponse = response,
+                    NativeV3 = nativeV3,
+                    NativeBuildError = nativeBuildError,
+                    NativeLintRejections = nativeLintRejections,
                 });
             }
         }
@@ -1479,5 +1519,8 @@ public sealed class Companion : ICompanion
             IReadOnlyCollection<string> excerpts, CancellationToken ct = default)
             => Task.FromResult(0);
     }
+
+    private static string Truncate(string text, int max)
+        => text.Length <= max ? text : text[..max];
 }
 

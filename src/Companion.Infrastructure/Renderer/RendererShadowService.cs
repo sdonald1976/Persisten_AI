@@ -71,6 +71,11 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
     private long _v3Redacted;
     private long _v3Failed;
     private long _v3Dropped;
+    private long _v3NativeBuilt;
+    private long _v3NativeBuildFailed;
+    private long _v3NativeLintRejects;
+    private long _v3NativeParityMatch;
+    private long _v3NativeParityDiffers;
 
     public RendererShadowService(
         IShadowRecorder recorder,
@@ -122,7 +127,12 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
             Interlocked.Read(ref _v3Protected),
             Interlocked.Read(ref _v3Redacted),
             Interlocked.Read(ref _v3Failed),
-            Interlocked.Read(ref _v3Dropped)));
+            Interlocked.Read(ref _v3Dropped),
+            Interlocked.Read(ref _v3NativeBuilt),
+            Interlocked.Read(ref _v3NativeBuildFailed),
+            Interlocked.Read(ref _v3NativeLintRejects),
+            Interlocked.Read(ref _v3NativeParityMatch),
+            Interlocked.Read(ref _v3NativeParityDiffers)));
 
     public bool IsCanaryFor(string userId)
         => _options.Enabled
@@ -423,9 +433,28 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
             .Where(pt => pt.Role == ParticipantRole.user)
             .Select(pt => pt.Id)
             .ToList();
+        var trust = new RendererTrustContext(RendererTransport.local_loopback);
         var envelope = V3ShadowEnvelopeBuilder.Build(
-            obs.Plan, v3, key, _options.CorrelationKeyVersion,
-            userIds, new RendererTrustContext(RendererTransport.local_loopback));
+            obs.Plan, v3, key, _options.CorrelationKeyVersion, userIds, trust);
+
+        // P4: the native_v3 sibling and its semantic parity, recorded in the same row.
+        envelope = V3ShadowEnvelopeBuilder.WithNative(
+            envelope, v3, obs.NativeV3, obs.NativeBuildError, obs.NativeLintRejections,
+            key, _options.CorrelationKeyVersion, userIds, trust);
+        if (obs.NativeV3 is not null)
+        {
+            Interlocked.Increment(ref _v3NativeBuilt);
+            if (envelope.Parity.All(pc => pc.Status is "match" or "incomparable-prose"))
+                Interlocked.Increment(ref _v3NativeParityMatch);
+            else
+                Interlocked.Increment(ref _v3NativeParityDiffers);
+        }
+        else
+        {
+            Interlocked.Increment(ref _v3NativeBuildFailed);
+        }
+        if (obs.NativeLintRejections.Count > 0)
+            Interlocked.Add(ref _v3NativeLintRejects, obs.NativeLintRejections.Count);
 
         Interlocked.Increment(ref envelope.Valid ? ref _v3Valid : ref _v3Invalid);
         if (envelope.V2Compatible) Interlocked.Increment(ref _v3Compatible);

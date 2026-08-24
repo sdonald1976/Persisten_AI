@@ -42,5 +42,9 @@
       "Redacted": false,
       "Text": "The synthetic garden gnome collection reached eleven."
     }
-  ]
+  ],
+  "Native": null,
+  "NativeBuildError": null,
+  "NativeLintRejections": [],
+  "Parity": []
 }

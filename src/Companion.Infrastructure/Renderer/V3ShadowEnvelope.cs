@@ -42,7 +42,37 @@ public sealed record V3ShadowEnvelope
 
     /// <summary>Per-item metadata; Text present ONLY for unprotected, full-retention items.</summary>
     public IReadOnlyList<V3ShadowItem> Items { get; init; } = [];
+
+    // ---- P4: the native_v3 sibling, recorded beside the translation ----
+
+    /// <summary>"native_v3" section for the same turn; null when the native build failed.</summary>
+    public V3NativeSection? Native { get; init; }
+
+    /// <summary>Content-safe native build failure (exception type + message head).</summary>
+    public string? NativeBuildError { get; init; }
+
+    /// <summary>Content-safe source-side lint rejections ("id source rule").</summary>
+    public IReadOnlyList<string> NativeLintRejections { get; init; } = [];
+
+    /// <summary>Semantic parity by class; differences are evidence, never behavior.</summary>
+    public IReadOnlyList<V3ParityClass> Parity { get; init; } = [];
 }
+
+public sealed record V3NativeSection(
+    string PlanOrigin,            // always "native_v3"
+    string WirePlanHash,
+    string? RenderPromptHash,
+    string? CorrelationTag,
+    bool Valid,
+    IReadOnlyList<string> ValidationErrors,
+    bool AudienceOk,
+    int ItemCount,
+    int RedactedItemCount,
+    IReadOnlyDictionary<string, int> PolicyCounts,
+    IReadOnlyDictionary<string, int> CategoryCounts,
+    string RegisterLine);
+
+public sealed record V3ParityClass(string Class, string Status, IReadOnlyList<string> Details);
 
 public sealed record V3ShadowItem(
     string Id, string Type, string Policy, string Source, string Category,
@@ -109,6 +139,59 @@ public static class V3ShadowEnvelopeBuilder
             RedactedItemCount = redacted,
             UnknownExtensionBlocks = v3.Extensions?.Select(kv => kv.Key).ToList() ?? [],
             Items = items,
+        };
+    }
+
+    /// <summary>P4: the native_v3 section — same privacy rules, plus semantic parity.</summary>
+    public static V3ShadowEnvelope WithNative(
+        V3ShadowEnvelope envelope,
+        Companion.PlanV3.PlanV3 translated,
+        Companion.PlanV3.PlanV3? native,
+        string? nativeBuildError,
+        IReadOnlyList<string> nativeLintRejections,
+        byte[]? correlationKey,
+        int correlationKeyVersion,
+        IReadOnlyCollection<string> currentRecipientPrincipals,
+        RendererTrustContext trust)
+    {
+        if (native is null)
+            return envelope with
+            {
+                NativeBuildError = nativeBuildError ?? "native build unavailable",
+                NativeLintRejections = nativeLintRejections,
+            };
+
+        var validation = PlanV3Codec.Validate(native);
+        var audience = PlanV3Codec.ValidateForAudience(native, currentRecipientPrincipals, trust);
+        var identity = PlanV3Codec.PersistableIdentity(native, correlationKey, correlationKeyVersion);
+        var redacted = native.Items.Count(i =>
+            i.Disclosure == Disclosure.restricted || i.Retention != Retention.full);
+        var reg = PlanV3Codec.Canonicalize(native.Register);
+
+        var parity = PlanParity.Compare(translated, native).Classes
+            .Select(c => new V3ParityClass(c.Class, c.Status, c.Details))
+            .ToList();
+
+        return envelope with
+        {
+            Native = new V3NativeSection(
+                "native_v3",
+                identity.WirePlanHash,
+                identity.RenderPromptHash,
+                identity.CorrelationTag,
+                validation.Count == 0,
+                validation,
+                audience.Ok,
+                native.Items.Count,
+                redacted,
+                native.Items.GroupBy(i => i.Policy.ToString())
+                    .ToDictionary(g => g.Key, g => g.Count()),
+                native.Items.GroupBy(i => PlanV3Codec.CategoryOf(i).ToString())
+                    .ToDictionary(g => g.Key, g => g.Count()),
+                $"warmth={reg.Warmth} bluntness={reg.Bluntness} playful={reg.Playfulness} "
+                + $"verbosity={reg.Verbosity} profanity={reg.Profanity} mirror={reg.Mirror}"),
+            NativeLintRejections = nativeLintRejections,
+            Parity = parity,
         };
     }
 }

@@ -72,7 +72,9 @@ public sealed record RendererShadowCounters(
 /// </summary>
 public sealed record RendererV3Counters(
     long Produced, long Valid, long Invalid, long V2Compatible,
-    long Protected, long Redacted, long Failed, long Dropped);
+    long Protected, long Redacted, long Failed, long Dropped,
+    long NativeBuilt = 0, long NativeBuildFailed = 0, long NativeLintRejects = 0,
+    long NativeParityMatch = 0, long NativeParityDiffers = 0);
 
 /// <summary>
 /// An immutable snapshot of exactly what the shadow renderer is allowed to see: the plan the
@@ -93,6 +95,17 @@ public sealed record RendererShadowObservation
 
     /// <summary>The reply production actually sent, after all filters and gates.</summary>
     public required string ProductionResponse { get; init; }
+
+    /// <summary>P4: the native_v3 plan built from upstream state, when the build succeeded.
+    /// Shadow evidence only — affects nothing.</summary>
+    public Companion.PlanV3.PlanV3? NativeV3 { get; init; }
+
+    /// <summary>Content-safe failure reason when the native build threw (exception type +
+    /// message head, no plan text).</summary>
+    public string? NativeBuildError { get; init; }
+
+    /// <summary>Content-safe source-side lint rejections ("id source rule").</summary>
+    public IReadOnlyList<string> NativeLintRejections { get; init; } = [];
 }
 
 /// <summary>No-op used when renderer shadow mode is disabled; the flag off IS the rollback.</summary>

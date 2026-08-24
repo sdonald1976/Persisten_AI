@@ -321,11 +321,33 @@ serialization, privacy, and infrastructure only. Committed fixture examples
 (synthetic data only): `docs/examples/v3-shadow-fixture-plain.json` and
 `docs/examples/v3-shadow-fixture-redacted.json`.
 
+**P4 (implemented): native fact/instruction separation.** `PlanV3Builder`
+constructs the first genuinely `native_v3` plans directly from upstream
+cognitive state (intent, working context, retrieval results, concept lookup,
+curiosity) — never from the V2 plan, its serialization, or its templates
+(type-level: the builder cannot receive a ResponsePlan; test-level: no V2
+template phrase may appear in native item text; provenance audit names every
+consumed input). Facts separate from instructions at the source: acknowledgment
+items carry the USER'S OWN QUOTED WORDS plus typed owner participant-ids
+instead of templated English; the coaching lint runs at item CREATION and
+rejects producer-authored imperatives with content-safe diagnostics while
+preserving quoted/user/memory/tool imperatives. Register derives from typed
+state only — the v2 tone prose is deliberately not consumed, so most
+dimensions sit at canonical defaults: a RECORDED P4 FINDING that upstream
+typed register signals do not yet exist (persona/mood work feeds P5+).
+Native plans ride the P3 shadow rows beside their translated siblings with
+per-class semantic parity (act, required, optional, prohibitions, epistemic,
+question policy, correction ownership, register intent) — differences are
+attributed evidence, never behavior. Notable parity finding: acknowledgment
+content CONVERGES at plan level (the V2 template lives only in the
+serializer), so the honest divergences are exactly the lint rejections.
+A failed native build records a content-safe diagnostic and production
+continues unchanged (tested). V3 remains parallel shadow evidence — NOT
+authoritative — until a separately approved migration.
+
 **Remaining roadmap:**
-- P4 — native producer-side fact/instruction separation and the coaching lint
-  at the source (working-context/planner authoring).
 - P5 — native V3 sources: procedure state, tools, world state, and future
-  organs emitting items directly (planOrigin = native_v3).
+  organs emitting items directly; typed register signals from persona/mood.
 - Corpus freeze only after native V3 plans exist and pass shadow validation.
 - P6 — Run-2 training on CompactV3, full run-1 discipline, gates from §10.
 - P7 — cross-protocol shadow/canary (run-1c/plan2 vs run-2/plan3) and the
