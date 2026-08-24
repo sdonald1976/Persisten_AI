@@ -93,7 +93,10 @@ public sealed record V3NativeSection(
     int RedactedItemCount,
     IReadOnlyDictionary<string, int> PolicyCounts,
     IReadOnlyDictionary<string, int> CategoryCounts,
-    string RegisterLine);
+    string RegisterLine,
+    /// <summary>Items per contributing source. Source ids and counts — no content. Without
+    /// it a native row cannot say WHICH organ contributed, only how many items exist.</summary>
+    IReadOnlyDictionary<string, int>? SourceCounts = null);
 
 public sealed record V3ParityClass(string Class, string Status, IReadOnlyList<string> Details);
 
@@ -212,7 +215,8 @@ public static class V3ShadowEnvelopeBuilder
                 native.Items.GroupBy(i => PlanV3Codec.CategoryOf(i).ToString())
                     .ToDictionary(g => g.Key, g => g.Count()),
                 $"warmth={reg.Warmth} bluntness={reg.Bluntness} playful={reg.Playfulness} "
-                + $"verbosity={reg.Verbosity} profanity={reg.Profanity} mirror={reg.Mirror}"),
+                + $"verbosity={reg.Verbosity} profanity={reg.Profanity} mirror={reg.Mirror}",
+                native.Items.GroupBy(i => i.Source).ToDictionary(g => g.Key, g => g.Count())),
             NativeLintRejections = nativeLintRejections,
             Parity = parity,
         };

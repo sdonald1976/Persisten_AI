@@ -392,8 +392,8 @@ never a Cartesian product; the procedure audit is explicit and tested).
   validation with bounded retries), open-domain hypothesis state, and the
   final-guess lifecycle are IMPLEMENTED and unit-proven, including a complete
   simulated session that reaches a correct open-domain guess appearing in no
-  hard-coded list. STILL PENDING: the shadow-isolated persistent store, the
-  the real turn-path call site and the declared LifeRunner volume (12 sessions,
+  hard-coded list — together with the shadow-isolated persistent store, the
+  real turn-path call site, and the declared LifeRunner volume (12 sessions,
   11 scenarios, 9 pre-declared pass criteria — `SOURCE1B_VOLUME_PLAN.md`).
 
   The call site takes an immutable snapshot only AFTER the displayed response
@@ -443,14 +443,42 @@ never a Cartesian product; the procedure audit is explicit and tested).
   ambiguity yielding clarification and no match a diagnosed non-activation.
   Subject matter never affects any of it: an activity whose hypothesis is
   "a dildo" persists exactly like any other, because classification and
-  disclosure decide, not topic. Design: `SOURCE1B_SELECTOR_DESIGN.md`. "Integrated" requires at least one native plan assembled through
-  the real turn-path integration AND persisted through the native shadow
-  recorder; that has not happened. Inspection complete and the item-5 stop
-  condition reached — no question selector exists in production, so the
-  bounded selector design is proposed in `SOURCE1B_PROCEDURE_INSPECTION.md`
-  and awaits approval before implementation.
-- Sources 2–5 (tools, persona/preferences, mood/relationship/working-context,
-  world/vision/embodiment) — NOT STARTED, blocked behind Source 1b.
+  disclosure decide, not topic. Design: `SOURCE1B_SELECTOR_DESIGN.md`;
+  inspection: `SOURCE1B_PROCEDURE_INSPECTION.md`.
+- **Source 2 — COMPLETE**: typed tool outcomes reach the native plan.
+  `ToolExecutionOutcome` is captured AT EXECUTION TIME inside `ToolLoop` and
+  carried additively on its `Outcome`; nothing parses `ResultsSection`, the
+  rendered result JSON, or any prompt prose. Two contributors split the
+  authority — `tool` proposes results, `tool-authorization` alone records that
+  something was withheld. Six states are separate facts (requested, authorized,
+  executed, succeeded/failed, disclosure permitted, planner disposition) and
+  only the last two can make a result expressible.
+
+  Expression comes from exactly one place: the DETERMINISTIC NUDGE tier, where
+  a rule matching the user's own phrasing selected the lookup, carries
+  `MustExpress`. Planner-selected calls stay `BackgroundOnly` — the tool
+  planner is an untrusted model role that may decide what to look up, never
+  that Ava must recite what came back. Even then the assembler grants it as a
+  recorded promotion. A failure can only be ACKNOWLEDGED, through a
+  `(claim, may_express)` tuple scoped by the `tool-failure.` reason prefix so a
+  success (which carries no reason code) can never travel it.
+
+  A tool turn is still ineligible for a renderer COMPARISON — run-1c never
+  trained on tool results — so it takes the new PLAN-ONLY shadow path: the V3
+  row is written, the renderer is never invoked, and no renderer counter moves.
+  Proven end to end on a live turn through `RespondAsync`.
+
+  Four defects were found and fixed by the run, including a promotable grant
+  that was usable WITHOUT a planner promotion and a `SecretDetector` blind to
+  JSON-shaped credentials. Results, measured tallies, the real-vs-constructed
+  split, and the remaining blockers: `SOURCE2_RESULTS.md`.
+
+  STILL MISSING: no tool declares an authorized audience, a retention class, or
+  produces a cancellation, so those three scenarios are constructed rather than
+  live; and cognition has no general typed channel for "this result is required
+  in the reply" beyond the nudge tier.
+- Sources 3–5 (persona/preferences, mood/relationship/working-context,
+  world/vision/embodiment) — NOT STARTED.
 
 **Remaining roadmap:**
 - Corpus freeze only after native V3 plans exist and pass shadow validation.

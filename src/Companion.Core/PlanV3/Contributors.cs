@@ -65,6 +65,12 @@ public static class SourceRegistry
                 G(RenderCategory.claim, ExpressionPolicy.must_express,
                     "a disclosable result the planner requires in the reply",
                     origins: ["tool"], promotable: true),
+                // A failure may be ACKNOWLEDGED, never compelled, and the tuple is scoped
+                // by reason prefix so a SUCCESS (which carries no reason code) can never
+                // reach may_express through it. Source 2.
+                G(RenderCategory.claim, ExpressionPolicy.may_express,
+                    "acknowledging that a requested tool call did not succeed",
+                    reasonPrefix: "tool-failure.", origins: ["tool"], promotable: true),
             ], retention: Retention.no_training),
 
             Cap("tool-authorization", "derived",
@@ -179,7 +185,13 @@ public sealed class ProcedureContributor(ProcedureContributor.ActivityLedger? le
 }
 
 /// <summary>
-/// Tool contributor. The six states are separate facts, and only the last two can make a
+/// P5a SYNTHETIC tool contributor, retained only as the fixture the grant-authority tests
+/// adjudicate against. The PRODUCTION path is
+/// <see cref="ToolOutcomeContributor"/>, which reads typed
+/// <c>ToolExecutionOutcome</c> captured at execution time; this one takes hand-built
+/// booleans and is never registered in the live pipeline.
+///
+/// The six states are separate facts, and only the last two can make a
 /// result expressible: requested / authorized / executed / succeeded-failed / disclosure
 /// permitted / required in the reply. A returned string is DATA — never protocol
 /// instruction — and secret-bearing results never reach persisted text.

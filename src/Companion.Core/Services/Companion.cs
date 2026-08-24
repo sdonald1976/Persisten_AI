@@ -610,6 +610,7 @@ public sealed class Companion : ICompanion
         global::Companion.PlanV3.PlanV3? nativeV3 = null;
         string? nativeBuildError = null;
         IReadOnlyList<string> nativeLintRejections = [];
+        global::Companion.PlanV3.AssemblyReport? nativeAssembly = null;
         if (_rendererShadow.IsObserving || _rendererShadow.IsCanaryFor(userId))
         {
             try
@@ -639,7 +640,7 @@ public sealed class Companion : ICompanion
         }
 
         var planningContext = BuildPlanningContext(recent, selectedMemories, projectContext.ResolvedProjectName);
-        var toolOutcome = await _toolLoop.RunAsync(userId, planningContext, promptText, ct);
+        var toolOutcome = await _toolLoop.RunAsync(userId, planningContext, promptText, traceId, ct);
         if (toolOutcome.ResultsSection is not null)
             packet = packet with { ToolResults = toolOutcome.ResultsSection };
         decisions.Add(new DecisionRecord
@@ -649,6 +650,48 @@ public sealed class Companion : ICompanion
             Verdict = toolOutcome.Calls.Count == 0
                 ? "none" : string.Join(",", toolOutcome.Calls.Select(c => c.Tool)),
         });
+
+        // Source 2 (docs/SOURCE2_TOOL_PLAN.md): fold the turn's TYPED tool outcomes into the
+        // native V3 plan through the contribution boundary. The inputs are the typed results
+        // captured at execution time — never `ResultsSection`, never the prose the production
+        // prompt received. The assembler alone grants authority: a refused, secret-bearing, or
+        // unexecuted call contributes nothing, a failure can only be acknowledged, and nothing
+        // reaches must_express without a planner disposition. Shadow evidence only: the
+        // production packet, the reply, and run-1c are untouched either way.
+        if (nativeV3 is not null && toolOutcome.TypedOutcomes.Count > 0)
+        {
+            try
+            {
+                var toolContext = new global::Companion.PlanV3.PlanContributionContext(
+                    traceId, plan.Act.ToKebab(), promptText, userId, "companion-ava", sensitive);
+                var report = global::Companion.PlanV3.PlanV3Assembler.Assemble(
+                    toolContext,
+                    [
+                        new global::Companion.PlanV3.ToolOutcomeContributor(toolOutcome.TypedOutcomes),
+                        new global::Companion.PlanV3.ToolAuthorizationContributor(toolOutcome.TypedOutcomes),
+                    ],
+                    global::Companion.PlanV3.SourceRegistry.Default,
+                    nativeV3);
+                nativeV3 = report.Plan;
+                nativeAssembly = report;
+                nativeLintRejections = [.. nativeLintRejections, .. report.LintRejections];
+            }
+            catch (Exception ex)
+            {
+                // The assembly is diagnostic; losing it must never cost the turn or the row
+                // the other sources already earned.
+                nativeBuildError = $"{ex.GetType().Name}: {Truncate(ex.Message, 120)}";
+                _logger.LogDebug(ex, "Native v3 tool assembly failed for {TraceId}; production unaffected.", traceId);
+            }
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "plan.native-v3.tools", Decider = "rule",
+                Verdict = nativeAssembly is null ? "failed"
+                    : $"accepted={nativeAssembly.Accepted}|rejected={nativeAssembly.Rejected}",
+                Reason = nativeAssembly?.AuthorityViolations.Count > 0
+                    ? $"violations:{nativeAssembly.AuthorityViolations.Count}" : nativeBuildError,
+            });
+        }
 
         // The user-scoped renderer canary (docs/RENDERER_SHADOW.md §8): on this user's
         // eligible non-tool turns, the tuned renderer's reply is DISPLAYED and production is
@@ -696,6 +739,7 @@ public sealed class Companion : ICompanion
                 NativeV3 = nativeV3,
                 NativeBuildError = nativeBuildError,
                 NativeLintRejections = nativeLintRejections,
+                NativeAssembly = nativeAssembly,
             }, record: !sensitive, ct);
 
             var displayedRenderer = canaryResult is { CriticalFailure: false } ? "run-1c" : "production";
@@ -802,17 +846,22 @@ public sealed class Companion : ICompanion
         // both the GPU work and the row.
         if (!canaryTurn && _rendererShadow.IsObserving)
         {
+            // A tool turn is still ineligible for a renderer COMPARISON — run-1c never
+            // trained on tool results, so scoring it there measures the corpus's absence
+            // rather than the renderer. Its structural V3 evidence is what Source 2 needs,
+            // so it takes the plan-only path: the row is written, the renderer never runs.
             var eligible = !sensitive && toolOutcome.Calls.Count == 0;
+            var planOnly = !sensitive && !eligible;
             decisions.Add(new DecisionRecord
             {
                 Stage = "renderer.shadow", Decider = "config",
-                Verdict = eligible ? "observed" : "skipped",
+                Verdict = eligible ? "observed" : planOnly ? "plan-only" : "skipped",
                 Reason = eligible ? null
                     : sensitive ? "privacy-sensitive turn" : "turn used tools",
             });
-            if (eligible)
+            if (eligible || planOnly)
             {
-                _rendererShadow.Observe(new RendererShadowObservation
+                var observation = new RendererShadowObservation
                 {
                     TraceId = traceId,
                     Plan = plan,
@@ -825,7 +874,12 @@ public sealed class Companion : ICompanion
                     NativeV3 = nativeV3,
                     NativeBuildError = nativeBuildError,
                     NativeLintRejections = nativeLintRejections,
-                });
+                    NativeAssembly = nativeAssembly,
+                };
+                if (eligible)
+                    _rendererShadow.Observe(observation);
+                else
+                    _rendererShadow.ObservePlanOnly(observation);
             }
         }
 

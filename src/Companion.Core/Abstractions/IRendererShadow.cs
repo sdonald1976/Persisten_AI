@@ -26,6 +26,14 @@ public interface IRendererShadow
     /// </summary>
     void Observe(RendererShadowObservation observation);
 
+    /// <summary>
+    /// Queues the STRUCTURAL plan evidence for a turn the renderer must not see (Source 2:
+    /// tool turns). The V3 row is recorded; no render happens, no comparison is scored, and
+    /// no renderer metric moves — the run-1c corpus never covered tool turns, so comparing
+    /// on one would be measuring the wrong thing. Same bounded queue, same drop accounting.
+    /// </summary>
+    void ObservePlanOnly(RendererShadowObservation observation);
+
     /// <summary>Queue lifecycle counters, for diagnostics and the collection report.</summary>
     RendererShadowCounters Counters { get; }
 
@@ -74,7 +82,8 @@ public sealed record RendererV3Counters(
     long Produced, long Valid, long Invalid, long V2Compatible,
     long Protected, long Redacted, long Failed, long Dropped,
     long NativeBuilt = 0, long NativeBuildFailed = 0, long NativeLintRejects = 0,
-    long NativeParityMatch = 0, long NativeParityDiffers = 0);
+    long NativeParityMatch = 0, long NativeParityDiffers = 0,
+    long PlanOnly = 0);
 
 /// <summary>
 /// An immutable snapshot of exactly what the shadow renderer is allowed to see: the plan the
@@ -96,6 +105,10 @@ public sealed record RendererShadowObservation
     /// <summary>The reply production actually sent, after all filters and gates.</summary>
     public required string ProductionResponse { get; init; }
 
+    /// <summary>P5/Source 2: the content-safe assembler report for the contributions folded
+    /// into <see cref="NativeV3"/>. Ids, decisions, reason codes and counts — no text.</summary>
+    public Companion.PlanV3.AssemblyReport? NativeAssembly { get; init; }
+
     /// <summary>P4: the native_v3 plan built from upstream state, when the build succeeded.
     /// Shadow evidence only — affects nothing.</summary>
     public Companion.PlanV3.PlanV3? NativeV3 { get; init; }
@@ -114,6 +127,10 @@ public sealed class NullRendererShadow : IRendererShadow
     public bool IsObserving => false;
 
     public void Observe(RendererShadowObservation observation)
+    {
+    }
+
+    public void ObservePlanOnly(RendererShadowObservation observation)
     {
     }
 

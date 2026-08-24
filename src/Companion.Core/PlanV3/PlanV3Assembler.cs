@@ -25,6 +25,7 @@ public static class PlanV3Assembler
     private static readonly Dictionary<string, string[]> FamilyOwners = new()
     {
         ["tool-authorization."] = ["tool-authorization"],
+        ["tool-failure."] = ["tool"],
         ["epistemic-integrity."] = ["concepts", "supersession", "retrieval", "procedure"],
         // NOTE: family ownership is necessary but NOT sufficient — the grant's exact
         // ReasonPrefix decides scope (e.g. procedure owns only
@@ -222,21 +223,26 @@ public static class PlanV3Assembler
 
         if (grant is null)
         {
-            // Planner promotion is itself a granted tuple, never a bypass.
-            if (proposal.PlanningPromotion)
-            {
-                var promotionGrant = cap.Find(proposal.Category, proposal.ProposedPolicy);
-                if (promotionGrant is { PromotionAllowed: true })
-                    grant = promotionGrant;
-            }
-            if (grant is null)
-            {
-                if (privileged)
-                    violations.Add($"{sourceId}: proposed {proposal.Category}+{proposal.ProposedPolicy} — combination not granted");
-                return cap.FallbackPolicy is { } fb
-                    ? ("downgraded", fb, "combination-not-granted")
-                    : ("rejected", null, "combination-not-granted");
-            }
+            // Planner promotion is not a bypass: it unlocks a granted tuple, so if the
+            // tuple itself is absent there is nothing for promotion to unlock.
+            if (privileged)
+                violations.Add($"{sourceId}: proposed {proposal.Category}+{proposal.ProposedPolicy} — combination not granted");
+            return cap.FallbackPolicy is { } fb
+                ? ("downgraded", fb, "combination-not-granted")
+                : ("rejected", null, "combination-not-granted");
+        }
+
+        // ...and the converse (Source 2): a grant marked promotable EXISTS ONLY for the
+        // planner to use. Without a planner promotion the contributing organ is asking for
+        // expression on its own authority, which is exactly what the tuple model forbids —
+        // so it falls back rather than being honored.
+        if (grant.PromotionAllowed && !proposal.PlanningPromotion)
+        {
+            if (privileged)
+                violations.Add($"{sourceId}: proposed {proposal.Category}+{proposal.ProposedPolicy} without a planner promotion");
+            return cap.FallbackPolicy is { } fb3
+                ? ("downgraded", fb3, "promotion-grant-without-planner-promotion")
+                : ("rejected", null, "promotion-grant-without-planner-promotion");
         }
 
         if (proposal.ProposedPolicy == ExpressionPolicy.ask_required && !cap.MayProposeQuestions)

@@ -71,6 +71,7 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
     private long _v3Redacted;
     private long _v3Failed;
     private long _v3Dropped;
+    private long _v3PlanOnly;
     private long _v3NativeBuilt;
     private long _v3NativeBuildFailed;
     private long _v3NativeLintRejects;
@@ -132,7 +133,8 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
             Interlocked.Read(ref _v3NativeBuildFailed),
             Interlocked.Read(ref _v3NativeLintRejects),
             Interlocked.Read(ref _v3NativeParityMatch),
-            Interlocked.Read(ref _v3NativeParityDiffers)));
+            Interlocked.Read(ref _v3NativeParityDiffers),
+            Interlocked.Read(ref _v3PlanOnly)));
 
     public bool IsCanaryFor(string userId)
         => _options.Enabled
@@ -191,6 +193,21 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         }
 
         return new RendererCanaryResult(core.Reply, shadowViolations, core.LatencyMs, critical);
+    }
+
+    /// <summary>
+    /// Source 2: structural evidence only. The renderer is never invoked, so no comparison
+    /// row and no renderer counter moves — only the V3 row is written.
+    /// </summary>
+    public void ObservePlanOnly(RendererShadowObservation observation)
+    {
+        if (!IsObserving)
+            return;
+
+        if (_queue.Writer.TryWrite(new QueueEntry(observation, V3Only: true)))
+            Interlocked.Increment(ref _v3PlanOnly);
+        else
+            Interlocked.Increment(ref _v3Dropped);
     }
 
     public void Observe(RendererShadowObservation observation)
@@ -455,6 +472,11 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         }
         if (obs.NativeLintRejections.Count > 0)
             Interlocked.Add(ref _v3NativeLintRejects, obs.NativeLintRejections.Count);
+
+        // P5/Source 2: the contribution-boundary diagnostics for whatever was folded into
+        // the native plan. Content-safe by construction — ids, decisions, reasons, counts.
+        if (obs.NativeAssembly is { } assembly)
+            envelope = V3ShadowEnvelopeBuilder.WithAssembly(envelope, assembly);
 
         Interlocked.Increment(ref envelope.Valid ? ref _v3Valid : ref _v3Invalid);
         if (envelope.V2Compatible) Interlocked.Increment(ref _v3Compatible);
