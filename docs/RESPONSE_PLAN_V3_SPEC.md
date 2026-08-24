@@ -386,14 +386,36 @@ never a Cartesian product; the procedure audit is explicit and tested).
   lifecycle, stable question keys, bound answers, diagnosed selection
   failure), the audited procedure authority grant, the contributor, and unit
   proof. Synthetic only.
-- **Source 1b — PARTIAL**: the runtime/strategy separation, explicit
+- **Source 1b — COMPLETE**: the runtime/strategy separation, explicit
   activation, transactional idempotent transitions, the hybrid selector
   (deterministic bank + untrusted structured proposals + deterministic
   validation with bounded retries), open-domain hypothesis state, and the
   final-guess lifecycle are IMPLEMENTED and unit-proven, including a complete
   simulated session that reaches a correct open-domain guess appearing in no
   hard-coded list. STILL PENDING: the shadow-isolated persistent store, the
-  real turn-path assembly call site and LifeRunner-driven session volume.
+  the real turn-path call site and the declared LifeRunner volume (12 sessions,
+  11 scenarios, 9 pre-declared pass criteria — `SOURCE1B_VOLUME_PLAN.md`).
+
+  The call site takes an immutable snapshot only AFTER the displayed response
+  is finalized, records which renderer actually spoke, and identifies the
+  displayed question CONSERVATIVELY: exactly one interrogative that matches
+  the pending move resolves it; zero, several, or an unmatchable one records
+  `displayed-move-unresolved` and invents no identity — with binding permitted
+  only in the resolved case. Observed and counterfactual branches are separate
+  rows; the counterfactual names its parent and branch point and carries
+  `bindable:false`. Every failure is content-safe (exception type only) and
+  user-invisible.
+
+  LifeRunner drives complete sessions through the SAME activation → runtime →
+  observer → store path, on isolated users and conversations with a controlled
+  clock: correct guess (ending "a dildo"), incorrect guess, exhausted limit,
+  correction, malformed answer, abandonment, retry/idempotency, restart/resume,
+  volatile no-resume, two simultaneous users, and deterministic fallback. All
+  12 rows labeled simulated, zero counterfactual moves in any of them, and
+  Messages/Conversations/SemanticMemories/Procedures all empty afterwards.
+
+  The live proposer remains an OPERATIONAL DEPENDENCY, not a completion
+  blocker: captured-proposal sessions prove the integration.
 
   **Counterfactual resolution (the key correctness result):** natural shadow
   has two realities. The user answers the question PRODUCTION displayed; the
