@@ -55,7 +55,12 @@ public static class V2Translation
                     _ => ExpressionPolicy.must_not_express,
                 },
                 Text = c.Text,
-                Source = "retrieval",
+                Source = c.Requirement == ContentRequirement.MustNotContradict ? "supersession" : "retrieval",
+                // v2 MustNotContradict is, in actual use, "do not assert this stale/disputed
+                // fact" — the tombstone reading. The broader render-freely-but-consistently
+                // semantic stays upstream in cognition (spec §3-resolution).
+                ReasonCode = c.Requirement == ContentRequirement.MustNotContradict
+                    ? "epistemic-integrity.superseded-or-disputed" : null,
                 Provenance = c.Provenance is { } p ? new Provenance(Origin: p) : null,
             });
         }
@@ -68,6 +73,8 @@ public static class V2Translation
                 Type = "knowledge-boundary",
                 Policy = e.Kind == EpistemicKind.NotLearned
                     ? ExpressionPolicy.admit_unknown : ExpressionPolicy.must_not_express,
+                ReasonCode = e.Kind == EpistemicKind.NotLearned
+                    ? null : "epistemic-integrity.uncertain-or-disputed-concept",
                 Text = e.Subject,
                 Value = System.Text.Json.Nodes.JsonNode.Parse(
                     $"{{\"kind\":\"{e.Kind.ToString().ToLowerInvariant()}\"}}"),

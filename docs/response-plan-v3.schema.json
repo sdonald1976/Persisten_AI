@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://persisten-ai/response-plan-v3.schema.json",
-  "title": "ResponsePlan v3 wire contract",
+  "title": "ResponsePlan v3 wire contract (revision 1)",
+  "description": "Envelope fields are FIXED within a major version (additionalProperties:false is accurate): ALL additive minor-version data enters through `extensions`, whose blocks are semantically preserved and never model-facing. Unknown values in any CLOSED enum invalidate the WHOLE plan (never one item) and trigger a diagnosed fallback to a compatible protocol/renderer.",
   "type": "object",
   "required": ["protocol", "minorVersion", "traceId", "participants", "act", "question", "items", "register"],
   "additionalProperties": false,
@@ -23,51 +24,95 @@
       "properties": {
         "policy": { "enum": ["ask_required", "may_ask", "question_forbidden"] },
         "itemId": { "type": "string" }
-      }
+      },
+      "allOf": [
+        { "if": { "properties": { "policy": { "const": "ask_required" } } },
+          "then": { "required": ["itemId"] } },
+        { "if": { "properties": { "policy": { "const": "question_forbidden" } } },
+          "then": { "not": { "required": ["itemId"] } } }
+      ]
     },
     "items": { "type": "array", "items": { "$ref": "#/$defs/planItem" } },
     "register": { "$ref": "#/$defs/register" },
+    "registerRestrictions": {
+      "type": "array",
+      "description": "Every restrictive register value must be owned here. Permitted reasonCode families: user-preference.*, privacy-audience.*, tool-authorization.*, epistemic-integrity.*, hosting-config.*. No general moral-content authority exists.",
+      "items": {
+        "type": "object",
+        "required": ["dimension", "value", "owner", "reasonCode"],
+        "additionalProperties": false,
+        "properties": {
+          "dimension": { "type": "string" },
+          "value": { "type": "string" },
+          "owner": { "type": "string" },
+          "reasonCode": { "$ref": "#/$defs/reasonCode" },
+          "provenance": { "$ref": "#/$defs/provenance" }
+        }
+      }
+    },
     "budget": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "maxItems": { "type": "integer", "minimum": 1 },
-        "dropOrder": { "type": "array", "items": { "type": "string" } }
+        "dropOrder": {
+          "type": "array",
+          "description": "CLOSED drop vocabulary; obligations are absent by construction and therefore undroppable. A budget smaller than the undroppable obligations is a DIAGNOSED invalid plan, not a license to drop.",
+          "items": { "enum": ["background_only", "may_express", "style_detail"] }
+        }
       }
     },
     "extensions": {
       "type": "object",
-      "description": "Open extension blocks. Preserved byte-for-byte, never serialized into the model-facing form, observable in diagnostics. Unknown names are valid.",
+      "description": "Open extension blocks: the ONLY place minor versions add data. Semantically preserved (canonical re-serialization; raw-byte identity is NOT claimed), never serialized into the model-facing form, forbidden from becoming must_express by construction, observable in diagnostics.",
       "additionalProperties": true
     }
   },
   "$defs": {
+    "reasonCode": {
+      "type": "string",
+      "pattern": "^(user-preference|privacy-audience|tool-authorization|epistemic-integrity|hosting-config)\\.[a-z0-9-]+$"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin": { "type": "string", "description": "OPEN SET; well-known: taught, observed, derived, told-by-user, tool, shared" },
+        "at": { "type": "string", "format": "date-time" },
+        "evidenceRef": { "type": "string" }
+      }
+    },
     "planItem": {
       "type": "object",
       "required": ["id", "type", "policy", "source"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*[0-9]+$|^[a-z0-9.-]+$" },
-        "type": { "type": "string", "description": "OPEN SET — unknown values are valid", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+        "type": { "type": "string", "description": "OPEN semantic type — diagnostics/attribution only, NEVER model-facing", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "category": {
+          "enum": ["claim", "memory", "shared_memory", "knowledge", "correction", "agreement",
+                   "teaching", "answer", "clarify", "curiosity", "boundary", "superseded",
+                   "state", "observation", "note"],
+          "description": "CLOSED model-facing rendering label; absent = derived deterministically from policy"
+        },
         "policy": {
           "enum": ["must_express", "may_express", "background_only", "must_not_express",
                    "admit_unknown", "ask_required", "question_forbidden", "style_guidance"],
-          "description": "CLOSED SET — unknown values reject the ITEM (fail closed), never guess"
+          "description": "CLOSED — an unknown value invalidates the WHOLE plan (fail closed; it may be a mandatory obligation)"
         },
-        "text": { "type": "string", "description": "facts only; imperative coaching is rejected by the producer lint" },
+        "text": { "type": "string" },
+        "quoted": { "type": "boolean", "default": false,
+          "description": "text is verbatim third-party/user/tool content, exempt from the producer coaching lint; requires quote-capable provenance.origin (application-validated)" },
         "value": { "description": "structured value when text is lossy" },
         "source": { "type": "string", "description": "OPEN SET — producing subsystem", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
-        "provenance": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "origin": { "type": "string", "description": "OPEN SET; well-known: taught, observed, derived, told-by-user, shared" },
-            "at": { "type": "string", "format": "date-time" },
-            "evidenceRef": { "type": "string" }
-          }
-        },
+        "provenance": { "$ref": "#/$defs/provenance" },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "sensitivity": { "enum": ["public", "personal", "private", "never-store"], "default": "personal" },
+        "classification": { "enum": ["public", "personal", "private", "intimate"], "default": "personal",
+          "description": "label only — behavior lives in disclosure/retention/policy" },
+        "disclosure": { "enum": ["unrestricted", "participants", "owner_only"], "default": "participants" },
+        "retention": { "enum": ["full", "no_training", "no_telemetry_text", "volatile_turn_only"], "default": "full",
+          "description": "independent of expression: volatile content may still be must_express to its authorized audience" },
+        "reasonCode": { "$ref": "#/$defs/reasonCode" },
         "validity": {
           "type": "object",
           "additionalProperties": false,
@@ -76,14 +121,17 @@
             "until": { "type": "string", "format": "date-time" }
           }
         },
-        "supersedes": { "type": "array", "items": { "type": "string" } },
+        "supersedes": { "type": "array", "items": { "type": "string" },
+          "description": "in-plan item ids, or external references carrying a scheme prefix (memory:, concept:, …)" },
         "supersededBy": { "type": "string" },
         "priority": { "type": "integer" },
-        "checkTokens": {
-          "type": "array", "items": { "type": "string" },
-          "description": "curated deterministic-check tokens (datasets/eval only; absent on live turns)"
-        }
-      }
+        "checkTokens": { "type": "array", "items": { "type": "string" },
+          "description": "curated deterministic-check tokens (datasets/eval only)" }
+      },
+      "allOf": [
+        { "if": { "properties": { "policy": { "const": "must_not_express" } } },
+          "then": { "required": ["reasonCode"] } }
+      ]
     },
     "register": {
       "type": "object",
@@ -96,8 +144,10 @@
         "skepticism": { "enum": ["off", "open", "on"] },
         "intensity": { "enum": ["flat", "even", "raised"] },
         "verbosity": { "enum": ["terse", "short", "conversational", "expansive"] },
-        "profanity": { "enum": ["forbidden", "mirror-only", "licensed"] },
-        "mirror": { "type": "boolean" }
+        "profanity": { "enum": ["unrestricted", "mirror-only", "encouraged", "neutral", "avoid", "forbidden"],
+          "description": "avoid/forbidden REQUIRE an owning registerRestrictions entry from user-preference.* or hosting-config.* — never an unnamed layer" },
+        "mirror": { "type": "boolean" },
+        "legacyStyle": { "type": "string", "description": "v2 tone prose carried losslessly during migration" }
       }
     }
   }
