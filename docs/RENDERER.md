@@ -249,3 +249,13 @@ pins both.
   threshold — a single token-literal miss at n=12), disclosed. Awaiting Scott's blind
   naturalness read (`eval-run1c-blind.md`) and the ship/iterate decision. Production
   untouched throughout.
+- **2026-08-24** — **blind read passed, shadow integration landed.** Scott's four-arm blind
+  review (`../training/renderer/BLIND_REVIEW_RUN1C.md`): run-1c leads every aggregate —
+  7 would-use vs run-1b's 4, preferred 7/16, head-to-head 8-4-4 over run-1b; his blind
+  "bad" marks landed on exactly the replies the plan-echo check flags. Approved for
+  **true shadow mode** (`RENDERER_SHADOW.md`): eligible real plans render through the
+  run-1c adapter beside production, both replies scored by the frozen checks plus
+  real-turn proxies, pairs recorded as `renderer.plan2` shadow rows under the existing
+  telemetry/forget/retention boundaries. Promotion thresholds pre-declared before the
+  first row; rollback = the config flag. Run-1c is NOT user-facing; promotion awaits
+  Scott's approval after ≥100 eligible turns. 1161 tests green.

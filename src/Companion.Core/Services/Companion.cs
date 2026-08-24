@@ -31,6 +31,7 @@ public sealed class Companion : ICompanion
     private readonly IReplyGate _gate;
     private readonly SafetyOptions _safety;
     private readonly IShadowRecorder _shadow;
+    private readonly IRendererShadow _rendererShadow;
     private readonly ICognitiveCapture _capture;
     private readonly IDiagnosticsStore? _diagnostics;
     private readonly IConceptKnowledge? _concepts;
@@ -99,11 +100,13 @@ public sealed class Companion : ICompanion
         ICognitiveCapture? capture = null,
         IDiagnosticsStore? diagnostics = null,
         IConceptKnowledge? concepts = null,
-        IGapStore? gaps = null)
+        IGapStore? gaps = null,
+        IRendererShadow? rendererShadow = null)
     {
         _gate = gate ?? new AlwaysOpenGate();
         _safety = safety?.Value ?? new SafetyOptions();
         _shadow = shadow ?? new NoShadowRecorder();
+        _rendererShadow = rendererShadow ?? new NullRendererShadow();
         _capture = capture ?? new NoCognitiveCapture();
         _diagnostics = diagnostics;
         _concepts = concepts;
@@ -704,6 +707,38 @@ public sealed class Companion : ICompanion
                     Applied = "legacy",
                     Input = violation,
                 }, ct);
+            }
+        }
+
+        // 6d. Renderer shadow (docs/RENDERER_SHADOW.md): the tuned renderer renders the same
+        // plan beside the reply that just went out. Fire-and-forget on an immutable snapshot —
+        // by construction it cannot touch conversation state, memory, goals, tools, or what the
+        // user saw. Eligibility mirrors what the renderer corpus covers: ordinary answered chat
+        // turns, no tool results (never trained on), and never a privacy-sensitive turn (the
+        // shadow row stores real text, so the strictest existing boundary applies).
+        if (_rendererShadow.IsObserving)
+        {
+            var eligible = !sensitive && toolOutcome.Calls.Count == 0;
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "renderer.shadow", Decider = "config",
+                Verdict = eligible ? "observed" : "skipped",
+                Reason = eligible ? null
+                    : sensitive ? "privacy-sensitive turn" : "turn used tools",
+            });
+            if (eligible)
+            {
+                _rendererShadow.Observe(new RendererShadowObservation
+                {
+                    TraceId = traceId,
+                    Plan = plan,
+                    Transcript = recent
+                        .TakeLast(4)
+                        .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
+                        .ToList(),
+                    UserMessage = promptText,
+                    ProductionResponse = response,
+                });
             }
         }
 

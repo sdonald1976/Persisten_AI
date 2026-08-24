@@ -183,14 +183,22 @@ internal sealed class ShadowRecorder : IShadowRecorder
             using var scope = _scopes.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
 
-            // Captures only — a shadow comparison's input is a premise/candidate pair written by
+            // Captures — a shadow comparison's input is a premise/candidate pair written by
             // the pipeline, not the user's sentence, and it is what makes a disagreement readable.
+            // Renderer shadow rows are the exception: their envelope quotes the user's message and
+            // both replies verbatim, so the forget promise covers them too, matched on any of the
+            // three texts a forgotten sentence could live in.
             var candidates = await db.ShadowComparisons
-                .Where(c => c.Model == null && c.Input != null)
+                .Where(c => (c.Model == null || c.Subject.StartsWith("renderer."))
+                            && c.Input != null)
                 .ToListAsync(ct);
 
             var doomed = candidates
-                .Where(c => usable.Any(e => c.Input!.Contains(e, StringComparison.OrdinalIgnoreCase)))
+                .Where(c => usable.Any(e =>
+                    c.Input!.Contains(e, StringComparison.OrdinalIgnoreCase)
+                    || (c.Subject.StartsWith("renderer.")
+                        && ((c.Legacy != null && c.Legacy.Contains(e, StringComparison.OrdinalIgnoreCase))
+                            || (c.Model != null && c.Model.Contains(e, StringComparison.OrdinalIgnoreCase))))))
                 .ToList();
             if (doomed.Count == 0)
                 return 0;

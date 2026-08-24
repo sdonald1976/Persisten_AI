@@ -455,10 +455,14 @@ public static class DependencyInjection
                 sp.GetRequiredService<ILogger<OnnxTextPairScorer>>())
             : new UnavailableTextPairScorer("reranker", "disabled"));
 
+        // Renderer shadow rows live in the same table, so its flag also demands a real recorder.
+        var rendererShadow = configuration.GetSection(CompanionOptions.SectionName)
+            .Get<CompanionOptions>()?.RendererShadow ?? new RendererShadowOptions();
+
         // Shadow mode costs a real inference per turn whose answer is then discarded, so when it is
         // off the recorder says so and callers skip the work entirely rather than paying for it.
         // Capture writes to the same table and needs the same recorder, hence either flag.
-        if (options.ShadowMode || options.Capture)
+        if (options.ShadowMode || options.Capture || rendererShadow.Enabled)
             services.AddSingleton<IShadowRecorder>(sp => new ShadowRecorder(
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<TimeProvider>(),
@@ -476,6 +480,14 @@ public static class DependencyInjection
             services.AddSingleton<ICognitiveCapture, CognitiveCapture>();
         else
             services.AddSingleton<ICognitiveCapture, NoCognitiveCapture>();
+
+        // The renderer shadow (docs/RENDERER_SHADOW.md): off is a no-op object, which is what
+        // makes disabling the flag a complete rollback — the production path never held a
+        // reference to anything but this interface.
+        if (rendererShadow.Enabled)
+            services.AddSingleton<IRendererShadow, Renderer.RendererShadowService>();
+        else
+            services.AddSingleton<IRendererShadow, NullRendererShadow>();
 
         services.AddSingleton<INliModel>(sp => options.Nli.Enabled
             ? new OnnxNliModel(

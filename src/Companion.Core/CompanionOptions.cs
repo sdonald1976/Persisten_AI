@@ -174,6 +174,16 @@ public sealed class CompanionOptions
     /// </summary>
     public bool PromoteResponsePlan { get; set; }
 
+    /// <summary>
+    /// True shadow mode for the tuned renderer (docs/RENDERER_SHADOW.md): when enabled, each
+    /// eligible turn's ResponsePlan is also rendered by the run-1c adapter through a local
+    /// serve_tuned.py endpoint, both replies are scored by the deterministic renderer checks,
+    /// and the pair is recorded as a shadow comparison. The shadow reply is never returned,
+    /// stored as conversation, extracted from, or shown; disabling the flag restores the
+    /// production path exactly because the production path never depended on it.
+    /// </summary>
+    public RendererShadowOptions RendererShadow { get; set; } = new();
+
     /// <summary>Hard ceiling on tool executions in one turn (identical repeats stop earlier).</summary>
     public int MaxToolCallsPerTurn { get; set; } = 3;
 
@@ -202,4 +212,26 @@ public sealed class RetrievalWeights
     public double Confidence { get; set; } = 0.2;
     public double ProjectAssociation { get; set; } = 0.5;
     public double OpenLoopBoost { get; set; } = 0.4;
+}
+
+/// <summary>
+/// Configuration for renderer shadow mode (docs/RENDERER_SHADOW.md). All values are recorded
+/// into every shadow row so the collected data names exactly which model produced it.
+/// </summary>
+public sealed class RendererShadowOptions
+{
+    /// <summary>Off by default; turning this off IS the rollback (no other state involved).</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>The serve_tuned.py endpoint hosting the adapter (Ollama-compatible chat API).</summary>
+    public string Endpoint { get; set; } = "http://localhost:11435";
+
+    /// <summary>sha256 of the adapter's adapter_model.safetensors, recorded per row.</summary>
+    public string AdapterSha256 { get; set; } = "";
+
+    /// <summary>Human-readable model identity ("run-1c on Qwen2.5-3B-Instruct aa8e7253"), recorded per row.</summary>
+    public string ModelVersion { get; set; } = "";
+
+    /// <summary>Per-call ceiling; a slow shadow is abandoned, never waited on by anything user-facing.</summary>
+    public int TimeoutSeconds { get; set; } = 60;
 }

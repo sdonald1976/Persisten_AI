@@ -20,6 +20,13 @@
     <ProjectReference Include="..\Companion.Core\Companion.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The frozen renderer-experiment serialization and checks, shared verbatim (same
+         pattern as Companion.DatasetGen) so the shadow path can never drift from what the
+         adapter was trained and evaluated against. Do not edit the linked files. -->
+    <Compile Include="..\..\tools\Companion.RendererBench\PlanSerialization.cs" Link="Renderer\Shared\PlanSerialization.cs" />
+    <Compile Include="..\..\tools\Companion.RendererBench\RendererChecks.cs" Link="Renderer\Shared\RendererChecks.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- Test seam: lets the test project construct providers over a mocked HttpMessageHandler. -->
     <InternalsVisibleTo Include="Companion.Tests" />
     <!-- The evaluation harness scores the real implementations head-to-head against the heuristics
