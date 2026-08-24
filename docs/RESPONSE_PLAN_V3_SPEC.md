@@ -1,10 +1,13 @@
 # ResponsePlan v3 — specification (revision 2, 2026-08-24)
 
-Status: FINAL CONTRACT CANDIDATE, incorporating Scott's second review (six
-issues; reconciliation table §13 covers all sixteen resolutions to date).
-Production implementation remains unauthorized; run-1c consumes byte-identical
-CompactV2 for its entire tenure; no existing hash, fixture, adapter, or freeze
-manifest is affected. Audit: `RESPONSE_PLAN_V3_AUDIT.md`. Wire contract:
+Status: **APPROVED (2026-08-24)** — revision 2 conditionally approved and the
+three closing amendments (rev-2.1, reconciliation rows 17–19) resolved with
+focused tests. P2 authorized and implemented: producer-side v3 generation with
+guarded v3→v2 translation, byte-identical CompactV2 proven by golden tests over
+the complete frozen corpus (804/804: 761 scenarios, 32 unseen, 11 fixtures) and
+guarded at runtime. V3 remains non-authoritative and non-user-facing; run-1c
+consumes byte-identical CompactV2 for its entire tenure; no existing hash,
+fixture, adapter, or freeze manifest is affected. Audit: `RESPONSE_PLAN_V3_AUDIT.md`. Wire contract:
 `response-plan-v3.schema.json`. Reference implementation + 22 invariant tests:
 `tools/Companion.PlanV3.Prototype` (isolated; referenced by nothing).
 
@@ -209,6 +212,44 @@ invisible to rendering); evidence-backed vs claim-only restriction drills
 Others: as rev-1, with participants arrays and owner/audience where
 disclosure is restricted.
 
+### 2.8 Optional questions — the complete may_ask canon (rev-2.1)
+
+`may_ask`: `question.itemId` optional. When present it references a SUGGESTION —
+an ordinary `may_express` item with a question-capable category (clarify or
+curiosity); it renders in OPTIONAL with a CONTROL pointer (`question = may_ask
+-> sq1`) and creates no second authority. When absent, the renderer may
+formulate at most one contextually relevant question (behavioral,
+fidelity-gated). `question_forbidden` permits no optional question and no
+suggestion pointer. `ask_required` requires exactly ONE ask_required item,
+referenced, question final. All valid/invalid combinations validated + tested.
+
+### 2.9 Recipient authorization before serialization (rev-2.1)
+
+`ValidateForAudience(plan, currentRecipientPrincipals, rendererTrustContext)`
+runs before any CompactV3 (the audience-scoped entry point is `CompactV3For`).
+Reference resolution alone is insufficient: restricted items reach the renderer
+and user only when the CURRENT recipients are each in the item audience AND the
+transport is permitted (local loopback or configured trusted remote for
+restricted/volatile content). Unauthorized obligations (must_express /
+ask_required) are ERRORS — replan upstream or fail diagnosed, never silently
+removed or downgraded. Unauthorized non-obligations (background, optional,
+tombstones) are EXCLUDED from the serialization so protected content is never
+leaked to an untrusted renderer merely to prohibit it. Five recipient/trust
+cases tested.
+
+### 2.10 Protected-content identity (rev-2.1, supersedes parts of §2.7)
+
+`ContainsProtectedContent` derives from DISCLOSURE and RETENTION — restricted
+disclosure or any non-full retention — never from the classification label.
+`PersistableIdentity` enforces the whole rule in one place: plain plans keep
+deterministic plain hashes (wire + render); protected plans persist the
+redacted STRUCTURAL wire hash (explicitly NOT a unique content identity — two
+protected plans differing only in protected text share it), no
+renderPromptHash, and a keyed versioned CorrelationTag computed over canonical
+UNREDACTED content — distinct texts stay distinguishable, key rotation changes
+version and tag, offline dictionaries stay impossible without the deployment
+key. All five review-required behaviors tested.
+
 ## 13. Reconciliation table
 
 Review 1 (rows 1–10): as recorded in revision 1 — unnamed authority removed;
@@ -227,3 +268,25 @@ Review 2:
 | 14 | parallel item authorities | question_forbidden and style_guidance REMOVED from ExpressionPolicy (six remain); question.policy and RegisterVector are sole owners; no conflict rules needed because no conflict can exist | spec §2.2; schema; types; codec; 1 test |
 | 15 | lossy fallback | CheckV2Compatibility before translation; all-or-nothing; invalid ≠ compatible; route to v3 renderer or diagnosed failure; three required tests added | spec §8; codec CheckV2Compatibility; translation TranslateToV2 guard; 3 tests |
 | 16 | traceability + wire consistency | evidenceRef required for user-preference.*/hosting-config.*; restriction dimensions/values closed + validated; wire=snake_case, model-facing=kebab-case documented and tested; legacyStyle = migration-only, never in CompactV3 (tested) | spec header/§5; schema; codec; 4 tests |
+
+Review 3 (closing amendments, rev-2.1):
+
+| # | issue | resolution | artifacts |
+|---|---|---|---|
+| 17 | may_ask underdefined | §2.8 canon: optional suggestion = may_express item with question-capable category, CONTROL pointer, no second authority; exactly-one rule for ask_required; all combinations validated | spec §2.8; codec Validate; FromV2 category fix; 1 test (9 assertions) |
+| 18 | recipient authorization | §2.9 ValidateForAudience + CompactV3For: current-recipient + transport checks; obligations error, non-obligations excluded without leakage | spec §2.9; types (RendererTrustContext, AudienceDecision); codec; 5 tests |
+| 19 | protected-hash generalization | §2.10 ContainsProtectedContent (disclosure+retention); PersistableIdentity; structural wire hash disclaimed as content identity; keyed tag over unredacted canonical content | spec §2.10; types (PlanIdentity); codec; 2 tests |
+
+## 14. P2 record (2026-08-24)
+
+Implemented on branch `responseplan-v3`, worktree-isolated from the live canary:
+protocol implementation moved to `src/Companion.Core/PlanV3/`; the renderer
+shadow/canary serialization takes the producer hop (FromV2 → guarded
+TranslateToV2 → frozen CompactV2) with a runtime byte-equality guard that falls
+back to direct serialization on any divergence, logged — run-1c behavior
+cannot change even in the presence of an undiscovered translator bug. Golden
+tests cover the complete frozen corpus: 804/804 plans byte-identical through
+the hop AND matching their frozen plan2 strings. The golden immediately caught
+and fixed a real defect (tone round-trip ambiguity when tone prose contains
+"; "). Full suite: 1167 + 31 green. V3 remains non-authoritative and
+non-user-facing.

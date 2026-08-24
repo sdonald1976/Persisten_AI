@@ -96,6 +96,7 @@ public static class V2Translation
             {
                 Id = questionItemId,
                 Type = q.Kind == QuestionKind.Clarify ? "clarify" : "curiosity",
+                Category = q.Kind == QuestionKind.Clarify ? RenderCategory.clarify : RenderCategory.curiosity,
                 Policy = q.Mandatory ? ExpressionPolicy.ask_required : ExpressionPolicy.may_express,
                 Text = q.Text,
                 Source = q.Kind == QuestionKind.Clarify ? "working-context" : "curiosity",
@@ -115,9 +116,10 @@ public static class V2Translation
             Items = items,
             Register = new RegisterVector
             {
-                LegacyStyle = string.Join("; ", new[]
-                    { v2.Tone.Register, v2.Tone.MoodNote, v2.Tone.PersonaStyle }
-                    .Where(s => !string.IsNullOrWhiteSpace(s))),
+                // JSON-encoded triple: unambiguous even when tone prose contains "; "
+                // (the real-turnrecords tones do). Lossless by construction.
+                LegacyStyle = System.Text.Json.JsonSerializer.Serialize(
+                    new[] { v2.Tone.Register, v2.Tone.MoodNote, v2.Tone.PersonaStyle }),
             },
         };
     }
@@ -229,9 +231,11 @@ public static class V2Translation
 
     private static ToneGuidance SplitLegacyStyle(string? legacy)
     {
-        var parts = (legacy ?? "").Split("; ", 3);
+        if (string.IsNullOrEmpty(legacy))
+            return new ToneGuidance(null, null, null);
+        var parts = System.Text.Json.JsonSerializer.Deserialize<string?[]>(legacy) ?? [];
         return new ToneGuidance(
-            parts.Length > 0 && parts[0].Length > 0 ? parts[0] : null,
+            parts.Length > 0 ? parts[0] : null,
             parts.Length > 1 ? parts[1] : null,
             parts.Length > 2 ? parts[2] : null);
     }

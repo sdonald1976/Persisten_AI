@@ -235,7 +235,7 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
 
     private async Task<RenderCore> RenderCoreAsync(RendererShadowObservation obs, CancellationToken ct)
     {
-        var plan2 = PlanSerialization.CompactV2(obs.Plan);
+        var plan2 = SerializeViaV3Hop(obs.Plan);
         var planHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(plan2)))
             .ToLowerInvariant();
         var userPrompt = PlanSerialization.BuildUserPrompt(
@@ -324,6 +324,32 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
             DurationMs = core.LatencyMs,
             Input = envelope,
         }, ct);
+    }
+
+    /// <summary>
+    /// P2 (docs/RESPONSE_PLAN_V3_SPEC.md §9): the plan takes the v3 producer hop —
+    /// FromV2 → guarded TranslateToV2 — before the frozen serializer. Byte-identity is
+    /// proven corpus-wide by golden tests (804/804); this guard makes the property
+    /// load-bearing at runtime too: any divergence or hop failure falls back to the
+    /// direct serialization, logged, so run-1c behavior cannot change. V3 stays
+    /// non-authoritative: its output is only ever the identical bytes.
+    /// </summary>
+    private string SerializeViaV3Hop(ResponsePlan plan)
+    {
+        var direct = PlanSerialization.CompactV2(plan);
+        try
+        {
+            var v3 = Companion.PlanV3.V2Translation.FromV2(plan);
+            var hop = PlanSerialization.CompactV2(Companion.PlanV3.V2Translation.TranslateToV2(v3));
+            if (string.Equals(hop, direct, StringComparison.Ordinal))
+                return hop;
+            _logger.LogWarning("V3 hop diverged from direct CompactV2 for {TraceId}; using direct.", plan.TraceId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "V3 hop failed for {TraceId}; using direct CompactV2.", plan.TraceId);
+        }
+        return direct;
     }
 
     /// <summary>Subject key for renderer rows; the forget path and the report tooling both key on it.</summary>

@@ -345,6 +345,151 @@ public class PlanV3Tests
         Assert.Contains("scan results come back tomorrow", PlanV3Codec.CompactV3(GriefPlan()));
     }
 
+    // ---- rev-2.1 closing amendments -----------------------------------------------------
+
+    [Fact]
+    public void MayAsk_SuggestionMustBeMayExpressWithQuestionCapableCategory()
+    {
+        PlanV3 WithQ(QuestionPolicyBlock q, params PlanItem[] extra) => Sample() with
+        {
+            Question = q,
+            Items = [.. Sample().Items.Where(i => i.Policy != ExpressionPolicy.ask_required), .. extra],
+        };
+
+        var suggestion = Item("sq1", "curiosity", ExpressionPolicy.may_express,
+            "Who else is coming?", "curiosity") with { Category = RenderCategory.curiosity };
+
+        Assert.Empty(PlanV3Codec.Validate(WithQ(new(QuestionPolicy.may_ask, "sq1"), suggestion)));
+        Assert.Empty(PlanV3Codec.Validate(WithQ(new(QuestionPolicy.may_ask))));
+
+        Assert.Contains(PlanV3Codec.Validate(WithQ(new(QuestionPolicy.may_ask, "ghost"))),
+            e => e.Contains("does not exist"));
+        var mustQ = Item("sq2", "curiosity", ExpressionPolicy.must_express, "x", "curiosity");
+        Assert.Contains(PlanV3Codec.Validate(WithQ(new(QuestionPolicy.may_ask, "sq2"), mustQ)),
+            e => e.Contains("must carry policy may_express"));
+        var wrongCat = Item("sq3", "memory", ExpressionPolicy.may_express, "x", "retrieval");
+        Assert.Contains(PlanV3Codec.Validate(WithQ(new(QuestionPolicy.may_ask, "sq3"), wrongCat)),
+            e => e.Contains("question-capable category"));
+        var strayAsk = Item("sq4", "clarify", ExpressionPolicy.ask_required, "which?", "working-context");
+        Assert.Contains(PlanV3Codec.Validate(WithQ(new(QuestionPolicy.may_ask), strayAsk)),
+            e => e.Contains("may_ask plan contains an ask_required item"));
+
+        var second = Item("q2", "clarify", ExpressionPolicy.ask_required, "and this?", "working-context");
+        Assert.Contains(PlanV3Codec.Validate(Sample() with { Items = [.. Sample().Items, second] }),
+            e => e.Contains("exactly one ask_required item"));
+
+        var compact = PlanV3Codec.CompactV3(WithQ(new(QuestionPolicy.may_ask, "sq1"), suggestion));
+        Assert.Contains("question = may_ask -> sq1", compact);
+        Assert.Contains("[sq1 curiosity] Who else is coming?", compact);
+        Assert.DoesNotContain("ASK (", compact);
+    }
+
+    private static readonly RendererTrustContext LocalTrust = new(RendererTransport.local_loopback);
+    private static readonly RendererTrustContext UntrustedRemote = new(RendererTransport.untrusted);
+
+    [Fact]
+    public void Audience_AuthorizedUserRecipient_RendersTheGrief()
+    {
+        var compact = PlanV3Codec.CompactV3For(GriefPlan(), ["usr-local"], LocalTrust);
+        Assert.Contains("scan results come back tomorrow", compact);
+    }
+
+    [Fact]
+    public void Audience_ValidReferenceButWrongCurrentRecipient_FailsTheObligation()
+    {
+        var other = GriefPlan() with
+        {
+            Participants = [User, Ava, new Participant("usr-guest", ParticipantRole.other, "Guest")],
+        };
+        var decision = PlanV3Codec.ValidateForAudience(other, ["usr-guest"], LocalTrust);
+        Assert.False(decision.Ok);
+        Assert.Contains(decision.Errors, e => e.Contains("replan or fail diagnosed"));
+        Assert.Throws<InvalidOperationException>(
+            () => PlanV3Codec.CompactV3For(other, ["usr-guest"], LocalTrust));
+    }
+
+    [Fact]
+    public void Audience_AbsentThirdPartyOwner_WithAuthorizedUserAudience_IsFine()
+    {
+        var decision = PlanV3Codec.ValidateForAudience(GriefPlan(), ["usr-local"], LocalTrust);
+        Assert.True(decision.Ok);
+        Assert.Empty(decision.ExcludedItemIds);
+    }
+
+    [Fact]
+    public void Audience_UntrustedRemoteRenderer_NeverSeesProtectedContent()
+    {
+        var g = GriefPlan();
+        var background = g with
+        {
+            Question = new QuestionPolicyBlock(QuestionPolicy.question_forbidden),
+            Items = [g.Items[0] with { Policy = ExpressionPolicy.background_only }],
+        };
+        var decision = PlanV3Codec.ValidateForAudience(background, ["usr-local"], UntrustedRemote);
+        Assert.True(decision.Ok);
+        Assert.Contains("g1", decision.ExcludedItemIds);
+        Assert.DoesNotContain("scan results",
+            PlanV3Codec.CompactV3For(background, ["usr-local"], UntrustedRemote));
+
+        var obligation = PlanV3Codec.ValidateForAudience(GriefPlan(), ["usr-local"], UntrustedRemote);
+        Assert.False(obligation.Ok);
+    }
+
+    [Fact]
+    public void Audience_MustExpressThatCannotReachRecipient_IsNeverSilentlyDropped()
+    {
+        var decision = PlanV3Codec.ValidateForAudience(GriefPlan(), ["principal:someone-else"], LocalTrust);
+        Assert.False(decision.Ok);
+        Assert.Empty(decision.ExcludedItemIds);
+    }
+
+    [Fact]
+    public void ProtectedContent_DerivesFromDisclosureAndRetention_NotClassification()
+    {
+        Assert.True(PlanV3Codec.ContainsProtectedContent(GriefPlan()));
+
+        var labeled = Sample() with
+        {
+            Items = [Sample().Items[4] with { Classification = Classification.intimate }],
+            Question = new QuestionPolicyBlock(QuestionPolicy.question_forbidden),
+        };
+        Assert.False(PlanV3Codec.ContainsProtectedContent(labeled));
+
+        var retained = labeled with
+        {
+            Items = [labeled.Items[0] with
+                { Classification = Classification.@public, Retention = Retention.no_training }],
+        };
+        Assert.True(PlanV3Codec.ContainsProtectedContent(retained));
+    }
+
+    [Fact]
+    public void PersistableIdentity_EnforcesTheWholeHashRule()
+    {
+        var key = Encoding.UTF8.GetBytes("deployment-secret-one");
+        var grief = GriefPlan();
+        var sibling = grief with
+        {
+            Items = [grief.Items[0] with { Text = "Scott's father's scan results were clean." }],
+        };
+
+        var idA = PlanV3Codec.PersistableIdentity(grief, key, 1);
+        var idB = PlanV3Codec.PersistableIdentity(sibling, key, 1);
+
+        Assert.Equal(idA.WirePlanHash, idB.WirePlanHash);
+        Assert.NotEqual(idA.CorrelationTag, idB.CorrelationTag);
+        Assert.Null(idA.RenderPromptHash);
+
+        var rotated = PlanV3Codec.PersistableIdentity(grief, Encoding.UTF8.GetBytes("secret-two"), 2);
+        Assert.StartsWith("v2:", rotated.CorrelationTag);
+        Assert.NotEqual(idA.CorrelationTag, rotated.CorrelationTag);
+
+        var plain = PlanV3Codec.PersistableIdentity(Sample());
+        Assert.NotNull(plain.RenderPromptHash);
+        Assert.Null(plain.CorrelationTag);
+        Assert.Equal(plain.RenderPromptHash, PlanV3Codec.PersistableIdentity(Sample()).RenderPromptHash);
+    }
+
     private static ResponsePlan RealisticV2() => new()
     {
         TraceId = Guid.Parse("99999999-8888-7777-6666-555555555555"),

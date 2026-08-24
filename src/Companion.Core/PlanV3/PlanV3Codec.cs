@@ -145,6 +145,7 @@ public static class PlanV3Codec
                 if (!IsExternalRef(s) && !ids.Contains(s))
                     errors.Add($"{i.Id}: supersedes '{s}' is neither an in-plan item nor an external scheme reference");
 
+        var askItems = plan.Items.Count(i => i.Policy == ExpressionPolicy.ask_required);
         switch (plan.Question.Policy)
         {
             case QuestionPolicy.ask_required:
@@ -154,11 +155,30 @@ public static class PlanV3Codec
                     errors.Add($"question.itemId '{plan.Question.ItemId}' does not exist");
                 else if (q.Policy != ExpressionPolicy.ask_required)
                     errors.Add($"question item '{q.Id}' must carry policy ask_required (has {q.Policy})");
+                if (askItems != 1)
+                    errors.Add($"ask_required requires exactly one ask_required item (found {askItems})");
+                break;
+            case QuestionPolicy.may_ask:
+                // Optional-question canon (rev-2.1): itemId optional. When present it is a
+                // SUGGESTION — an ordinary may_express item with a question-capable category —
+                // never a second authority. When absent, the renderer may formulate at most
+                // one contextually relevant question (behavioral; fidelity-gated).
+                if (plan.Question.ItemId is { } mid)
+                {
+                    if (plan.Items.FirstOrDefault(i => i.Id == mid) is not { } sq)
+                        errors.Add($"question.itemId '{mid}' does not exist");
+                    else if (sq.Policy != ExpressionPolicy.may_express)
+                        errors.Add($"may_ask suggestion '{sq.Id}' must carry policy may_express (has {sq.Policy})");
+                    else if (CategoryOf(sq) is not (RenderCategory.clarify or RenderCategory.curiosity))
+                        errors.Add($"may_ask suggestion '{sq.Id}' must have a question-capable category (clarify/curiosity)");
+                }
+                if (askItems != 0)
+                    errors.Add("may_ask plan contains an ask_required item");
                 break;
             case QuestionPolicy.question_forbidden:
                 if (plan.Question.ItemId is not null)
                     errors.Add("question_forbidden must not reference an ask item");
-                if (plan.Items.Any(i => i.Policy == ExpressionPolicy.ask_required))
+                if (askItems != 0)
                     errors.Add("question_forbidden plan contains an ask_required item");
                 break;
         }
@@ -297,6 +317,72 @@ public static class PlanV3Codec
 
     private static string Kebab(RenderCategory c) => c.ToString().Replace('_', '-');
 
+    /// <summary>
+    /// Recipient-aware authorization BEFORE serialization (rev-2.1). Reference resolution
+    /// alone is insufficient: the CURRENT recipients must be authorized and the renderer
+    /// transport permitted by each protected item's disclosure/retention. Unauthorized
+    /// obligations are ERRORS (replan upstream or fail diagnosed — never silently removed
+    /// or downgraded); unauthorized non-obligations are EXCLUDED so protected content is
+    /// not leaked to an untrusted renderer merely to prohibit it.
+    /// </summary>
+    public static AudienceDecision ValidateForAudience(
+        PlanV3 plan,
+        IReadOnlyCollection<string> currentRecipientPrincipals,
+        RendererTrustContext trust)
+    {
+        var errors = new List<string>(Validate(plan));
+        var excluded = new List<string>();
+
+        foreach (var i in plan.Items)
+        {
+            var recipientOk = i.Disclosure != Disclosure.restricted
+                || (currentRecipientPrincipals.Count > 0
+                    && currentRecipientPrincipals.All(r => (i.Audience ?? []).Contains(r)));
+
+            var needsTrustedTransport = i.Disclosure == Disclosure.restricted
+                || i.Retention == Retention.volatile_turn_only;
+            var transportOk = !needsTrustedTransport
+                || trust.Transport is RendererTransport.local_loopback or RendererTransport.trusted_remote;
+
+            if (recipientOk && transportOk)
+                continue;
+
+            var why = !recipientOk ? "recipient not in authorized audience"
+                                   : "renderer transport not permitted for protected content";
+            if (i.Policy is ExpressionPolicy.must_express or ExpressionPolicy.ask_required)
+                errors.Add($"{i.Id}: obligation cannot legally reach this recipient/renderer ({why}) — replan or fail diagnosed");
+            else
+                excluded.Add(i.Id);
+        }
+
+        return new AudienceDecision(errors.Count == 0, errors, excluded);
+    }
+
+    /// <summary>
+    /// The audience-scoped serialization entry point: refuses when any obligation is
+    /// unauthorized; lawfully withholds excluded non-obligation items (including a
+    /// may_ask suggestion pointer whose item was excluded).
+    /// </summary>
+    public static string CompactV3For(
+        PlanV3 plan,
+        IReadOnlyCollection<string> currentRecipientPrincipals,
+        RendererTrustContext trust)
+    {
+        var decision = ValidateForAudience(plan, currentRecipientPrincipals, trust);
+        if (!decision.Ok)
+            throw new InvalidOperationException("not renderable for this audience: "
+                + string.Join("; ", decision.Errors));
+
+        var scoped = plan with
+        {
+            Items = plan.Items.Where(i => !decision.ExcludedItemIds.Contains(i.Id)).ToList(),
+            Question = plan.Question.ItemId is { } qid && decision.ExcludedItemIds.Contains(qid)
+                ? plan.Question with { ItemId = null }
+                : plan.Question,
+        };
+        return CompactV3(scoped);
+    }
+
     private static string DescribeOwner(PlanItem i)
         => i.Value?["owner"]?.GetValue<string>() is { } o ? $", owner={o}" : "";
 
@@ -332,19 +418,47 @@ public static class PlanV3Codec
         => plan.Items.Any(i => i.Retention == Retention.volatile_turn_only);
 
     /// <summary>
+    /// Protection derives from DISCLOSURE and RETENTION, not the classification label
+    /// (rev-2.1): restricted disclosure or any non-full retention makes plain
+    /// content-derived identifiers unsafe to persist.
+    /// </summary>
+    public static bool ContainsProtectedContent(PlanV3 plan)
+        => plan.Items.Any(i => i.Disclosure == Disclosure.restricted
+                               || i.Retention != Retention.full);
+
+    /// <summary>
+    /// The persistence rule in one place (rev-2.1): plain plans get their deterministic
+    /// plain hashes; protected plans get the redacted STRUCTURAL wire hash (not a content
+    /// identity), no renderPromptHash, and — when a key is provided — a keyed versioned
+    /// CorrelationTag over canonical UNREDACTED content, so distinct protected texts stay
+    /// distinguishable without enabling offline dictionaries.
+    /// </summary>
+    public static PlanIdentity PersistableIdentity(PlanV3 plan, byte[]? deploymentKey = null, int keyVersion = 0)
+    {
+        var wire = WirePlanHash(plan);
+        if (!ContainsProtectedContent(plan))
+            return new PlanIdentity(wire, RenderPromptHash(plan), null);
+        var tag = deploymentKey is null ? null : CorrelationTag(plan, deploymentKey, keyVersion);
+        return new PlanIdentity(wire, null, tag);
+    }
+
+    /// <summary>
     /// Redacted correlation for telemetry when content-derived identifiers are unsafe:
     /// deployment-secret keyed HMAC-SHA256 with key-version metadata (rev-2 §3). Rows
     /// store "v{version}:{tag}" — rotation changes the version, never exposes content.
     /// </summary>
     public static string CorrelationTag(PlanV3 plan, byte[] deploymentKey, int keyVersion)
     {
+        // HMAC over canonical UNREDACTED wire content: distinct protected texts yield
+        // distinct tags; the deployment key prevents offline dictionary construction.
         using var hmac = new HMACSHA256(deploymentKey);
-        var tag = hmac.ComputeHash(Encoding.UTF8.GetBytes(CompactV3(plan)));
+        var canonical = CanonicalJson(JsonNode.Parse(ToJson(plan)));
+        var tag = hmac.ComputeHash(Encoding.UTF8.GetBytes(canonical));
         return $"v{keyVersion}:{Convert.ToHexString(tag).ToLowerInvariant()}";
     }
 
     /// <summary>Canonical JSON: ordinal-sorted keys, compact, invariant number formatting.</summary>
-    internal static string CanonicalJson(JsonNode? node)
+    public static string CanonicalJson(JsonNode? node)
     {
         var sb = new StringBuilder();
         WriteCanonical(node, sb);

@@ -169,3 +169,29 @@ public sealed record ParseReport(
 
 /// <summary>Outcome of the v2-capability check (rev-2 §5): translation is all-or-nothing.</summary>
 public sealed record V2Compatibility(bool Compatible, IReadOnlyList<string> Reasons);
+
+/// <summary>The renderer's processing context (rev-2.1 §2): where the plan's bytes go.</summary>
+public sealed record RendererTrustContext(
+    RendererTransport Transport, string? ProcessingContextId = null);
+
+[JsonConverter(typeof(JsonStringEnumConverter<RendererTransport>))]
+public enum RendererTransport { local_loopback, trusted_remote, untrusted }
+
+/// <summary>
+/// Recipient-aware authorization decision (rev-2.1 §2). Errors are fatal (an obligation
+/// cannot legally reach the recipient — replan upstream or fail diagnosed, never drop or
+/// downgrade). ExcludedItemIds are non-obligation items lawfully withheld from this
+/// renderer/recipient — protected content is not leaked merely to prohibit it.
+/// </summary>
+public sealed record AudienceDecision(
+    bool Ok, IReadOnlyList<string> Errors, IReadOnlyList<string> ExcludedItemIds);
+
+/// <summary>
+/// What may be PERSISTED about a plan (rev-2.1 §3). WirePlanHash is the redacted
+/// STRUCTURAL hash — never a unique content identity for protected plans.
+/// RenderPromptHash is null for protected plans (content-derived). CorrelationTag is the
+/// keyed, versioned identity for protected plans: distinct texts stay distinguishable
+/// without enabling offline dictionaries.
+/// </summary>
+public sealed record PlanIdentity(
+    string WirePlanHash, string? RenderPromptHash, string? CorrelationTag);
