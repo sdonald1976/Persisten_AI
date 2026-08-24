@@ -28,16 +28,40 @@ public interface IRendererShadow
 
     /// <summary>Queue lifecycle counters, for diagnostics and the collection report.</summary>
     RendererShadowCounters Counters { get; }
+
+    /// <summary>
+    /// Whether this user's eligible turns should DISPLAY the tuned renderer's reply — the
+    /// user-scoped canary (docs/RENDERER_SHADOW.md §8). False for everyone unless the
+    /// configuration names exactly this user.
+    /// </summary>
+    bool IsCanaryFor(string userId);
+
+    /// <summary>
+    /// Renders the plan synchronously for display. Returns null when the renderer is
+    /// unavailable (down, timed out, errored) — the caller keeps the production reply.
+    /// A non-null result with <see cref="RendererCanaryResult.CriticalFailure"/> true means
+    /// the render completed but failed a critical fidelity check; the caller must fall back.
+    /// When <paramref name="record"/> is true, the comparison row is written either way,
+    /// with Applied naming the reply that was actually shown. Never throws.
+    /// </summary>
+    Task<RendererCanaryResult?> RenderForDisplayAsync(
+        RendererShadowObservation observation, bool record, CancellationToken ct);
 }
+
+/// <summary>One canary render: the candidate reply, its deterministic violations, and the verdict.</summary>
+public sealed record RendererCanaryResult(
+    string Reply, IReadOnlyList<string> Violations, long LatencyMs, bool CriticalFailure);
 
 /// <summary>
 /// The four fates an observation can meet, plus what is still waiting. Queued counts every
 /// accepted enqueue; Completed + Failed + Pending always reconciles against it, and Dropped
 /// counts what a full queue refused — a number that must appear in the shadow report rather
-/// than vanish.
+/// than vanish. CanaryDisplayed/CanaryFallback count the user-scoped canary's outcomes:
+/// every eligible canary turn lands in exactly one of them.
 /// </summary>
 public sealed record RendererShadowCounters(
-    long Queued, long Completed, long Failed, long Dropped, int Pending);
+    long Queued, long Completed, long Failed, long Dropped, int Pending,
+    long CanaryDisplayed = 0, long CanaryFallback = 0);
 
 /// <summary>
 /// An immutable snapshot of exactly what the shadow renderer is allowed to see: the plan the
@@ -70,4 +94,10 @@ public sealed class NullRendererShadow : IRendererShadow
     }
 
     public RendererShadowCounters Counters => new(0, 0, 0, 0, 0);
+
+    public bool IsCanaryFor(string userId) => false;
+
+    public Task<RendererCanaryResult?> RenderForDisplayAsync(
+        RendererShadowObservation observation, bool record, CancellationToken ct)
+        => Task.FromResult<RendererCanaryResult?>(null);
 }

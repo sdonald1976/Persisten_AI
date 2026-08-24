@@ -616,11 +616,19 @@ public sealed class Companion : ICompanion
                 ? "none" : string.Join(",", toolOutcome.Calls.Select(c => c.Tool)),
         });
 
+        // The user-scoped renderer canary (docs/RENDERER_SHADOW.md §8): on this user's
+        // eligible non-tool turns, the tuned renderer's reply is DISPLAYED and production is
+        // the immediate fallback. Decided before generation so streaming can be handled: the
+        // production tokens are not forwarded on a canary turn (the displayed reply may
+        // differ), and the chosen reply is reported to the sink once, whole, at the end.
+        var canaryTurn = _rendererShadow.IsCanaryFor(userId) && toolOutcome.Calls.Count == 0;
+
         // 6. Generate the response. The reply generator owns "when to keep going" â€” it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
         // task), and streams to the sink across rounds when one is provided.
         var generated = await _replyGenerator.GenerateAsync(
-            packet.Render(), promptText, tokenSink, identityProjection?.CompanionName, ct);
+            packet.Render(), promptText, canaryTurn ? null : tokenSink,
+            identityProjection?.CompanionName, ct);
 
         // Her own transcript is in the prompt, and she sometimes continues it instead of replying â€”
         // reproducing an entire earlier turn before getting to the new one. This is the only place
@@ -632,6 +640,43 @@ public sealed class Companion : ICompanion
             _logger.LogWarning(
                 "Reply for {UserId} began by repeating an earlier turn verbatim ({Removed} chars removed).",
                 userId, generated.Text.Length - response.Length);
+        }
+
+        // 6a'. The canary render, synchronous with its own timeout. On success the displayed
+        // reply is the renderer's — every later stage (reply gate, fidelity checks, storage,
+        // extraction, reflection) sees only that text. On unavailability or a critical
+        // fidelity failure, the production reply just generated is shown; the comparison row's
+        // Applied column names whichever the user actually got.
+        if (canaryTurn)
+        {
+            var canaryResult = await _rendererShadow.RenderForDisplayAsync(new RendererShadowObservation
+            {
+                TraceId = traceId,
+                Plan = plan,
+                Transcript = recent
+                    .TakeLast(4)
+                    .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
+                    .ToList(),
+                UserMessage = promptText,
+                ProductionResponse = response,
+            }, record: !sensitive, ct);
+
+            var displayedRenderer = canaryResult is { CriticalFailure: false } ? "run-1c" : "production";
+            if (displayedRenderer == "run-1c")
+                response = canaryResult!.Reply;
+
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "renderer.canary", Decider = "config",
+                Verdict = displayedRenderer == "run-1c" ? "displayed-run1c" : "fallback-production",
+                Reason = canaryResult is null ? "renderer unavailable or timed out"
+                    : canaryResult.CriticalFailure
+                        ? $"critical fidelity failure: {string.Join("; ", canaryResult.Violations)}"
+                        : $"latency {canaryResult.LatencyMs}ms",
+            });
+
+            // The sink was withheld from the generator; deliver the chosen reply once, whole.
+            tokenSink?.Report(response);
         }
 
         // 6b. The reply gate. Runs on what she is actually about to say, after the shape filters,
@@ -715,8 +760,10 @@ public sealed class Companion : ICompanion
         // by construction it cannot touch conversation state, memory, goals, tools, or what the
         // user saw. Eligibility mirrors what the renderer corpus covers: ordinary answered chat
         // turns, no tool results (never trained on), and never a privacy-sensitive turn (the
-        // shadow row stores real text, so the strictest existing boundary applies).
-        if (_rendererShadow.IsObserving)
+        // shadow row stores real text, so the strictest existing boundary applies). A canary
+        // turn already rendered and recorded synchronously — observing it again would double
+        // both the GPU work and the row.
+        if (!canaryTurn && _rendererShadow.IsObserving)
         {
             var eligible = !sensitive && toolOutcome.Calls.Count == 0;
             decisions.Add(new DecisionRecord

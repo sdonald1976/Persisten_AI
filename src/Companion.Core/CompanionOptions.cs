@@ -234,4 +234,21 @@ public sealed class RendererShadowOptions
 
     /// <summary>Per-call ceiling; a slow shadow is abandoned, never waited on by anything user-facing.</summary>
     public int TimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// The user-scoped canary (docs/RENDERER_SHADOW.md §8): when this names a user id, that
+    /// user's eligible non-tool turns DISPLAY the tuned renderer's reply, with the production
+    /// generator as immediate fallback on unavailability, timeout, empty output, or a critical
+    /// fidelity failure. Empty (the default) means shadow-only for everyone. Clearing this
+    /// setting is the complete rollback to the production renderer; no other user's routing
+    /// is ever affected.
+    /// </summary>
+    public string CanaryUserId { get; set; } = "";
+
+    /// <summary>
+    /// Ceiling for the in-turn canary render, separate from the shadow queue's generous one:
+    /// past this, the fallback reply (already generated) is shown instead. The canary waits
+    /// for the renderer; the user should barely wait for the canary.
+    /// </summary>
+    public int CanaryTimeoutSeconds { get; set; } = 25;
 }

@@ -67,15 +67,25 @@ internal static class DiagnosticsEndpoints
 
         // The renderer shadow's queue lifecycle (docs/RENDERER_SHADOW.md) beside its collected
         // row counts — queued/completed/failed/dropped say whether the instrument is healthy,
-        // clean/flagged say how the collection toward the 100-turn target is going.
+        // clean/flagged say how the collection toward the 100-turn target is going. When the
+        // user-scoped canary is on, activeRenderer names what the canary user actually hears,
+        // and the adapter sha identifies exactly which weights that is.
         app.MapGet("/diagnostics/renderer-shadow", async (
-            IRendererShadow renderer, IShadowRecorder shadow, TimeProvider clock, CancellationToken ct) =>
+            IRendererShadow renderer, IShadowRecorder shadow, IUserContext user,
+            Microsoft.Extensions.Options.IOptions<Companion.Core.CompanionOptions> options,
+            TimeProvider clock, CancellationToken ct) =>
         {
             var agreement = await shadow.GetAgreementAsync(clock.GetUtcNow() - TimeSpan.FromDays(90), ct);
             var rows = agreement.FirstOrDefault(a => a.Subject == "renderer.plan2");
+            var rs = options.Value.RendererShadow;
+            var canary = renderer.IsCanaryFor(user.UserId);
             return Results.Ok(new
             {
                 observing = renderer.IsObserving,
+                activeRenderer = canary ? "run-1c (user-scoped canary, production fallback)" : "production",
+                canaryUser = canary ? user.UserId : null,
+                adapterSha256 = rs.AdapterSha256,
+                modelVersion = rs.ModelVersion,
                 queue = renderer.Counters,
                 collected = rows?.Comparisons ?? 0,
                 flagged = rows?.Disagreements ?? 0,

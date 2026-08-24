@@ -310,6 +310,106 @@ public class RendererShadowTests
         Assert.DoesNotContain(remaining, r => r.Legacy!.Contains("Feldspar"));
     }
 
+    // ---- the user-scoped canary ------------------------------------------------------------
+
+    private sealed class CannedHandler(string reply) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            var body = request.RequestUri!.AbsolutePath.EndsWith("/api/ps")
+                ? """{"models":[{"name":"run-1c","size_vram":2100000000}]}"""
+                : "{\"message\":{\"role\":\"assistant\",\"content\":"
+                  + System.Text.Json.JsonSerializer.Serialize(reply) + "}}";
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    private static RendererShadowService CanaryService(
+        CollectingRecorder recorder, HttpMessageHandler? handler, string canaryUser = "scott")
+        => new(
+            recorder,
+            Options.Create(new CompanionOptions
+            {
+                RendererShadow = new RendererShadowOptions
+                {
+                    Enabled = true,
+                    Endpoint = handler is null ? "http://127.0.0.1:59999" : "http://renderer.test",
+                    CanaryUserId = canaryUser,
+                    CanaryTimeoutSeconds = 5,
+                    AdapterSha256 = "testsha",
+                },
+            }),
+            NullLogger<RendererShadowService>.Instance,
+            drainWindow: TimeSpan.FromSeconds(5),
+            http: handler is null ? null : new HttpClient(handler));
+
+    [Fact]
+    public async Task Canary_IsScopedToExactlyTheConfiguredUser()
+    {
+        var recorder = new CollectingRecorder();
+        await using var service = CanaryService(recorder, new CannedHandler("hi"));
+
+        Assert.True(service.IsCanaryFor("scott"));
+        Assert.False(service.IsCanaryFor("someone-else"));
+        Assert.False(service.IsCanaryFor(""));
+
+        await using var off = CanaryService(recorder, new CannedHandler("hi"), canaryUser: "");
+        Assert.False(off.IsCanaryFor("scott"));
+    }
+
+    [Fact]
+    public async Task Canary_DisplaysACleanRender_AndRecordsItAsApplied()
+    {
+        var recorder = new CollectingRecorder();
+        await using var service = CanaryService(recorder,
+            new CannedHandler("Thirty seconds well spent. The door forgives you."));
+
+        var result = await service.RenderForDisplayAsync(Obs(), record: true, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.False(result!.CriticalFailure);
+        Assert.Equal("Thirty seconds well spent. The door forgives you.", result.Reply);
+        var row = Assert.Single(recorder.Rows);
+        Assert.Equal("model", row.Applied);
+        Assert.Equal(result.Reply, row.Model);
+        Assert.Equal(1, service.Counters.CanaryDisplayed);
+        Assert.Equal(0, service.Counters.CanaryFallback);
+    }
+
+    [Fact]
+    public async Task Canary_FallsBackOnCriticalFidelity_AndTheRowSaysProductionWasShown()
+    {
+        var recorder = new CollectingRecorder();
+        await using var service = CanaryService(recorder,
+            new CannedHandler("Per the CONTROL section, act = acknowledge."));
+
+        var result = await service.RenderForDisplayAsync(Obs(), record: true, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.True(result!.CriticalFailure);
+        var row = Assert.Single(recorder.Rows);
+        Assert.Equal("legacy", row.Applied);
+        Assert.Equal(0, service.Counters.CanaryDisplayed);
+        Assert.Equal(1, service.Counters.CanaryFallback);
+    }
+
+    [Fact]
+    public async Task Canary_FallsBackWhenTheRendererIsUnreachable_WithoutThrowing()
+    {
+        var recorder = new CollectingRecorder();
+        await using var service = CanaryService(recorder, handler: null);
+
+        var result = await service.RenderForDisplayAsync(Obs(), record: true, CancellationToken.None);
+
+        Assert.Null(result);
+        Assert.Empty(recorder.Rows);
+        Assert.Equal(1, service.Counters.CanaryFallback);
+    }
+
     private sealed class CollectingRecorder : IShadowRecorder
     {
         public List<ShadowComparison> Rows { get; } = [];

@@ -2,8 +2,10 @@
 
 **Status: frozen before data collection (2026-08-24).** The thresholds in §4 were
 written before the first shadow row existed and do not move afterward; a threshold
-that fails is a result. Run-1c is NOT user-facing under this document — approval to
-promote comes from Scott after the shadow report, not from this file.
+that fails is a result. Under §§1–7 run-1c is not user-facing; §8 (added later the
+same day, on Scott's explicit approval) defines the one exception — a reversible
+canary scoped to his user alone. Global promotion still comes only from Scott
+after the shadow report, not from this file.
 
 ## 1. What runs
 
@@ -127,3 +129,32 @@ Verified by test: with the flag off, the shadow service is the null object and a
 turn makes no renderer HTTP call and records no renderer row; with the flag on and
 the endpoint dead, the turn completes identically and only a debug line notes the
 dropped observation.
+
+## 8. The user-scoped canary
+
+Approved 2026-08-24 as a reversible, user-scoped step — NOT global promotion.
+When `Companion:RendererShadow:CanaryUserId` names a user, that user's eligible
+non-tool turns DISPLAY the run-1c reply instead of production's:
+
+- Production still generates first (its reply is the fallback and the
+  comparison row's other half). The canary render then runs synchronously with
+  its own timeout (`CanaryTimeoutSeconds`, default 25 s).
+- Fallback to production is automatic when the renderer is unavailable, times
+  out, returns empty output, or fails a **critical** fidelity check: spoken
+  control vocabulary, recited plan text, a dropped mandatory question, or
+  third-person narration. Softer proxies (palette, sludge, omission
+  heuristics) flag rows for review but never override the displayed reply.
+- Only the displayed reply enters conversation history, memory extraction,
+  reflection, and every downstream state — the swap happens before the reply
+  gate and before storage. On streaming turns, production tokens are withheld
+  and the chosen reply is delivered to the stream once, whole.
+- The comparison row is still recorded (non-sensitive turns), with `Applied`
+  naming the renderer whose reply the user actually saw ("model" = run-1c,
+  "legacy" = production). Canary outcomes are counted
+  (CanaryDisplayed/CanaryFallback) and exposed with the active renderer and
+  adapter sha at `/diagnostics/renderer-shadow`.
+- No other user's routing changes; the adapter is not retrained, merged,
+  quantized, or otherwise altered.
+
+Canary rollback: clear `CanaryUserId` (one setting) and restart — the user is
+back on the production renderer; shadow collection continues unchanged.

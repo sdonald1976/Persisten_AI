@@ -52,6 +52,11 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
     private long _failed;
     private long _dropped;
 
+    private readonly HttpClient _http;
+
+    private long _canaryDisplayed;
+    private long _canaryFallback;
+
     public RendererShadowService(
         IShadowRecorder recorder,
         IOptions<CompanionOptions> options,
@@ -60,14 +65,16 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
     {
     }
 
-    /// <summary>Test seam: a short drain window keeps shutdown tests fast. Behavior is identical.</summary>
+    /// <summary>Test seam: short drain window and injectable HttpClient. Behavior is identical.</summary>
     internal RendererShadowService(
         IShadowRecorder recorder,
         IOptions<CompanionOptions> options,
         ILogger<RendererShadowService> logger,
-        TimeSpan? drainWindow)
+        TimeSpan? drainWindow,
+        HttpClient? http = null)
     {
         _drainWindow = drainWindow ?? TimeSpan.FromSeconds(45);
+        _http = http ?? Http;
         _recorder = recorder;
         _options = options.Value.RendererShadow;
         _logger = logger;
@@ -89,7 +96,63 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         Interlocked.Read(ref _completed),
         Interlocked.Read(ref _failed),
         Interlocked.Read(ref _dropped),
-        _queue.Reader.Count);
+        _queue.Reader.Count,
+        Interlocked.Read(ref _canaryDisplayed),
+        Interlocked.Read(ref _canaryFallback));
+
+    public bool IsCanaryFor(string userId)
+        => _options.Enabled
+           && !string.IsNullOrEmpty(_options.CanaryUserId)
+           && string.Equals(_options.CanaryUserId, userId, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The failure classes that must never reach the user even in a canary: an empty reply,
+    /// spoken control machinery, recited plan text, a silently dropped required question, or
+    /// third-person narration. Softer proxies (palette, sludge, omission heuristics) are
+    /// review material, not fallback triggers — they are too false-positive-prone to let a
+    /// heuristic override the reply a human is about to read.
+    /// </summary>
+    private static bool IsCritical(string violation)
+        => violation.StartsWith("empty", StringComparison.Ordinal)
+           || violation.StartsWith("artifact:", StringComparison.Ordinal)
+           || violation.StartsWith("plan-echo", StringComparison.Ordinal)
+           || violation.StartsWith("mandatory-question-missing", StringComparison.Ordinal);
+
+    public async Task<RendererCanaryResult?> RenderForDisplayAsync(
+        RendererShadowObservation obs, bool record, CancellationToken ct)
+    {
+        if (!_options.Enabled)
+            return null;
+
+        RenderCore core;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(_options.CanaryTimeoutSeconds, 5, 120)));
+            core = await RenderCoreAsync(obs, cts.Token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            // Unavailable, timed out, or broken: the production reply is already in hand and
+            // the fallback costs nothing further. Counted, logged, never thrown.
+            Interlocked.Increment(ref _canaryFallback);
+            _logger.LogWarning(ex, "Renderer canary unavailable for {TraceId}; production reply shown.", obs.TraceId);
+            return null;
+        }
+
+        var shadowViolations = RendererShadowChecks.Score(obs.Plan, core.Reply);
+        var critical = shadowViolations.Any(IsCritical);
+        Interlocked.Increment(ref critical ? ref _canaryFallback : ref _canaryDisplayed);
+
+        if (record && _recorder.IsRecording)
+        {
+            var productionViolations = RendererShadowChecks.Score(obs.Plan, obs.ProductionResponse);
+            await RecordComparisonAsync(obs, core, shadowViolations, productionViolations,
+                applied: critical ? "legacy" : "model", CancellationToken.None);
+        }
+
+        return new RendererCanaryResult(core.Reply, shadowViolations, core.LatencyMs, critical);
+    }
 
     public void Observe(RendererShadowObservation observation)
     {
@@ -162,6 +225,16 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
 
     private async Task RenderAndRecordAsync(RendererShadowObservation obs, CancellationToken ct)
     {
+        var core = await RenderCoreAsync(obs, ct);
+        var shadowViolations = RendererShadowChecks.Score(obs.Plan, core.Reply);
+        var productionViolations = RendererShadowChecks.Score(obs.Plan, obs.ProductionResponse);
+        await RecordComparisonAsync(obs, core, shadowViolations, productionViolations, "legacy", ct);
+    }
+
+    private readonly record struct RenderCore(string Reply, string Plan2, string PlanHash, long LatencyMs, long VramBytes);
+
+    private async Task<RenderCore> RenderCoreAsync(RendererShadowObservation obs, CancellationToken ct)
+    {
         var plan2 = PlanSerialization.CompactV2(obs.Plan);
         var planHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(plan2)))
             .ToLowerInvariant();
@@ -181,19 +254,19 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         };
 
         var started = Stopwatch.GetTimestamp();
-        using var response = await Http.PostAsync(
+        using var response = await _http.PostAsync(
             $"{_options.Endpoint.TrimEnd('/')}/api/chat",
             new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"),
             ct);
         response.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-        var shadowReply = doc.RootElement.GetProperty("message").GetProperty("content").GetString() ?? "";
+        var reply = doc.RootElement.GetProperty("message").GetProperty("content").GetString() ?? "";
         var latencyMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
         long vramBytes = 0;
         try
         {
-            using var ps = await Http.GetAsync($"{_options.Endpoint.TrimEnd('/')}/api/ps", ct);
+            using var ps = await _http.GetAsync($"{_options.Endpoint.TrimEnd('/')}/api/ps", ct);
             using var psDoc = JsonDocument.Parse(await ps.Content.ReadAsStringAsync(ct));
             vramBytes = psDoc.RootElement.GetProperty("models")[0].GetProperty("size_vram").GetInt64();
         }
@@ -202,26 +275,31 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
             // VRAM is nice-to-have telemetry; its absence never costs the row.
         }
 
-        var shadowViolations = RendererShadowChecks.Score(obs.Plan, shadowReply);
-        var productionViolations = RendererShadowChecks.Score(obs.Plan, obs.ProductionResponse);
+        return new RenderCore(reply, plan2, planHash, latencyMs, vramBytes);
+    }
 
+    private async Task RecordComparisonAsync(
+        RendererShadowObservation obs, RenderCore core,
+        List<string> shadowViolations, List<string> productionViolations,
+        string applied, CancellationToken ct)
+    {
         var envelope = JsonSerializer.Serialize(new RendererShadowEnvelope
         {
-            PlanHash = planHash,
+            PlanHash = core.PlanHash,
             AdapterSha256 = _options.AdapterSha256,
             ModelVersion = _options.ModelVersion,
-            LatencyMs = latencyMs,
-            VramBytes = vramBytes,
+            LatencyMs = core.LatencyMs,
+            VramBytes = core.VramBytes,
             PaletteBearing = obs.Plan.Content.Any(c => c.Requirement == ContentRequirement.MayUse),
             MustStateBearing = obs.Plan.Content.Any(c => c.Requirement == ContentRequirement.MustState),
             QuestionMode = obs.Plan.Question is null
                 ? "none" : obs.Plan.Question.Mandatory ? "mandatory" : "optional",
             ShadowViolations = shadowViolations,
             ProductionViolations = productionViolations,
-            ShadowSludge = RendererShadowChecks.Sludge(shadowReply),
+            ShadowSludge = RendererShadowChecks.Sludge(core.Reply),
             ProductionSludge = RendererShadowChecks.Sludge(obs.ProductionResponse),
             UserMessage = obs.UserMessage,
-            Plan2 = plan2,
+            Plan2 = core.Plan2,
         });
 
         await _recorder.RecordAsync(new ShadowComparison
@@ -229,15 +307,18 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
             Id = Guid.NewGuid(),
             Subject = RendererShadowSubject,
             Legacy = obs.ProductionResponse,
-            Model = shadowReply,
+            Model = core.Reply,
             Confidence = 0,
 
             // "Agreed" here means the shadow reply passed every deterministic check — the
             // property the promotion decision counts, stored so the existing agreement
             // endpoint reports the violation rate without parsing envelopes.
             Agreed = shadowViolations.Count == 0,
-            Applied = "legacy",
-            DurationMs = latencyMs,
+
+            // Which reply the user actually saw: "legacy" for shadow rows and canary
+            // fallbacks, "model" when the canary displayed the tuned renderer.
+            Applied = applied,
+            DurationMs = core.LatencyMs,
             Input = envelope,
         }, ct);
     }
