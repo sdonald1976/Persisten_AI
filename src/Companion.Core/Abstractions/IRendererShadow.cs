@@ -61,7 +61,18 @@ public sealed record RendererCanaryResult(
 /// </summary>
 public sealed record RendererShadowCounters(
     long Queued, long Completed, long Failed, long Dropped, int Pending,
-    long CanaryDisplayed = 0, long CanaryFallback = 0);
+    long CanaryDisplayed = 0, long CanaryFallback = 0,
+    RendererV3Counters? V3 = null);
+
+/// <summary>
+/// P3 shadow-observation lifecycle (docs/RESPONSE_PLAN_V3_SPEC.md §14): every produced
+/// envelope lands in exactly one of valid/invalid; protected/redacted count privacy
+/// outcomes; failed/dropped count infrastructure outcomes. translated_v2 rows test
+/// translation, serialization, privacy, and infrastructure only.
+/// </summary>
+public sealed record RendererV3Counters(
+    long Produced, long Valid, long Invalid, long V2Compatible,
+    long Protected, long Redacted, long Failed, long Dropped);
 
 /// <summary>
 /// An immutable snapshot of exactly what the shadow renderer is allowed to see: the plan the

@@ -1,0 +1,46 @@
+{
+  "PlanOrigin": "translated_v2",
+  "Protocol": "plan/3",
+  "V2SourceHash": "266ed4c0368e8f7c45a120cf998276468dfffa9c958a6bb0929bf8eb79a965bd",
+  "WirePlanHash": "18fd73e4776761dd387793560d2382a6de07074a4a42679223ab0229b406b056",
+  "RenderPromptHash": null,
+  "CorrelationTag": "v1:6c4e8969e1559c1cd2bf29f8e2716c0353f0a08fb7828a4bf69c74934b770794",
+  "Valid": true,
+  "ValidationErrors": [],
+  "V2Compatible": false,
+  "V2IncompatibilityReasons": [
+    "c1: retention=volatile_turn_only has no v2 carrier \u2014 protection would be silently lost",
+    "c1: restricted disclosure has no v2 carrier"
+  ],
+  "AudienceOk": true,
+  "AudienceErrors": [],
+  "AudienceExcludedItemIds": [],
+  "ContainsProtected": true,
+  "ItemCount": 2,
+  "RedactedItemCount": 1,
+  "UnknownExtensionBlocks": [],
+  "Items": [
+    {
+      "Id": "c1",
+      "Type": "interpretation",
+      "Policy": "must_express",
+      "Source": "retrieval",
+      "Category": "note",
+      "Disclosure": "restricted",
+      "Retention": "volatile_turn_only",
+      "Redacted": true,
+      "Text": null
+    },
+    {
+      "Id": "c2",
+      "Type": "memory",
+      "Policy": "may_express",
+      "Source": "retrieval",
+      "Category": "note",
+      "Disclosure": "participants",
+      "Retention": "full",
+      "Redacted": false,
+      "Text": "The synthetic garden gnome collection reached eleven."
+    }
+  ]
+}

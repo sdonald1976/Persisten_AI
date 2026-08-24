@@ -100,7 +100,9 @@ public class RendererShadowTests
         // The bounded consumer fails fast on connection-refused; disposal drains it.
         await service.DisposeAsync();
         var c = service.Counters;
-        Assert.Empty(recorder.Rows);
+        // P3: the render failed, so no plan2 comparison exists — but the v3 envelope row
+        // does, because v3 observation never depends on renderer availability.
+        Assert.DoesNotContain(recorder.Rows, r => r.Subject == RendererShadowService.RendererShadowSubject);
         Assert.Equal(1, c.Queued);
         Assert.Equal(1, c.Failed);
         Assert.Equal(0, c.Completed);
@@ -169,7 +171,9 @@ public class RendererShadowTests
         // queue is counted as dropped, and disposal still returns promptly.
         await service.DisposeAsync();
         Assert.True(service.Counters.Dropped >= 16, $"abandoned work not counted: {service.Counters}");
-        Assert.Empty(recorder.Rows);
+        // No plan2 comparisons were recorded; a v3 envelope row for the one in-flight
+        // entry may exist (v3 observation is independent of the wedged renderer).
+        Assert.DoesNotContain(recorder.Rows, r => r.Subject == RendererShadowService.RendererShadowSubject);
     }
 
     [Fact]
@@ -191,7 +195,9 @@ public class RendererShadowTests
             ProductionResponse = "y",
         });
         Assert.Empty(recorder.Rows);
-        Assert.Equal(new RendererShadowCounters(0, 0, 0, 0, 0), service.Counters);
+        var c0 = service.Counters;
+        Assert.Equal(0, c0.Queued + c0.Completed + c0.Failed + c0.Dropped + c0.Pending);
+        Assert.Equal(0, c0.V3!.Produced + c0.V3.Failed + c0.V3.Dropped);
     }
 
     // ---- the deterministic check classes ---------------------------------------------------

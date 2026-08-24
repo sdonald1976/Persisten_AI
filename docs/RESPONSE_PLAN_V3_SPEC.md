@@ -2,9 +2,13 @@
 
 Status: **APPROVED (2026-08-24)** — revision 2 conditionally approved and the
 three closing amendments (rev-2.1, reconciliation rows 17–19) resolved with
-focused tests. P2 authorized and implemented: producer-side v3 generation with
-guarded v3→v2 translation, byte-identical CompactV2 proven by golden tests over
-the complete frozen corpus (804/804: 761 scenarios, 32 unseen, 11 fixtures) and
+focused tests. P2 (the compatibility
+bridge) implemented and accepted: V3 plans are produced by `FromV2` — their
+semantic origin is **`translated_v2`, not `native_v3`** — so V3 is currently an
+intermediary representation, not the authoritative planning output. The planner
+is NOT described as natively producing V3 until it constructs V3 directly from
+upstream cognitive state without first building ResponsePlan V2. Byte-identical
+CompactV2 proven by golden tests over the complete frozen corpus (804/804) and
 guarded at runtime. V3 remains non-authoritative and non-user-facing; run-1c
 consumes byte-identical CompactV2 for its entire tenure; no existing hash,
 fixture, adapter, or freeze manifest is affected. Audit: `RESPONSE_PLAN_V3_AUDIT.md`. Wire contract:
@@ -290,3 +294,39 @@ the hop AND matching their frozen plan2 strings. The golden immediately caught
 and fixed a real defect (tone round-trip ambiguity when tone prose contains
 "; "). Full suite: 1167 + 31 green. V3 remains non-authoritative and
 non-user-facing.
+
+## 15. P3 record and the corrected roadmap (2026-08-24)
+
+**Corrected phase terminology:** everything produced today is `planOrigin =
+translated_v2`. Native V3 begins only when the planner constructs V3 directly
+from upstream cognitive state with no V2 ancestor.
+
+**P3 (implemented): translated-V2 V3 shadow infrastructure.** Every eligible
+turn's V3 envelope is recorded beside the plan2 row (subject `renderer.plan3`)
+without CompactV3 ever reaching a model. Rows carry: planOrigin=translated_v2,
+the V2 source hash, the structural wire hash, renderPromptHash only when
+persistable, a keyed versioned correlation tag where protected, the
+V2-compatibility result, and full validation + audience-validation results.
+The complete disclosure/retention rules apply BEFORE recording: protected text
+never enters rows, logs, traces, diagnostics, or exports; unknown-extension
+and invalid-plan events carry names/reason codes only. Rows ride the existing
+bounded queue (TryWrite, drop-counted, drain-on-dispose) — canary turns enqueue
+a v3-only entry after the reply is chosen, so displayed-response latency is
+untouched; production, run-1c routing, memory, reflection, and tools are
+unreachable from the recording path by construction. Diagnostics expose
+produced/valid/invalid/v2-compatible/protected/redacted/failed/dropped; the
+existing renderer.* forget clause sweeps plan3 rows (tested). **translated_v2
+rows are never native-V3 corpus examples** — they test translation,
+serialization, privacy, and infrastructure only. Committed fixture examples
+(synthetic data only): `docs/examples/v3-shadow-fixture-plain.json` and
+`docs/examples/v3-shadow-fixture-redacted.json`.
+
+**Remaining roadmap:**
+- P4 — native producer-side fact/instruction separation and the coaching lint
+  at the source (working-context/planner authoring).
+- P5 — native V3 sources: procedure state, tools, world state, and future
+  organs emitting items directly (planOrigin = native_v3).
+- Corpus freeze only after native V3 plans exist and pass shadow validation.
+- P6 — Run-2 training on CompactV3, full run-1 discipline, gates from §10.
+- P7 — cross-protocol shadow/canary (run-1c/plan2 vs run-2/plan3) and the
+  promotion decision.

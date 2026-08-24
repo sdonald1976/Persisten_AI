@@ -1,0 +1,43 @@
+{
+  "PlanOrigin": "translated_v2",
+  "Protocol": "plan/3",
+  "V2SourceHash": "266ed4c0368e8f7c45a120cf998276468dfffa9c958a6bb0929bf8eb79a965bd",
+  "WirePlanHash": "11b61256b5aba15376a6b05a025b667ac379c982c0134ef230468000d18cf4f0",
+  "RenderPromptHash": "461f89a39e19051c91fb2f09fe6399f2a3fb160ac184554ee7e7e9670d8f9bb9",
+  "CorrelationTag": null,
+  "Valid": true,
+  "ValidationErrors": [],
+  "V2Compatible": true,
+  "V2IncompatibilityReasons": [],
+  "AudienceOk": true,
+  "AudienceErrors": [],
+  "AudienceExcludedItemIds": [],
+  "ContainsProtected": false,
+  "ItemCount": 2,
+  "RedactedItemCount": 0,
+  "UnknownExtensionBlocks": [],
+  "Items": [
+    {
+      "Id": "c1",
+      "Type": "interpretation",
+      "Policy": "must_express",
+      "Source": "retrieval",
+      "Category": "note",
+      "Disclosure": "participants",
+      "Retention": "full",
+      "Redacted": false,
+      "Text": "The synthetic hinge stopped squeaking after one synthetic drop of oil."
+    },
+    {
+      "Id": "c2",
+      "Type": "memory",
+      "Policy": "may_express",
+      "Source": "retrieval",
+      "Category": "note",
+      "Disclosure": "participants",
+      "Retention": "full",
+      "Redacted": false,
+      "Text": "The synthetic garden gnome collection reached eleven."
+    }
+  ]
+}

@@ -254,6 +254,16 @@ public sealed class RendererShadowOptions
     public int? NumGpu { get; set; }
 
     /// <summary>
+    /// Deployment secret (base64) for the keyed correlation tag on protected V3 shadow
+    /// rows (spec rev-2.1). Absent = protected rows carry no content-derived identifier
+    /// at all. Rotate by changing the key AND incrementing CorrelationKeyVersion.
+    /// </summary>
+    public string? CorrelationKeyBase64 { get; set; }
+
+    /// <summary>Version stamped into correlation tags; increment on key rotation.</summary>
+    public int CorrelationKeyVersion { get; set; } = 1;
+
+    /// <summary>
     /// Ceiling for the in-turn canary render, separate from the shadow queue's generous one:
     /// past this, the fallback reply (already generated) is shown instead. The canary waits
     /// for the renderer; the user should barely wait for the canary.
