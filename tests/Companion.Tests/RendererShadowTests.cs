@@ -61,11 +61,87 @@ public class RendererShadowTests
         Assert.True(scope.ServiceProvider.GetRequiredService<IShadowRecorder>().IsRecording);
     }
 
-    // ---- isolation: a dead endpoint costs nothing ----------------------------------------
+    // ---- isolation and queue lifecycle -----------------------------------------------------
+
+    private static RendererShadowService DeadEndpointService(
+        CollectingRecorder recorder, TimeSpan? drainWindow = null)
+        => new(
+            recorder,
+            Options.Create(new CompanionOptions
+            {
+                RendererShadow = new RendererShadowOptions
+                {
+                    Enabled = true,
+                    // A port nothing listens on: every render must fail, quietly and fast.
+                    Endpoint = "http://127.0.0.1:59999",
+                    TimeoutSeconds = 5,
+                },
+            }),
+            NullLogger<RendererShadowService>.Instance,
+            drainWindow);
+
+    private static RendererShadowObservation Obs() => new()
+    {
+        TraceId = Guid.NewGuid(),
+        Plan = Plan(),
+        Transcript = [("user", "hello")],
+        UserMessage = "hello again",
+        ProductionResponse = "hi.",
+    };
 
     [Fact]
-    public async Task ObserveWithADeadEndpoint_NeverThrows_AndRecordsNothing()
+    public async Task ObserveWithADeadEndpoint_NeverThrows_CountsTheFailure_RecordsNothing()
     {
+        var recorder = new CollectingRecorder();
+        await using var service = DeadEndpointService(recorder, drainWindow: TimeSpan.FromSeconds(10));
+
+        service.Observe(Obs());
+
+        // The bounded consumer fails fast on connection-refused; disposal drains it.
+        await service.DisposeAsync();
+        var c = service.Counters;
+        Assert.Empty(recorder.Rows);
+        Assert.Equal(1, c.Queued);
+        Assert.Equal(1, c.Failed);
+        Assert.Equal(0, c.Completed);
+        Assert.Equal(0, c.Pending);
+    }
+
+    /// <summary>
+    /// Graceful shutdown drains what is queued: three observations enqueued in a burst are
+    /// all consumed (here: all failing fast against the dead endpoint) before disposal
+    /// returns, with nothing pending and nothing silently lost.
+    /// </summary>
+    [Fact]
+    public async Task Disposal_DrainsTheQueue_NothingSilentlyLost()
+    {
+        var recorder = new CollectingRecorder();
+        var service = DeadEndpointService(recorder, drainWindow: TimeSpan.FromSeconds(10));
+
+        service.Observe(Obs());
+        service.Observe(Obs());
+        service.Observe(Obs());
+        await service.DisposeAsync();
+
+        var c = service.Counters;
+        Assert.Equal(3, c.Queued);
+        Assert.Equal(3, c.Failed + c.Completed);
+        Assert.Equal(0, c.Dropped);
+        Assert.Equal(0, c.Pending);
+    }
+
+    /// <summary>
+    /// A stalled instrument turns into visible drop counts, never into blocking or unbounded
+    /// memory: with the consumer wedged on a server that accepts and says nothing, the queue
+    /// fills, the overflow is counted, and Observe returns instantly throughout.
+    /// </summary>
+    [Fact]
+    public async Task WhenTheQueueIsFull_ObservationsAreDroppedAndCounted_NeverBlocking()
+    {
+        using var wedge = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        wedge.Start();
+        var port = ((System.Net.IPEndPoint)wedge.LocalEndpoint).Port;
+
         var recorder = new CollectingRecorder();
         var service = new RendererShadowService(
             recorder,
@@ -74,32 +150,33 @@ public class RendererShadowTests
                 RendererShadow = new RendererShadowOptions
                 {
                     Enabled = true,
-                    // A port nothing listens on: the render must fail, quietly.
-                    Endpoint = "http://127.0.0.1:59999",
-                    TimeoutSeconds = 5,
+                    Endpoint = $"http://127.0.0.1:{port}",
+                    TimeoutSeconds = 30,
                 },
             }),
-            NullLogger<RendererShadowService>.Instance);
+            NullLogger<RendererShadowService>.Instance,
+            drainWindow: TimeSpan.FromMilliseconds(200));
 
-        service.Observe(new RendererShadowObservation
-        {
-            TraceId = Guid.NewGuid(),
-            Plan = Plan(),
-            Transcript = [("user", "hello")],
-            UserMessage = "hello again",
-            ProductionResponse = "hi.",
-        });
+        // One in flight (wedged on the silent socket) + 16 queued; the rest must drop.
+        for (var i = 0; i < 20; i++)
+            service.Observe(Obs());
 
-        // Fire-and-forget: give the detached task time to fail, then confirm silence.
-        await Task.Delay(500);
+        var c = service.Counters;
+        Assert.Equal(20, c.Queued + c.Dropped);
+        Assert.True(c.Dropped >= 1, $"expected drops, got {c}");
+
+        // Shutdown with a wedged consumer: the short drain window elapses, the abandoned
+        // queue is counted as dropped, and disposal still returns promptly.
+        await service.DisposeAsync();
+        Assert.True(service.Counters.Dropped >= 16, $"abandoned work not counted: {service.Counters}");
         Assert.Empty(recorder.Rows);
     }
 
     [Fact]
-    public void ObserveWhenDisabled_ReturnsImmediately()
+    public async Task ObserveWhenDisabled_ReturnsImmediately_NothingQueued()
     {
         var recorder = new CollectingRecorder();
-        var service = new RendererShadowService(
+        await using var service = new RendererShadowService(
             recorder,
             Options.Create(new CompanionOptions()),
             NullLogger<RendererShadowService>.Instance);
@@ -114,6 +191,7 @@ public class RendererShadowTests
             ProductionResponse = "y",
         });
         Assert.Empty(recorder.Rows);
+        Assert.Equal(new RendererShadowCounters(0, 0, 0, 0, 0), service.Counters);
     }
 
     // ---- the deterministic check classes ---------------------------------------------------

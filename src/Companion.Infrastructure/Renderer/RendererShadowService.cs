@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using Companion.Core;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
@@ -15,53 +16,148 @@ namespace Companion.Infrastructure.Renderer;
 /// Renders eligible real plans through the tuned adapter beside production and records the
 /// pair (docs/RENDERER_SHADOW.md). The isolation contract, in order of importance:
 ///
-///  1. <see cref="Observe"/> returns before any network or model work happens; the caller's
-///     turn cannot be delayed, and the observation record is an immutable snapshot, so the
-///     shadow path has no handle back into conversation state, memory, goals, or tools.
-///  2. Everything downstream is wrapped: a dead endpoint, a timeout, a serialization bug —
-///     each is a debug/warning log line and a dropped data point, never anything more.
-///  3. The shadow reply is stored in the shadow-comparison table only, under the same
-///     retention and forget rules as every other captured sentence.
+///  1. <see cref="Observe"/> is a bounded-channel TryWrite over an immutable snapshot: it
+///     returns immediately whether the queue accepts or is full (a full queue counts a drop —
+///     it never blocks a reply), and the shadow path has no handle back into conversation
+///     state, memory, goals, or tools.
+///  2. One consumer processes observations strictly one at a time, so serve_tuned — a
+///     single-threaded measurement instrument on a small GPU — never sees concurrent
+///     requests from us, and a burst of turns becomes queue depth, not connection pileup.
+///  3. Every failure is counted and logged, never thrown; the counters are part of the
+///     shadow report, because "how often did the instrument fail" is data too.
+///  4. On graceful shutdown, disposal stops accepting work and drains what is queued within
+///     a bounded window; whatever the window cannot fit is counted as dropped, loudly.
 /// </summary>
-public sealed class RendererShadowService : IRendererShadow
+public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
 {
     private static readonly HttpClient Http = new();
 
+    /// <summary>
+    /// Queue depth. At ~8s per shadow render, 16 items is about two minutes of backlog —
+    /// deeper than any real conversation burst, shallow enough that a stuck server turns
+    /// into visible drop counts instead of an unbounded memory of stale turns.
+    /// </summary>
+    private const int QueueCapacity = 16;
+
+    private readonly TimeSpan _drainWindow;
+    private readonly Channel<RendererShadowObservation> _queue;
+    private readonly Task _consumer;
+    private readonly CancellationTokenSource _stopping = new();
     private readonly IShadowRecorder _recorder;
     private readonly RendererShadowOptions _options;
     private readonly ILogger<RendererShadowService> _logger;
+
+    private long _queued;
+    private long _completed;
+    private long _failed;
+    private long _dropped;
 
     public RendererShadowService(
         IShadowRecorder recorder,
         IOptions<CompanionOptions> options,
         ILogger<RendererShadowService> logger)
+        : this(recorder, options, logger, drainWindow: null)
     {
+    }
+
+    /// <summary>Test seam: a short drain window keeps shutdown tests fast. Behavior is identical.</summary>
+    internal RendererShadowService(
+        IShadowRecorder recorder,
+        IOptions<CompanionOptions> options,
+        ILogger<RendererShadowService> logger,
+        TimeSpan? drainWindow)
+    {
+        _drainWindow = drainWindow ?? TimeSpan.FromSeconds(45);
         _recorder = recorder;
         _options = options.Value.RendererShadow;
         _logger = logger;
+        _queue = Channel.CreateBounded<RendererShadowObservation>(new BoundedChannelOptions(QueueCapacity)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            // TryWrite returning false on a full queue is the drop signal Observe counts;
+            // Wait would be a hidden way for the shadow to slow the world down.
+            FullMode = BoundedChannelFullMode.Wait,
+        });
+        _consumer = _options.Enabled ? Task.Run(ConsumeAsync) : Task.CompletedTask;
     }
 
     public bool IsObserving => _options.Enabled && _recorder.IsRecording;
+
+    public RendererShadowCounters Counters => new(
+        Interlocked.Read(ref _queued),
+        Interlocked.Read(ref _completed),
+        Interlocked.Read(ref _failed),
+        Interlocked.Read(ref _dropped),
+        _queue.Reader.Count);
 
     public void Observe(RendererShadowObservation observation)
     {
         if (!IsObserving)
             return;
 
-        _ = Task.Run(async () =>
+        if (_queue.Writer.TryWrite(observation))
+        {
+            Interlocked.Increment(ref _queued);
+        }
+        else
+        {
+            var dropped = Interlocked.Increment(ref _dropped);
+            _logger.LogWarning(
+                "Renderer shadow queue full; observation for {TraceId} dropped ({Dropped} total).",
+                observation.TraceId, dropped);
+        }
+    }
+
+    private async Task ConsumeAsync()
+    {
+        await foreach (var observation in _queue.Reader.ReadAllAsync(CancellationToken.None))
         {
             try
             {
-                using var cts = new CancellationTokenSource(
-                    TimeSpan.FromSeconds(Math.Clamp(_options.TimeoutSeconds, 5, 300)));
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+                cts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(_options.TimeoutSeconds, 5, 300)));
                 await RenderAndRecordAsync(observation, cts.Token);
+                Interlocked.Increment(ref _completed);
             }
             catch (Exception ex)
             {
-                // The whole point of a shadow: being wrong here is data, being loud here is a bug.
-                _logger.LogDebug(ex, "Renderer shadow observation dropped for {TraceId}.", observation.TraceId);
+                // A dead endpoint, a timeout, a serialization bug: a counted data point and a
+                // log line. The whole point of a shadow is that being wrong here is cheap.
+                Interlocked.Increment(ref _failed);
+                _logger.LogDebug(ex, "Renderer shadow observation failed for {TraceId}.", observation.TraceId);
             }
-        });
+        }
+    }
+
+    /// <summary>
+    /// Graceful shutdown: stop accepting, then let the consumer finish what is already
+    /// queued inside the drain window. What the window cannot fit is counted as dropped —
+    /// a silent loss on shutdown would understate every rate the report cares about.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        _queue.Writer.TryComplete();
+        var finished = await Task.WhenAny(_consumer, Task.Delay(_drainWindow)) == _consumer;
+        if (!finished)
+        {
+            var abandoned = _queue.Reader.Count;
+            if (abandoned > 0)
+                Interlocked.Add(ref _dropped, abandoned);
+            _stopping.Cancel();
+            _logger.LogWarning(
+                "Renderer shadow drain window elapsed with {Abandoned} queued observations abandoned.",
+                abandoned);
+            try
+            {
+                await _consumer;
+            }
+            catch (Exception)
+            {
+                // Already counted; shutdown owes nobody an exception.
+            }
+        }
+        _stopping.Dispose();
     }
 
     private async Task RenderAndRecordAsync(RendererShadowObservation obs, CancellationToken ct)

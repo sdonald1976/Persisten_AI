@@ -19,12 +19,25 @@ public interface IRendererShadow
     bool IsObserving { get; }
 
     /// <summary>
-    /// Queues a shadow render of this turn. Returns immediately; the render, the deterministic
-    /// checks on both replies, and the recording all happen on a detached task with its own
-    /// timeout. Never throws.
+    /// Queues a shadow render of this turn onto a bounded single-consumer channel. Returns
+    /// immediately (a full queue drops the observation and counts the drop — it never blocks
+    /// a reply); the render, the deterministic checks on both replies, and the recording all
+    /// happen on the consumer with a per-item timeout. Never throws.
     /// </summary>
     void Observe(RendererShadowObservation observation);
+
+    /// <summary>Queue lifecycle counters, for diagnostics and the collection report.</summary>
+    RendererShadowCounters Counters { get; }
 }
+
+/// <summary>
+/// The four fates an observation can meet, plus what is still waiting. Queued counts every
+/// accepted enqueue; Completed + Failed + Pending always reconciles against it, and Dropped
+/// counts what a full queue refused — a number that must appear in the shadow report rather
+/// than vanish.
+/// </summary>
+public sealed record RendererShadowCounters(
+    long Queued, long Completed, long Failed, long Dropped, int Pending);
 
 /// <summary>
 /// An immutable snapshot of exactly what the shadow renderer is allowed to see: the plan the
@@ -55,4 +68,6 @@ public sealed class NullRendererShadow : IRendererShadow
     public void Observe(RendererShadowObservation observation)
     {
     }
+
+    public RendererShadowCounters Counters => new(0, 0, 0, 0, 0);
 }

@@ -64,5 +64,23 @@ internal static class DiagnosticsEndpoints
         app.MapGet("/diagnostics/shadow/captures", async (
             IShadowRecorder shadow, string? subject, int? count, CancellationToken ct) =>
             Results.Ok(await shadow.GetCapturesAsync(subject, count ?? 500, ct)));
+
+        // The renderer shadow's queue lifecycle (docs/RENDERER_SHADOW.md) beside its collected
+        // row counts — queued/completed/failed/dropped say whether the instrument is healthy,
+        // clean/flagged say how the collection toward the 100-turn target is going.
+        app.MapGet("/diagnostics/renderer-shadow", async (
+            IRendererShadow renderer, IShadowRecorder shadow, TimeProvider clock, CancellationToken ct) =>
+        {
+            var agreement = await shadow.GetAgreementAsync(clock.GetUtcNow() - TimeSpan.FromDays(90), ct);
+            var rows = agreement.FirstOrDefault(a => a.Subject == "renderer.plan2");
+            return Results.Ok(new
+            {
+                observing = renderer.IsObserving,
+                queue = renderer.Counters,
+                collected = rows?.Comparisons ?? 0,
+                flagged = rows?.Disagreements ?? 0,
+                averageLatencyMs = rows?.AverageDurationMs ?? 0,
+            });
+        });
     }
 }
