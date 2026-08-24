@@ -15,6 +15,7 @@ from train_run1a import SYSTEM_PROMPT, build_user_prompt  # noqa: E402
 parser = argparse.ArgumentParser()
 parser.add_argument("--ollama", default="http://localhost:11435")
 parser.add_argument("--out", required=True)
+parser.add_argument("--model", default="run-1a", help="model name sent to the endpoint (serve_tuned ignores it; real Ollama enforces it)")
 parser.add_argument("--family-prefix", default=None,
                     help="evaluate only scenario ids with this prefix (e.g. u1b-)")
 args = parser.parse_args()
@@ -55,7 +56,7 @@ if args.family_prefix:
 results = []
 for i, (sid, s) in enumerate(sorted(scenarios.items()), 1):
     payload = json.dumps({
-        "model": "run-1a", "stream": False,
+        "model": args.model, "stream": False,
         "options": {"temperature": 0.6, "num_predict": 220},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},

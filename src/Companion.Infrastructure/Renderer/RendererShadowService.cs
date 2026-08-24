@@ -241,11 +241,14 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         var userPrompt = PlanSerialization.BuildUserPrompt(
             "v2", obs.Plan, obs.Transcript, obs.UserMessage);
 
+        object options = _options.NumGpu is { } numGpu
+            ? new { temperature = 0.6, num_predict = 220, num_gpu = numGpu }
+            : new { temperature = 0.6, num_predict = 220 };
         var payload = new
         {
             model = "renderer-shadow",
             stream = false,
-            options = new { temperature = 0.6, num_predict = 220 },
+            options,
             messages = new object[]
             {
                 new { role = "system", content = PlanSerialization.SystemPromptV2 },

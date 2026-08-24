@@ -246,6 +246,14 @@ public sealed class RendererShadowOptions
     public string CanaryUserId { get; set; } = "";
 
     /// <summary>
+    /// Ollama num_gpu override for the renderer model (null = omit, Ollama decides). Zero
+    /// pins the renderer to CPU — on a card too small to hold the chat model and the
+    /// renderer together, that trades ~15 s of CPU prompt-eval for not evicting the chat
+    /// model every turn, which costs far more. Ignored by serve_tuned/serve_cpu.
+    /// </summary>
+    public int? NumGpu { get; set; }
+
+    /// <summary>
     /// Ceiling for the in-turn canary render, separate from the shadow queue's generous one:
     /// past this, the fallback reply (already generated) is shown instead. The canary waits
     /// for the renderer; the user should barely wait for the canary.

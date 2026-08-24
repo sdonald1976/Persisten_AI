@@ -24,6 +24,7 @@ from train_run1a import SYSTEM_PROMPT, build_user_prompt  # noqa: E402
 parser = argparse.ArgumentParser()
 parser.add_argument("--ollama", default="http://localhost:11435")
 parser.add_argument("--out", required=True)
+parser.add_argument("--model", default="run-1a", help="model name sent to the endpoint (serve_tuned ignores it; real Ollama enforces it)")
 args = parser.parse_args()
 
 rows = [json.loads(l) for l in (DATASET / "train-200.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -66,7 +67,7 @@ def check(r, reply):
 results = []
 for i, r in enumerate(val, 1):
     payload = json.dumps({
-        "model": "run-1a", "stream": False,
+        "model": args.model, "stream": False,
         "options": {"temperature": 0.6, "num_predict": 220},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},

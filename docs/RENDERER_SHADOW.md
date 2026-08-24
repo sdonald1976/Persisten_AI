@@ -158,3 +158,37 @@ non-tool turns DISPLAY the run-1c reply instead of production's:
 
 Canary rollback: clear `CanaryUserId` (one setting) and restart — the user is
 back on the production renderer; shadow collection continues unchanged.
+
+## 9. The merged GGUF deployment (approved 2026-08-24)
+
+On Scott's approval, the run-1c adapter was merged into the pinned base and
+imported into Ollama as `renderer-shadow` (q8_0, layer 54e76dd5; merge record
+with per-shard sha256 in `training/renderer/merged/run-1c/merge-record.json`;
+build reproducible anywhere via `tools/build_renderer_model.py`). The adapter
+in git remains the canonical artifact; the GGUF is a derived build product.
+
+**Revalidation against the frozen battery, GGUF vs the PyTorch adapter:**
+
+| instrument | adapter (NF4/GPU) | GGUF q8_0 (Ollama) |
+|---|---|---|
+| validation CLR (149) | 2.7% (4) | **1.3% (2)** |
+| closed-plan questions (113) | 2 | **0** |
+| opening-trigram diversity | 0.95 | 0.95 |
+| unseen compositions (32) | 3 fail | 5 fail |
+| fixtures (multi-sample) | axe-known 7/7, precious 2/7, clarify 1/7 | axe-known 3/3, precious 2/3 |
+| speed | 2.0 tok/s, ~8 s/reply | **42.9 tok/s, ~1 s/reply (GPU)** |
+
+The two extra unseen failures are name/token paraphrases (the mandatory
+question and the epistemic admission still fired in both u1b-epimq misses);
+u1b-cuoq-02 is the one genuinely wrong reply. Judged not-going-backwards:
+the primary instrument (validation, n=149) improved, and the deltas at n=32
+are within single-draw noise of paraphrase-class misses. All raw outputs in
+`training/renderer/runs/gguf-q8/` (machine-local).
+
+**Deployment note for small GPUs:** the app's full pipeline juggles several
+models; `Companion:RendererShadow:NumGpu: 0` pins the renderer to CPU inside
+Ollama (~15-17 s/render) so the chat model is never evicted. Measured on the
+GTX 1660: per-turn cost is dominated by the pre-existing pipeline
+(extraction ~27 s + chat ~35 s + reranker/safety/planner ~25 s), not the
+renderer. serve_tuned.py / serve_cpu.py remain lab instruments for
+frozen-eval reproduction against the unmerged adapter.

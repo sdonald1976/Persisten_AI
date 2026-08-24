@@ -17,6 +17,7 @@ from train_run1a import SYSTEM_PROMPT, build_user_prompt  # byte-exact mirrors
 parser = argparse.ArgumentParser()
 parser.add_argument("--port", type=int, default=11435)
 parser.add_argument("--arm", required=True)
+parser.add_argument("--model", default="replay")
 parser.add_argument("--plan2", required=True)
 parser.add_argument("--message", required=True)
 args = parser.parse_args()
@@ -26,7 +27,7 @@ user = build_user_prompt(plan2, [], args.message)
 
 def ask(temperature):
     payload = json.dumps({
-        "model": "replay", "stream": False,
+        "model": args.model, "stream": False,
         "options": {"temperature": temperature, "num_predict": 220},
         "messages": [{"role": "system", "content": SYSTEM_PROMPT},
                      {"role": "user", "content": user}],
