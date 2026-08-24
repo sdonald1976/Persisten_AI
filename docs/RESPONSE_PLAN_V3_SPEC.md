@@ -378,6 +378,25 @@ contributions, no native plan has been assembled from a real turn, and the
 register votes exercised in tests are synthetic. Live native-organ
 integration is P5b.
 
+**P5b (in progress): real subsystem integration.** Authority hardened first
+(grants are exact source+category+policy+reason+provenance+promotion tuples,
+never a Cartesian product; the procedure audit is explicit and tested).
+
+- **Source 1a — COMPLETE**: activity domain model (`ActivityInstance`,
+  lifecycle, stable question keys, bound answers, diagnosed selection
+  failure), the audited procedure authority grant, the contributor, and unit
+  proof. Synthetic only.
+- **Source 1b — PENDING**: activation, isolated state lifecycle, question
+  selection, real turn-path assembly, persistence, and simulated/live shadow
+  evidence. "Integrated" requires at least one native plan assembled through
+  the real turn-path integration AND persisted through the native shadow
+  recorder; that has not happened. Inspection complete and the item-5 stop
+  condition reached — no question selector exists in production, so the
+  bounded selector design is proposed in `SOURCE1B_PROCEDURE_INSPECTION.md`
+  and awaits approval before implementation.
+- Sources 2–5 (tools, persona/preferences, mood/relationship/working-context,
+  world/vision/embodiment) — NOT STARTED, blocked behind Source 1b.
+
 **Remaining roadmap:**
 - Corpus freeze only after native V3 plans exist and pass shadow validation.
 - P6 — Run-2 training on CompactV3, full run-1 discipline, gates from §10.
