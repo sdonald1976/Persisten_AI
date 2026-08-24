@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ISOLATED PROTOTYPE (docs/RESPONSE_PLAN_V3_SPEC.md). Referenced by nothing in
+       src/; references Companion.Core only to prove the V2<->V3 translation against
+       the real domain types. Deleting this directory is the complete rollback. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Companion.Core\Companion.Core.csproj" />
+    <Compile Include="..\Companion.RendererBench\PlanSerialization.cs" Link="Shared\PlanSerialization.cs" />
+  </ItemGroup>
+
+</Project>

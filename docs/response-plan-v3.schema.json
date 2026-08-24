@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://persisten-ai/response-plan-v3.schema.json",
+  "title": "ResponsePlan v3 wire contract",
+  "type": "object",
+  "required": ["protocol", "minorVersion", "traceId", "participants", "act", "question", "items", "register"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol": { "const": "plan/3" },
+    "minorVersion": { "type": "integer", "minimum": 0 },
+    "traceId": { "type": "string", "format": "uuid" },
+    "participants": {
+      "type": "object",
+      "required": ["user", "companion"],
+      "additionalProperties": false,
+      "properties": { "user": { "type": "string" }, "companion": { "type": "string" } }
+    },
+    "act": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "question": {
+      "type": "object",
+      "required": ["policy"],
+      "additionalProperties": false,
+      "properties": {
+        "policy": { "enum": ["ask_required", "may_ask", "question_forbidden"] },
+        "itemId": { "type": "string" }
+      }
+    },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/planItem" } },
+    "register": { "$ref": "#/$defs/register" },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxItems": { "type": "integer", "minimum": 1 },
+        "dropOrder": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Open extension blocks. Preserved byte-for-byte, never serialized into the model-facing form, observable in diagnostics. Unknown names are valid.",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "planItem": {
+      "type": "object",
+      "required": ["id", "type", "policy", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*[0-9]+$|^[a-z0-9.-]+$" },
+        "type": { "type": "string", "description": "OPEN SET — unknown values are valid", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "policy": {
+          "enum": ["must_express", "may_express", "background_only", "must_not_express",
+                   "admit_unknown", "ask_required", "question_forbidden", "style_guidance"],
+          "description": "CLOSED SET — unknown values reject the ITEM (fail closed), never guess"
+        },
+        "text": { "type": "string", "description": "facts only; imperative coaching is rejected by the producer lint" },
+        "value": { "description": "structured value when text is lossy" },
+        "source": { "type": "string", "description": "OPEN SET — producing subsystem", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "origin": { "type": "string", "description": "OPEN SET; well-known: taught, observed, derived, told-by-user, shared" },
+            "at": { "type": "string", "format": "date-time" },
+            "evidenceRef": { "type": "string" }
+          }
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sensitivity": { "enum": ["public", "personal", "private", "never-store"], "default": "personal" },
+        "validity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "from": { "type": "string", "format": "date-time" },
+            "until": { "type": "string", "format": "date-time" }
+          }
+        },
+        "supersedes": { "type": "array", "items": { "type": "string" } },
+        "supersededBy": { "type": "string" },
+        "priority": { "type": "integer" },
+        "checkTokens": {
+          "type": "array", "items": { "type": "string" },
+          "description": "curated deterministic-check tokens (datasets/eval only; absent on live turns)"
+        }
+      }
+    },
+    "register": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "warmth": { "enum": ["cold", "cool", "plain", "warm", "tender"] },
+        "bluntness": { "enum": ["soft", "plain", "blunt"] },
+        "playfulness": { "enum": ["off", "light", "full"] },
+        "teasing": { "enum": ["off", "allowed", "invited"] },
+        "skepticism": { "enum": ["off", "open", "on"] },
+        "intensity": { "enum": ["flat", "even", "raised"] },
+        "verbosity": { "enum": ["terse", "short", "conversational", "expansive"] },
+        "profanity": { "enum": ["forbidden", "mirror-only", "licensed"] },
+        "mirror": { "type": "boolean" }
+      }
+    }
+  }
+}
