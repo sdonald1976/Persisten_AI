@@ -43,5 +43,6 @@
   "Native": null,
   "NativeBuildError": null,
   "NativeLintRejections": [],
-  "Parity": []
+  "Parity": [],
+  "Assembly": null
 }

@@ -56,7 +56,30 @@ public sealed record V3ShadowEnvelope
 
     /// <summary>Semantic parity by class; differences are evidence, never behavior.</summary>
     public IReadOnlyList<V3ParityClass> Parity { get; init; } = [];
+
+    /// <summary>P5: contribution-boundary diagnostics. Ids, decisions, reasons — no text.</summary>
+    public V3AssemblySection? Assembly { get; init; }
 }
+
+/// <summary>Content-safe assembly diagnostics (P5): every count and reason, no content.</summary>
+public sealed record V3AssemblySection(
+    int ContributionsReceived,
+    int ContributionsAccepted,
+    int ContributionsRejected,
+    int PolicyPromotions,
+    IReadOnlyDictionary<string, int> RejectionReasonsBySource,
+    IReadOnlyList<string> AuthorityViolations,
+    IReadOnlyList<string> ContributorFailures,
+    IReadOnlyList<string> LintRejections,
+    IReadOnlyList<V3RegisterDecision> RegisterDecisions,
+    int ProcedureQuestionsSupplied,
+    int ToolResultsSuppressed,
+    int ToolResultsAuthorized,
+    int WorldObservationsBackground,
+    int WorldObservationsPromoted);
+
+public sealed record V3RegisterDecision(
+    string Dimension, string Value, string WinningSource, string ReasonCode, IReadOnlyList<string> Losers);
 
 public sealed record V3NativeSection(
     string PlanOrigin,            // always "native_v3"
@@ -192,6 +215,36 @@ public static class V3ShadowEnvelopeBuilder
                 + $"verbosity={reg.Verbosity} profanity={reg.Profanity} mirror={reg.Mirror}"),
             NativeLintRejections = nativeLintRejections,
             Parity = parity,
+        };
+    }
+
+    /// <summary>P5: folds the assembler's content-safe report into the shadow envelope.</summary>
+    public static V3ShadowEnvelope WithAssembly(V3ShadowEnvelope envelope, AssemblyReport report)
+    {
+        var perceptionSources = new[] { "world", "vision", "embodiment" };
+        return envelope with
+        {
+            Assembly = new V3AssemblySection(
+                report.Received, report.Accepted, report.Rejected, report.Promotions,
+                report.Outcomes.Where(o => o.Decision == "rejected")
+                    .GroupBy(o => $"{o.SourceId}:{o.Reason}")
+                    .ToDictionary(g => g.Key, g => g.Count()),
+                report.AuthorityViolations,
+                report.ContributorFailures,
+                report.LintRejections,
+                report.RegisterDecisions
+                    .Select(d => new V3RegisterDecision(d.Dimension, d.Value, d.WinningSource, d.ReasonCode, d.Losers))
+                    .ToList(),
+                ProcedureQuestionsSupplied: report.Plan.Items
+                    .Count(i => i.Source == "procedure" && i.Policy == ExpressionPolicy.ask_required),
+                ToolResultsSuppressed: report.Outcomes
+                    .Count(o => o.SourceId == "tool" && o.Decision == "rejected"),
+                ToolResultsAuthorized: report.Plan.Items
+                    .Count(i => i.Source == "tool" && i.Policy != ExpressionPolicy.background_only),
+                WorldObservationsBackground: report.Plan.Items
+                    .Count(i => perceptionSources.Contains(i.Source) && i.Policy == ExpressionPolicy.background_only),
+                WorldObservationsPromoted: report.Plan.Items
+                    .Count(i => perceptionSources.Contains(i.Source) && i.Policy != ExpressionPolicy.background_only)),
         };
     }
 }

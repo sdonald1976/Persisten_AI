@@ -345,9 +345,34 @@ A failed native build records a content-safe diagnostic and production
 continues unchanged (tested). V3 remains parallel shadow evidence — NOT
 authoritative — until a separately approved migration.
 
+**P5 (implemented): the contribution boundary.** `IPlanV3Contributor` lets any
+subsystem PROPOSE typed facts/state; `PlanV3Assembler` alone grants authority —
+validating provenance, approving/downgrading/rejecting each proposed policy
+against a registered `SourceCapability`, resolving register conflicts by family
+precedence, applying disclosure/retention, running the source-side lint,
+applying budgets, and emitting the final native plan with a content-safe
+report. Registration IS the authority model: an unregistered source can never
+reach must_express/must_not_express/ask_required or register restrictions —
+its informational items become background_only (and any reason-code claim is
+refused outright), diagnosed, never silently promoted. Privileged reason
+families are owned by exactly the subsystems holding the state
+(`tool-authorization.*` by the tool-authorization subsystem;
+`epistemic-integrity.*` by knowledge owners; `user-preference.*` /
+`hosting-config.*` only with a stored preference/configuration reference).
+Contributors shipped: procedure (ledger upstream, next question selected
+upstream, plan receives the selected question plus minimal frame — the four
+Twenty Questions failures are prevented structurally), tool (six separated
+states; unauthorized/secret results contribute nothing; results are DATA, never
+protocol instruction; expression requires planner authorization), perception
+(world/vision/embodiment background_only, confidence+validity carried, expired
+or thin observations never become claims, promotion requires a deliberate
+planner decision and is recorded), and typed register sources (persona,
+user-preference, relationship, mood, working-context, mirror) that resolve
+off-diagonal personalities — warm+blunt, tender+terse, cold+playful,
+skeptical+calm, and all four profanity modes — without collapsing to
+"friendly". `PlanV3Builder` did not grow: new organs arrive as contributors.
+
 **Remaining roadmap:**
-- P5 — native V3 sources: procedure state, tools, world state, and future
-  organs emitting items directly; typed register signals from persona/mood.
 - Corpus freeze only after native V3 plans exist and pass shadow validation.
 - P6 — Run-2 training on CompactV3, full run-1 discipline, gates from §10.
 - P7 — cross-protocol shadow/canary (run-1c/plan2 vs run-2/plan3) and the
