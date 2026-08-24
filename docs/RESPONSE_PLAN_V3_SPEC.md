@@ -1,344 +1,229 @@
-# ResponsePlan v3 — specification (revision 1, 2026-08-24)
+# ResponsePlan v3 — specification (revision 2, 2026-08-24)
 
-Status: DESIGN, revised per Scott's first review (ten issues; reconciliation
-table in §13). Production implementation remains unauthorized. Run-1c consumes
-byte-identical CompactV2 for its entire tenure; no existing hash, fixture,
-adapter, or freeze manifest is affected. Audit: `RESPONSE_PLAN_V3_AUDIT.md`.
-Wire contract: `response-plan-v3.schema.json`. Reference implementation +
-invariant tests (15): `tools/Companion.PlanV3.Prototype` (isolated).
+Status: FINAL CONTRACT CANDIDATE, incorporating Scott's second review (six
+issues; reconciliation table §13 covers all sixteen resolutions to date).
+Production implementation remains unauthorized; run-1c consumes byte-identical
+CompactV2 for its entire tenure; no existing hash, fixture, adapter, or freeze
+manifest is affected. Audit: `RESPONSE_PLAN_V3_AUDIT.md`. Wire contract:
+`response-plan-v3.schema.json`. Reference implementation + 22 invariant tests:
+`tools/Companion.PlanV3.Prototype` (isolated; referenced by nothing).
+
+**Wire conventions:** closed enums serialize snake_case; open-set strings are
+kebab-case; CompactV3 model-facing labels are kebab-case. Display names label;
+only stable ids and scheme-prefixed principal refs authorize.
 
 ## 1. Goals and non-goals
 
-**Goal.** One stable, typed protocol between Ava's mind and mouth: a future
-subsystem — vision, embodiment, curiosity, mood, social inference, world
-state, unimagined — integrates by producing generic typed items, not by
-growing the renderer a bespoke field or forcing a retrain.
+One stable, typed protocol between Ava's mind and mouth: future subsystems
+integrate by producing generic typed items. No new cognition; no replacement
+of run-1c; no serializer change for any existing model; **no general
+moral-content authority** (§5.3); **no unnamed suppression, no display-name
+authorization, no knowingly incomplete rendering** (rev-2).
 
-**Non-goals.** No new cognition; no replacement of run-1c; no serializer
-change for any existing model; no personality redesign; **no general
-moral-content authority anywhere in the protocol** (§5.3).
-
-**The laws the design answers to:** the density-map law (the mouth renders
-what the corpus made dense — so "new source" and "new semantic" are formally
-different events, §4.2) and the echo law (prose given to a model gets spoken
-by a model — so facts and behavioral instruction never share a string, §2.4).
+Laws: the density-map law (new source ≠ new semantic, §4.2) and the echo law
+(facts and instruction never share a string, §2.4).
 
 ## 2. The item model
 
 ```
 PlanItem {
-  id:             string        // unique in plan; attribution + traceability (NOT semantic proof, §7)
-  type:           string        // OPEN semantic type; diagnostics/attribution only, never model-facing
-  category:       RenderCategory?  // CLOSED model-facing label; absent ⇒ derived from policy (§3.5)
-  policy:         ExpressionPolicy // CLOSED (8 values, §2.2)
-  text:           string?       // natural-language content
-  quoted:         bool          // text is verbatim third-party/user/tool content (§2.4);
-                                // requires quote-capable provenance.origin (validated)
-  value:          object?       // structured value where text is lossy
-  source:         string        // OPEN producing subsystem
-  provenance:     { origin (open; well-known: taught, observed, derived,
-                    told-by-user, tool, shared), at?, evidenceRef? }
-  confidence:     0..1?
-  classification: public|personal|private|intimate      // LABEL only (§2.3)
-  disclosure:     unrestricted|participants|owner_only  // who may hear it
-  retention:      full|no_training|no_telemetry_text|volatile_turn_only
-  reasonCode:     string?       // REQUIRED for must_not_express; families in §5.3
-  validity:       {from?, until?}?
-  supersedes:     [ids or scheme-prefixed external refs "memory:…"]
-  supersededBy:   string?
-  priority:       int?
-  checkTokens:    [string]?     // curated eval tokens; datasets only
+  id, type (open), category (closed, model-facing)?, policy (closed, SIX),
+  text?, quoted, value?, source (open), provenance{origin, at, evidenceRef}?,
+  confidence?, classification, disclosure, owner?, audience?, retention,
+  reasonCode?, validity?, supersedes?, supersededBy?, priority?, checkTokens?
 }
 ```
 
-### 2.2 Expression policies (CLOSED — extending this set IS a version bump)
+### 2.2 Expression policies (CLOSED — six values)
 
 `must_express`, `may_express`, `background_only`, `must_not_express`,
-`admit_unknown`, `ask_required`, `question_forbidden`, `style_guidance` —
-renderer obligations as in rev-0, with one narrowing (review §3): there is
-**no `must_not_contradict` policy**. v2's `MustNotContradict` is, in its
-actual use, a tombstone — "do not assert this stale/disputed fact" — and
-translates to `must_not_express` with
-`reasonCode: epistemic-integrity.superseded-or-disputed`. The broader
-"render freely but stay consistent with X" semantic is a COGNITION
-obligation and stays upstream: the planner must not emit a plan whose
-required content conflicts with known state. If a true renderer-side
-consistency constraint is ever wanted, it is a new semantic: version bump,
-corpus coverage, trained and gated like any tier-2 change.
+`admit_unknown`, `ask_required`.
 
-### 2.3 Classification, disclosure, retention, expression — four axes, independent (review §2)
+Removed in rev-2 (review §4): ~~`question_forbidden`~~ — question prohibition
+is owned solely by `question.policy`; an item-level duplicate created
+contradictory states (a question_forbidden item inside an ask_required plan)
+with no use case. ~~`style_guidance`~~ — style is owned solely by the
+canonical RegisterVector plus owned restrictions; free-text style items were
+the echo-bait door reopening. Neither had a non-overlapping use; both are
+gone rather than given conflict rules.
 
-- `classification` is a label. It drives nothing by itself.
-- `disclosure` says who may hear the content (this design's audiences:
-  the owner/user, participants, anyone).
-- `retention` says what storage may do: `volatile_turn_only` content never
-  lands in telemetry text fields, training exports, or long-term memory —
-  the shadow row for such a turn stores check RESULTS and hashes, not text.
-- `policy` says what the mouth does THIS turn.
+`must_not_contradict` does not exist (rev-1 §3): v2's version is a tombstone
+(→ `must_not_express` + `epistemic-integrity.superseded-or-disputed`);
+render-time consistency is cognition's obligation, upstream.
 
-They compose freely: grief that is `private + owner_only +
-volatile_turn_only + must_express` is said, tenderly, to Scott — and never
-written down (worked example 4). `volatile` does NOT mean "cannot say."
+### 2.3 Classification / disclosure / owner / audience / retention / expression
 
-### 2.4 The separation rule and the provenance-aware lint (review §7)
+Six independent facts about an item:
+- `classification` — label only.
+- `disclosure` — `unrestricted | participants | restricted`. **`restricted`
+  requires an explicit `audience`** of stable principal references.
+  ("owner_only" is gone: audience is never inferred from ownership.)
+- `owner` — whose information it IS: an in-plan participant id or an external
+  `principal:` reference. **Information about a third party is not owned by
+  whoever supplied it**: Scott telling Ava about his father makes Scott the
+  provenance origin, not the owner.
+- `audience` — who may hear it: participant ids / principal refs. Display
+  names never appear here (validated).
+- `retention` — storage behavior (§2.6). Independent of expression:
+  volatile content can still be `must_express` to its authorized audience.
+- `policy` — this turn's rendering obligation.
 
-`text` on producer-AUTHORED interpretive items carries third-person facts;
-behavioral instruction lives only in policy, act, and register. The coaching
-lint rejects imperative coaching **only** in producer-authored, non-quoted
-text (authored sources: working-context, planner, supersession). Exempt, by
-design: memories, tool results, any non-authored source, and `quoted: true`
-items (verbatim speech — gated by quote-capable provenance so quoting cannot
-be used to launder coaching). "Scott's note says: make sure to water the
-ferns" is a fact and passes; "…Own it honestly." from the planner fails
-closed at serialization.
+### 2.4 The separation rule and lint — unchanged from rev-1
+(producer-authored, non-quoted, authored-source text only; `quoted` gated by
+quote-capable provenance.)
+
+### 2.5 Participant identity (rev-2 §1)
+
+`participants: [{id, role: user|companion|other, display}]` — at least a user
+and a companion, unique stable ids. Ids survive display renames. Every
+audience/owner reference resolves against these ids or carries an explicit
+external scheme (`principal:`, and for supersession `memory:`/`concept:`).
+Supported ownership: the user, Ava, another present participant, or an absent
+third party (`principal:` ref).
+
+### 2.6 `volatile_turn_only` — the precise surface matrix (rev-2 §3)
+
+| surface | behavior |
+|---|---|
+| in-memory processing | permitted (plans, checks, rendering all operate on the text) |
+| HTTP to the renderer | permitted over loopback/authenticated local transport — rendering requires the content; remote renderers require an explicitly configured trusted channel |
+| application logs | content forbidden; content-free events (item id, policy, check results) permitted |
+| shadow/telemetry rows | text and value fields NULLed; check results, metadata, and the keyed CorrelationTag permitted; plain content-derived hashes FORBIDDEN (§2.7) |
+| traces/diagnostics | content-free only |
+| crash dumps | residual risk documented: process memory may appear in dumps; deployments that must exclude this disable dumps for the renderer/host processes — the protocol cannot promise below the OS |
+| training exports | forbidden, absolutely |
+| long-term memory | forbidden; the extraction pipeline skips volatile items |
+
+This matrix replaces every "never written down" phrasing.
+
+### 2.7 Hashing and correlation (rev-2 §2–3)
+
+Two hashes, distinct jobs:
+- **`wirePlanHash`** — sha256 over the canonical JSON of the COMPLETE v3
+  document (extensions included), with `text`/`value` of volatile items
+  redacted to the fixed placeholder `"[volatile]"` first, so the hash derives
+  nothing from low-entropy private content (tested: sibling plans differing
+  only in volatile text hash identically). Canonical JSON: RFC 8785
+  semantics for this document class — ordinal (UTF-16 code unit) key
+  ordering, no insignificant whitespace, shortest-round-trip invariant
+  number formatting; implemented and cross-format tested in the prototype;
+  any other implementation (Python tooling) must match these bytes.
+- **`renderPromptHash`** — sha256 over the exact CompactV3 bytes. Extensions
+  change `wirePlanHash` but not `renderPromptHash` (tested). For plans
+  containing volatile/private items this hash is content-derived and MUST
+  NOT be persisted; persisted correlation uses **`CorrelationTag`**: a
+  deployment-secret keyed HMAC-SHA256 with key-version prefix (`v1:…`),
+  rotatable without content exposure — or no identifier at all where
+  correlation is unnecessary.
 
 ## 3. The envelope
 
 ```
-ResponsePlanV3 {
-  protocol: "plan/3", minorVersion, traceId,
-  participants: {user, companion},
-  act, question: {policy, itemId?},
-  items: PlanItem[],
-  register: RegisterVector,               // §5
-  registerRestrictions: [{dimension, value, owner, reasonCode, provenance?}],
-  budget: {maxItems?, dropOrder?: CLOSED [background_only|may_express|style_detail]},
-  extensions: { [name]: block }           // §4.4–4.5
-}
+{ protocol, minorVersion, traceId, participants[], act,
+  question{policy, itemId?}, items[], register, registerRestrictions[]?,
+  budget{maxItems?, dropOrder: CLOSED}?, extensions{}? }
 ```
 
-All content classes (required/optional claims, background, prohibitions,
-knowledge boundaries, corrections/supersessions, relationship/emotional/
-world state, tool results, clarifications) are items; the envelope stays
-small forever.
+### 3.5 CompactV3 — unchanged structure, two rev-2 clarifications
+Labels are the closed kebab-case RenderCategory set; `legacyStyle` is
+migration metadata and NEVER serializes into CompactV3 (tested); STYLE always
+prints the full canonical nine-dimension line. Invalid plans never serialize.
 
-### 3.5 CompactV3 serialization (model-facing)
-
-As rev-0 (policy-sectioned SAY/ASK/OPTIONAL/NEVER/BACKGROUND, CRLF,
-priority-then-id ordering, sha256 over bytes) with two corrections:
-
-- Item labels print the **closed RenderCategory** (claim, memory,
-  shared-memory, knowledge, correction, agreement, teaching, answer,
-  clarify, curiosity, boundary, superseded, state, observation, note) —
-  the open `type` NEVER appears in the prompt (review §10). Unknown types
-  therefore introduce no unfamiliar control vocabulary; the "no retraining
-  for new sources" claim holds because the model-facing vocabulary is
-  closed and trained.
-- STYLE always prints the full canonical register line (§5.4 defaults
-  filled deterministically), so serialization is total and hash-stable.
-
-Example:
-
-```
-[plan/3]
-CONTROL (never quote, mention, or imitate)
-  act = accept-correction
-  question = ask_required -> q1
-SAY (each item: convey the meaning, fresh words)
-  [c1 correction, owner=self] Ava said the workshop was Tuesday; it is Thursday.
-ASK (end the reply with this)
-  [q1 clarify] which list is meant — groceries or hardware
-NEVER (do not assert, mention, or explain)
-  [s1 superseded] The workshop is on Tuesday.
-BACKGROUND (may shape tone; content must not surface)
-  [v1 observation] Rain streaks the window behind Scott.
-STYLE
-  warmth=warm bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=terse profanity=neutral mirror=false
-```
-
-**Invalid plans never reach a renderer**: CompactV3 refuses any plan failing
-§9 validation or the lint.
-
-## 4. Extensibility
-
-### 4.1 Open and closed sets
-OPEN (unknown values valid): item `type`, `source`, provenance `origin`,
-extension block names, reason-code suffix within a permitted family.
-CLOSED (unknown values are protocol errors): expression policy, question
-policy, classification/disclosure/retention, RenderCategory, DropCategory,
-register enums, the envelope field set.
-
-### 4.2 The two-tier rule (unchanged)
-Tier 1 — new source, existing semantics: no retrain owed (categories are
-closed and trained); shadow-measured before canary. Tier 2 — new semantic:
-version bump + corpus + gated training.
-
-### 4.3 Unknown-value handling (review §4 — corrected)
-An unknown value in ANY closed set **invalidates the whole plan**. Nothing
-is honored — an unknown policy may be a mandatory obligation, so partial
-compliance is the worst outcome. The consumer emits a diagnostics event
-(`plan.invalid`, naming the offending values) and falls back to a
-compatible protocol/renderer for the turn (e.g., translate at the producer
-to plan/2 for the v2 mouth). This rule is uniform across prose, schema,
-deserializer (ParseReport.Valid=false), serializer (throws), and tests.
-
-### 4.4 Extension preservation (review §6 — honest claim)
-Extensions are **semantically preserved with canonical re-serialization**:
-parsed as JSON values, held unmodified, re-emitted canonically. JSON value
-equality (DeepEquals) is guaranteed and tested; raw-byte identity
-(whitespace, key formatting, number lexemes) is NOT claimed. A consumer
-that must archive producer bytes exactly stores the original document.
-Extensions never serialize model-ward, cannot become must_express (no
-expression path exists for them), and are diagnostics-visible by block name.
-
-### 4.5 Minor versions (review §5 — the contradiction resolved)
-The envelope and item field sets are FIXED for the lifetime of a major
-version; `additionalProperties: false` is accurate and enforced. **All
-additive minor-version data enters through `extensions`** (new well-known
-block names) or as new open-set values. Therefore any 3.x consumer accepts
-any 3.y document: nothing new can appear anywhere it isn't already legal.
-`minorVersion` advertises which well-known blocks a producer may emit;
-negotiation picks the highest common minor for well-known-block semantics.
+## 4. Extensibility — as rev-1, with §4.3 whole-plan invalidation, §4.4
+semantic (not byte) extension preservation, §4.5 minor-versions-through-
+extensions-only. ParticipantRole joins the closed sets.
 
 ## 5. Register
 
-### 5.1 Dimensions
-warmth, bluntness, playfulness, teasing, skepticism, intensity, verbosity,
-profanity, mirror — as rev-0, with profanity re-based (review §1):
-`unrestricted | mirror-only | encouraged | neutral | avoid | forbidden`.
+Dimensions, canonical defaults, and family-ordered conflict resolution as
+rev-1 (§5.3–5.4: five permitted restriction families, no unnamed authority).
+Rev-2 hardening (review §6): `registerRestrictions.dimension` is CLOSED (the
+nine dimensions) and `value` must be legal for its dimension (validated);
+`user-preference.*` and `hosting-config.*` restrictions **require
+`provenance.evidenceRef`** (a preference record / configuration key) — a
+subsystem cannot merely claim that authority (validated + tested).
 
-### 5.2 Canonical defaults (deterministic, total)
-warmth=plain, bluntness=plain, playfulness=off, teasing=off, skepticism=off,
-intensity=even, verbosity=conversational, profanity=neutral, mirror=false.
+## 6. Ownership matrix — as rev-1, plus: question prohibition = question.policy
+alone; style = RegisterVector + owned restrictions alone; item audience =
+producing subsystem constrained by the privacy classifier (most restrictive
+wins); correlation keys = deployment configuration (rotation owner: operator).
 
-### 5.3 Restriction authority (review §1 — no unnamed layers)
-Nothing in this protocol grants a generic "safety" subsystem suppression
-power. Every restriction — a `must_not_express` item, profanity
-avoid/forbidden, any restrictive register override — must carry an explicit
-owner and a reason code from exactly these families, all
-diagnostics-visible:
+## 7. Fidelity mechanisms — unchanged from rev-1 (ids are attribution, not
+proof; four honest mechanism columns; paraphrase-level checks are never
+called deterministic). Rev-2 adds: retention enforcement in telemetry rows is
+deterministic by construction and covered by pipeline tests, not renderer
+checks.
 
-- `user-preference.*` — the user's explicit standing rules
-- `privacy-audience.*` — disclosure scope of someone's private content
-- `tool-authorization.*` — results the tool layer did not authorize
-- `epistemic-integrity.*` — stale, disputed, unknown, or unverifiable content
-- `hosting-config.*` — deliberately configured legal/hosting constraints
+## 8. Compatibility and migration (rev-2 §5 — protected fallback)
 
-`profanity=forbidden` is legal ONLY under `user-preference.*` or
-`hosting-config.*` ownership (validated). No other subsystem may set it.
+- v2→v3 and the byte-identical round-trip: as rev-1 (tested).
+- **v3→v2 is capability-checked, all-or-nothing.** `CheckV2Compatibility`
+  refuses translation when ANY obligation or protection would drop or
+  weaken: non-`full` retention, `restricted` disclosure, any
+  registerRestrictions (v2 has no enforceable carrier). Background-only
+  additions are droppable-by-design and translate safely (tested). An
+  INVALID v3 plan is never deemed v2-compatible — invalidity does not
+  launder into fallback (tested). An incompatible plan routes ONLY to a
+  compatible v3 renderer or an explicitly authorized legacy path proven to
+  preserve the same obligations; otherwise the turn fails diagnosed
+  (`renderer-unavailable`) — **a knowingly incomplete response is never
+  generated**.
+- Hashes and freeze interplay: dataset/freeze manifests record
+  `wirePlanHash` (stable across producers) and `renderPromptHash`
+  per protocol; existing plan/2 manifests untouched.
 
-### 5.4 Conflict resolution (deterministic, total, named owners)
-1. An explicit `registerRestrictions` entry wins over any unrestricted
-   default, resolved among themselves by family order: user-preference >
-   hosting-config > privacy-audience > tool-authorization >
-   epistemic-integrity (the user outranks the host on style; facts about
-   what may be SAID are item-level, not register-level).
-2. Persona baselines beat mood; mood beats mirroring.
-3. Unresolved ties take the plainer value.
-Every applied override is a diagnostics event naming dimension, winner,
-owner, reason code.
+## 9. Structural invariants — rev-1 battery plus rev-2 additions:
+participant uniqueness + role coverage; audience/owner resolution (ids or
+schemes; display names rejected); restriction dimension/value closure;
+evidence requirements. All in `Validate()`, schema-expressible parts in
+schema `allOf`. Invalid plans never reach any serializer.
 
-## 6. Ownership matrix (delta from rev-0)
+## 10. Curriculum and gates — as rev-1, plus strata: restricted-audience
+items rendered without naming the restriction; volatile-content turns
+(mouth behavior is identical — the corpus teaches that retention is
+invisible to rendering); evidence-backed vs claim-only restriction drills
+(harness-level). Gates frozen before any run-2 training.
 
-Unchanged except: ~~"safety may force forbidden"~~ → profanity restrictions
-owned solely by user standing preference or hosting configuration (5.3);
-contradiction constraints owned by cognition/planner (2.2); procedure owns
-activity state AND next-question selection (§12.9); retention owned by the
-producing subsystem + privacy classifier taking the most restrictive value.
+## 11. Threats — rev-1 table plus:
+| threat | mitigation |
+|---|---|
+| display-name authorization confusion | authorization only via ids/schemes; validation rejects display strings in audience/owner |
+| dictionary attack on stored hashes of private text | wire-hash volatile redaction + keyed versioned CorrelationTag; plain content hashes of volatile plans never persisted |
+| authority claims without evidence | user-preference.*/hosting-config.* require evidenceRef; validated |
+| lossy fallback as privacy/completeness hole | capability check; all-or-nothing translation; diagnosed failure beats plausible incompleteness |
+| parallel authorities drifting (item vs envelope) | the duplicated policies were removed; single owner per concern |
 
-## 7. Fidelity: what is actually deterministic (review §8)
+## 12. Worked examples — deltas from rev-1
 
-Item IDs provide **attribution and traceability** — a violation report names
-the item — not semantic proof of expression. Honest mechanism classes:
+4. **Grief (corrected ownership)**: item g1 {acknowledgment, must_express,
+   "Scott's father's scan results come back tomorrow", classification:
+   private, disclosure: restricted, **owner: "principal:scott-father"**
+   (a third party not present — Scott supplying it makes him the provenance
+   origin, not the owner), **audience: ["usr-local"]**, retention:
+   volatile_turn_only, provenance: {origin: told-by-user}}. It IS said,
+   tenderly; the telemetry row carries check results and a keyed
+   CorrelationTag, no text, no plain hash. This plan is v2-INCOMPATIBLE and
+   must render on a v3 renderer or fail diagnosed.
+9. **20 Questions**: as rev-1 (procedure selects the question upstream;
+   plan carries the selected ask + minimal background) — unchanged by rev-2.
+Others: as rev-1, with participants arrays and owner/audience where
+disclosure is restricted.
 
-| check | exact tokens | structured value | classifier | human |
-|---|---|---|---|---|
-| required-claim omission | curated checkTokens (datasets/eval) | numeric/enum `value` match | paraphrase omission | confirms proxy flags |
-| prohibited/background/superseded leakage | text-substring + curated tokens | — | paraphrase leakage | confirms |
-| invented experience/preference | regex family | — | paraphrase forms | confirms |
-| epistemic admission | phrase list (proxy) | — | admission-in-other-words | confirms |
-| plan/control echo | verbatim window | — | — | — |
-| question required/forbidden/final | trailing/contains "?" (true determinism) | — | — | — |
-| speaker perspective | "the user", third-person-self names (narrow) | — | subtle inversion | confirms |
-| retention/disclosure enforcement | pipeline-level (rows redact text for volatile items) — deterministic by construction | — | — | spot audit |
+## 13. Reconciliation table
 
-Paraphrase-level omission and leakage are NOT deterministic and are not
-claimed to be: live turns use proxies whose flags route to human review;
-only curated-token and structured-value checks are deterministic in the
-strict sense, and only on datasets that carry them.
+Review 1 (rows 1–10): as recorded in revision 1 — unnamed authority removed;
+sensitivity split; procedure ownership + tombstone narrowing; whole-plan
+invalidation; minor-versions-through-extensions; semantic extension
+preservation; provenance-aware lint; honest determinism; structural
+invariants; closed model-facing categories.
 
-## 8. Compatibility and migration (delta from rev-0)
+Review 2:
 
-- v2→v3: as rev-0 plus: MustNotContradict → must_not_express tombstone with
-  `epistemic-integrity.superseded-or-disputed`; Uncertain/Disputed epistemic
-  notes likewise; tone → legacyStyle (lossless) + defaults.
-- v3→v2: as rev-0 (background_only DROPPED, never demoted; private/volatile
-  items dropped entirely rather than downgraded); reasonCode, disclosure,
-  retention, category, quoted have no v2 carrier and vanish — which is why
-  v3→v2 fallback is a MIGRATION device, not a privacy boundary: a producer
-  must not rely on v2 fallback for turns whose items depend on v3-only
-  protections (validated upstream: volatile/owner_only items + v2 target ⇒
-  producer keeps them out of the plan).
-- Round-trip v2→v3→v2 reproduces byte-identical CompactV2 (tested).
-- Unknown-value fallback (4.3), negotiation (4.5), rollback, budget
-  (over-budget = diagnosed invalid plan, §9), hashing: as stated.
-
-## 9. Structural invariants (review §9 — validated in application, schema where expressible)
-
-Unique item ids; content-bearing policies require text or value;
-ask_required ⇔ question.itemId exists, resolves, and the item's policy is
-ask_required; question_forbidden ⇒ no itemId and no ask_required items;
-supersedes refs resolve in-plan or carry an explicit external scheme
-(`memory:`, `concept:`); must_not_express requires a permitted reasonCode;
-quoted requires quote-capable provenance; restrictive profanity requires an
-owned restriction; dropOrder ∈ closed DropCategory; a budget smaller than
-the undroppable obligations makes the plan INVALID (diagnosed over-budget —
-resolved upstream, never by dropping obligations); register canonicalization
-is total and deterministic. `Validate()` runs before any serialization;
-schema enforces the conditionals it can express (see schema `allOf` blocks).
-
-## 10. Curriculum and gates
-
-As rev-0, plus new strata required by this revision: retention/disclosure
-composition rows (private-but-said), owned-restriction register rows
-(forbidden-with-owner vs absent-owner must never appear), closed-category
-rendering for unfamiliar `type`/`source` values, whole-plan-invalid fallback
-drills (eval-harness behavior, not model behavior), and tombstone
-resurrections. Gates frozen before any run-2 training, unchanged discipline.
-
-## 11. Threats (delta)
-
-Adds: **restriction laundering** (a subsystem inventing user preferences —
-mitigated: reason codes are provenance-carrying and diagnostics-visible;
-user-preference codes must trace to a stored preference record);
-**quote laundering** (coaching smuggled via quoted:true — mitigated:
-provenance gate + curation); **fallback privacy leak** (v3-only protections
-lost in v2 fallback — mitigated: producer-side rule in §8). Rev-0 rows stand.
-
-## 12. Worked examples (deltas)
-
-1–3, 5–8, 10: as rev-0, with categories in serialized forms and reason
-codes on all must_not_express items.
-
-4. **Emotionally sensitive acknowledgment (corrected)**: item g1
-   {acknowledgment, must_express, "Scott's father's scan results come back
-   tomorrow", classification: private, disclosure: owner_only, retention:
-   volatile_turn_only, provenance: told-by-user}; register {warmth:tender,
-   playfulness:off, verbosity:short}; question_forbidden. It IS said —
-   expression and retention are independent; the shadow row for this turn
-   carries hashes and check results, no text.
-
-9. **20 Questions (corrected ownership)**: the PROCEDURE owns the ledger and
-   selects the next question BEFORE the plan exists. The plan carries only:
-   the selected question item {q1, activity-question, ask_required, "is the
-   object made mostly of metal", source: procedure} and the minimum
-   background needed to render faithfully {b1, activity-state,
-   background_only, "Twenty Questions: Ava asks; question 16 of 20 is
-   next."}. The full established-facts ledger stays upstream; contradiction
-   avoidance is the procedure's job when it CHOOSES the question, not the
-   mouth's job when it renders it. New source, existing semantics: tier 1.
-
-## 13. Reconciliation table (review → resolution → artifacts)
-
-| # | issue | resolution | artifacts changed |
+| # | issue | resolution | artifacts |
 |---|---|---|---|
-| 1 | undefined filtering authority | permitted restriction families + owned registerRestrictions; profanity six-valued; forbidden requires user/hosting owner; conflict resolution rewritten with named owners | spec §5, §6, §11; schema (reasonCode, registerRestrictions, profanity enum); types; codec Validate; tests |
-| 2 | overloaded sensitivity | split into classification / disclosure / retention / policy, all independent; volatile ≠ unsayable; grief example corrected | spec §2.3, §12.4; schema; types; tests (PrivateVolatile…) |
-| 3 | procedure ownership + phantom must_not_contradict | procedure selects question upstream, plan gets question + minimal background; no must_not_contradict policy — tombstone narrowing documented, consistency stays in cognition | spec §2.2, §12.9; translation (reasonCoded tombstones); tests (TwentyQuestionsPlan…) |
-| 4 | silent unknown-policy drop | unknown closed-set value invalidates the WHOLE plan; diagnosed fallback; uniform across prose/schema/codec/tests | spec §4.3; schema descriptions; ParseReport redesign; codec; tests (UnknownPolicy…, InvalidPlans…) |
-| 5 | minor-version vs additionalProperties:false | field sets fixed per major; ALL additive data via extensions; claim corrected | spec §4.5; schema description |
-| 6 | byte-identity overclaim | semantic preservation with canonical re-serialization; DeepEquals tested; byte identity explicitly not claimed | spec §4.4; schema; tests (Extensions_AreSemanticallyPreserved…) |
-| 7 | provenance-blind lint | lint scoped to producer-authored non-quoted text; quoted flag with provenance gate; memories/tools exempt | spec §2.4; types (Quoted); codec; tests (CoachingLint…, Quoted_Without…) |
-| 8 | overclaimed determinism | IDs = attribution only; four-column mechanism table; paraphrase checks not called deterministic | spec §7 |
-| 9 | structural invariants | full Validate() battery + schema conditionals; over-budget = diagnosed invalid; canonical register defaults; invalid plans never serialize | spec §9; schema allOf; codec Validate/Canonicalize/CompactV3; tests (StructuralInvariants…, RegisterDefaults…) |
-| 10 | open types in the prompt | closed RenderCategory vocabulary is all the model sees; open type is diagnostics-only; "no retrain" claim now scoped to closed vocabulary | spec §3.5, §4.1; schema (category); types (RenderCategory); codec CategoryOf; tests (OpenSemanticTypes…) |
+| 11 | display-name identity | stable participant ids + roles + display labels; owner/audience as principal refs (in-plan id or scheme); third-party ownership modeled; grief example corrected; validation rejects display-name authorization | spec §2.3/2.5/§12.4; schema participants/owner/audience; types (Participant, Owner, Audience); codec Validate; 2 tests |
+| 12 | one hash doing two jobs | wirePlanHash (canonical RFC-8785-semantics JSON, volatile-redacted, extensions included) vs renderPromptHash (CompactV3 bytes); extensions move one, not the other; canonical JSON documented + cross-format tested | spec §2.7; codec WirePlanHash/CanonicalJson/RenderPromptHash; 2 tests |
+| 13 | dictionary attacks on volatile hashes | wire-hash redaction placeholder; keyed versioned HMAC CorrelationTag for persisted correlation; §2.6 precise surface matrix replaces "never written down" | spec §2.6/2.7; codec CorrelationTag/ContainsVolatile; 2 tests |
+| 14 | parallel item authorities | question_forbidden and style_guidance REMOVED from ExpressionPolicy (six remain); question.policy and RegisterVector are sole owners; no conflict rules needed because no conflict can exist | spec §2.2; schema; types; codec; 1 test |
+| 15 | lossy fallback | CheckV2Compatibility before translation; all-or-nothing; invalid ≠ compatible; route to v3 renderer or diagnosed failure; three required tests added | spec §8; codec CheckV2Compatibility; translation TranslateToV2 guard; 3 tests |
+| 16 | traceability + wire consistency | evidenceRef required for user-preference.*/hosting-config.*; restriction dimensions/values closed + validated; wire=snake_case, model-facing=kebab-case documented and tested; legacyStyle = migration-only, never in CompactV3 (tested) | spec header/§5; schema; codec; 4 tests |

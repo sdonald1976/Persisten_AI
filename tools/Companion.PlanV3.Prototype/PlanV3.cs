@@ -4,43 +4,41 @@ using System.Text.Json.Serialization;
 namespace Companion.PlanV3;
 
 /// <summary>
-/// ResponsePlan v3 reference types (docs/RESPONSE_PLAN_V3_SPEC.md §2–§3, revision 1).
-/// Open sets (Type, Source, provenance origin, reason codes within their families) are
-/// strings; closed sets are enums. An unknown wire value in a CLOSED set invalidates the
-/// WHOLE plan (spec §4.3) — an obligation is never guessed and never silently dropped.
+/// ResponsePlan v3 reference types (docs/RESPONSE_PLAN_V3_SPEC.md revision 2).
+/// Closed-set wire casing is snake_case; open-set strings and model-facing CompactV3
+/// labels are kebab-case (§6-rev2). Unknown values in closed sets invalidate the WHOLE
+/// plan. Display names are labels, never authorization identifiers (§1-rev2).
 /// </summary>
 public sealed record PlanV3
 {
     [JsonPropertyName("protocol")] public string Protocol { get; init; } = "plan/3";
     [JsonPropertyName("minorVersion")] public int MinorVersion { get; init; }
     [JsonPropertyName("traceId")] public Guid TraceId { get; init; }
-    [JsonPropertyName("participants")] public required Participants Participants { get; init; }
+
+    /// <summary>Stable participant identities. Ids authorize; displays label.</summary>
+    [JsonPropertyName("participants")] public required IReadOnlyList<Participant> Participants { get; init; }
+
     [JsonPropertyName("act")] public required string Act { get; init; }
     [JsonPropertyName("question")] public required QuestionPolicyBlock Question { get; init; }
     [JsonPropertyName("items")] public IReadOnlyList<PlanItem> Items { get; init; } = [];
     [JsonPropertyName("register")] public RegisterVector Register { get; init; } = new();
-
-    /// <summary>
-    /// Restrictive register settings must be owned: any non-default restrictive value
-    /// (profanity avoid/forbidden, teasing off when relationship allowed it, …) requires an
-    /// entry here naming owner + reason code (spec §1-resolution). No unnamed authority.
-    /// </summary>
     [JsonPropertyName("registerRestrictions")]
     public IReadOnlyList<RegisterRestriction>? RegisterRestrictions { get; init; }
-
     [JsonPropertyName("budget")] public Budget? Budget { get; init; }
-
-    /// <summary>
-    /// Open extension blocks: SEMANTICALLY preserved (canonical re-serialization, JSON value
-    /// equality — NOT raw-byte identity; spec §4.4), never model-facing, diagnostics-visible.
-    /// All minor-version additive data enters here (spec §4.5).
-    /// </summary>
     [JsonPropertyName("extensions")] public JsonObject? Extensions { get; init; }
 }
 
-public sealed record Participants(
-    [property: JsonPropertyName("user")] string User,
-    [property: JsonPropertyName("companion")] string Companion);
+/// <summary>
+/// A stable principal in the conversation. `Id` is the authorization identifier
+/// (stable across display-name changes); `Display` is presentation only.
+/// </summary>
+public sealed record Participant(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("role")] ParticipantRole Role,
+    [property: JsonPropertyName("display")] string Display);
+
+[JsonConverter(typeof(JsonStringEnumConverter<ParticipantRole>))]
+public enum ParticipantRole { user, companion, other }
 
 public sealed record QuestionPolicyBlock(
     [property: JsonPropertyName("policy")] QuestionPolicy Policy,
@@ -49,18 +47,18 @@ public sealed record QuestionPolicyBlock(
 [JsonConverter(typeof(JsonStringEnumConverter<QuestionPolicy>))]
 public enum QuestionPolicy { ask_required, may_ask, question_forbidden }
 
+/// <summary>
+/// SIX policies (rev-2 §4): question prohibition is owned solely by question.policy and
+/// style solely by the RegisterVector — the former item-level duplicates
+/// (question_forbidden, style_guidance) are removed to eliminate parallel authorities.
+/// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<ExpressionPolicy>))]
 public enum ExpressionPolicy
 {
     must_express, may_express, background_only, must_not_express,
-    admit_unknown, ask_required, question_forbidden, style_guidance,
+    admit_unknown, ask_required,
 }
 
-/// <summary>
-/// CLOSED model-facing rendering vocabulary (spec §10-resolution). CompactV3 prints ONLY
-/// these labels; the open semantic `type` never reaches the prompt, so a new source with
-/// known semantics introduces no unfamiliar control vocabulary and owes no retraining.
-/// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<RenderCategory>))]
 public enum RenderCategory
 {
@@ -68,39 +66,28 @@ public enum RenderCategory
     answer, clarify, curiosity, boundary, superseded, state, observation, note,
 }
 
-/// <summary>Label only — carries no behavior (spec §2-resolution; behavior split below).</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<Classification>))]
 public enum Classification { @public, personal, @private, intimate }
 
-/// <summary>Who the content may be disclosed to, independent of storage and expression.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<Disclosure>))]
-public enum Disclosure { unrestricted, participants, owner_only }
-
 /// <summary>
-/// Storage/logging policy, independent of expression: volatile content may still be
-/// must_express to its authorized audience — it just never lands in telemetry text,
-/// training exports, or long-term memory.
+/// unrestricted/participants need no audience list; restricted REQUIRES an explicit
+/// audience of principal references (§1-rev2). "owner_only" is gone — ownership and
+/// audience are separate facts, and the owner may be a third party not present.
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<Disclosure>))]
+public enum Disclosure { unrestricted, participants, restricted }
+
 [JsonConverter(typeof(JsonStringEnumConverter<Retention>))]
 public enum Retention { full, no_training, no_telemetry_text, volatile_turn_only }
 
 public sealed record PlanItem
 {
     [JsonPropertyName("id")] public required string Id { get; init; }
-
-    /// <summary>OPEN semantic type for diagnostics/attribution; never model-facing.</summary>
     [JsonPropertyName("type")] public required string Type { get; init; }
-
-    /// <summary>Closed model-facing label; when absent, derived deterministically from policy.</summary>
     [JsonPropertyName("category")] public RenderCategory? Category { get; init; }
-
     [JsonPropertyName("policy")] public required ExpressionPolicy Policy { get; init; }
     [JsonPropertyName("text")] public string? Text { get; init; }
-
-    /// <summary>Text is verbatim third-party/user/tool content, exempt from the coaching
-    /// lint; requires provenance.origin in the quoted-capable set (validated).</summary>
     [JsonPropertyName("quoted")] public bool Quoted { get; init; }
-
     [JsonPropertyName("value")] public JsonNode? Value { get; init; }
     [JsonPropertyName("source")] public required string Source { get; init; }
     [JsonPropertyName("provenance")] public Provenance? Provenance { get; init; }
@@ -108,20 +95,21 @@ public sealed record PlanItem
 
     [JsonPropertyName("classification")] public Classification Classification { get; init; } = Classification.personal;
     [JsonPropertyName("disclosure")] public Disclosure Disclosure { get; init; } = Disclosure.participants;
-    [JsonPropertyName("retention")] public Retention Retention { get; init; } = Retention.full;
 
     /// <summary>
-    /// REQUIRED for restrictive policies (must_not_express): a kebab reason code within the
-    /// permitted restriction families — user-preference.*, privacy-audience.*,
-    /// tool-authorization.*, epistemic-integrity.*, hosting-config.*. No general
-    /// moral-content authority exists (spec §1-resolution).
+    /// Whose information this is: an in-plan participant id, or an external principal
+    /// reference with an explicit scheme ("principal:scott-father"). Information about a
+    /// third party is not owned by whoever happened to supply it (§1-rev2).
     /// </summary>
+    [JsonPropertyName("owner")] public string? Owner { get; init; }
+
+    /// <summary>Explicit authorized audience; REQUIRED when disclosure=restricted. Entries
+    /// are in-plan participant ids or scheme-prefixed external principal refs.</summary>
+    [JsonPropertyName("audience")] public IReadOnlyList<string>? Audience { get; init; }
+
+    [JsonPropertyName("retention")] public Retention Retention { get; init; } = Retention.full;
     [JsonPropertyName("reasonCode")] public string? ReasonCode { get; init; }
-
     [JsonPropertyName("validity")] public Validity? Validity { get; init; }
-
-    /// <summary>Item-id refs must resolve in-plan; external refs use a scheme prefix
-    /// ("memory:", "concept:", …) and are explicitly external (validated).</summary>
     [JsonPropertyName("supersedes")] public IReadOnlyList<string>? Supersedes { get; init; }
     [JsonPropertyName("supersededBy")] public string? SupersededBy { get; init; }
     [JsonPropertyName("priority")] public int? Priority { get; init; }
@@ -148,7 +136,6 @@ public sealed record Budget(
     [property: JsonPropertyName("maxItems")] int? MaxItems = null,
     [property: JsonPropertyName("dropOrder")] IReadOnlyList<DropCategory>? DropOrder = null);
 
-/// <summary>CLOSED drop vocabulary; obligations are not in it and therefore undroppable.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<DropCategory>))]
 public enum DropCategory { background_only, may_express, style_detail }
 
@@ -161,20 +148,14 @@ public sealed record RegisterVector
     [JsonPropertyName("skepticism")] public string? Skepticism { get; init; }
     [JsonPropertyName("intensity")] public string? Intensity { get; init; }
     [JsonPropertyName("verbosity")] public string? Verbosity { get; init; }
-
-    /// <summary>unrestricted | mirror-only | encouraged | neutral | avoid | forbidden.
-    /// avoid/forbidden REQUIRE a RegisterRestriction entry naming owner + reason
-    /// (user-preference.* or hosting-config.* only).</summary>
     [JsonPropertyName("profanity")] public string? Profanity { get; init; }
-
     [JsonPropertyName("mirror")] public bool? Mirror { get; init; }
+
+    /// <summary>MIGRATION METADATA ONLY (rev-2 §6): v2 tone prose carried for lossless
+    /// v2→v3→v2 round-trips. NEVER enters CompactV3 (tested).</summary>
     [JsonPropertyName("legacyStyle")] public string? LegacyStyle { get; init; }
 }
 
-/// <summary>
-/// Parse outcome (spec §4.3): EITHER a valid plan, OR invalid with reasons — never a
-/// partially-honored plan. Unknown extension blocks are observability data, not errors.
-/// </summary>
 public sealed record ParseReport(
     PlanV3? Plan,
     bool Valid,
@@ -185,3 +166,6 @@ public sealed record ParseReport(
         ? Plan
         : throw new InvalidOperationException("plan is invalid: " + string.Join("; ", Errors));
 }
+
+/// <summary>Outcome of the v2-capability check (rev-2 §5): translation is all-or-nothing.</summary>
+public sealed record V2Compatibility(bool Compatible, IReadOnlyList<string> Reasons);

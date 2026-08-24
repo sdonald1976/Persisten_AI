@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -7,8 +8,8 @@ using System.Text.RegularExpressions;
 namespace Companion.PlanV3;
 
 /// <summary>
-/// Wire codec, structural validation, canonical model-facing serialization, and the
-/// provenance-aware coaching lint (docs/RESPONSE_PLAN_V3_SPEC.md rev-1 §2.4, §3.5, §4, §9).
+/// Wire codec, structural validation, canonical hashing, redacted correlation, and the
+/// model-facing serialization (docs/RESPONSE_PLAN_V3_SPEC.md revision 2).
 /// Invalid plans never reach a renderer: <see cref="CompactV3"/> refuses them.
 /// </summary>
 public static class PlanV3Codec
@@ -20,13 +21,6 @@ public static class PlanV3Codec
 
     public static string ToJson(PlanV3 plan) => JsonSerializer.Serialize(plan, Json);
 
-    /// <summary>
-    /// Parse per §4.3 (rev-1): an unknown value in any CLOSED set (expression policy,
-    /// question policy, classification/disclosure/retention, drop category) invalidates the
-    /// WHOLE plan — it may encode a mandatory obligation, so nothing is honored and the
-    /// caller falls back to a compatible protocol/renderer with a diagnosed reason.
-    /// Unknown extension blocks and unknown open-set values (type, source) are fine.
-    /// </summary>
     public static ParseReport Parse(string json)
     {
         var errors = new List<string>();
@@ -74,7 +68,7 @@ public static class PlanV3Codec
             : new ParseReport(plan, true, [], unknownBlocks);
     }
 
-    // ---- structural invariants (§9-resolution) -----------------------------------------
+    // ---- structural invariants (rev-2) --------------------------------------------------
 
     private static readonly ExpressionPolicy[] ContentBearing =
     [
@@ -87,14 +81,39 @@ public static class PlanV3Codec
         ["user-preference.", "privacy-audience.", "tool-authorization.",
          "epistemic-integrity.", "hosting-config."];
 
-    private static readonly string[] QuotedCapableOrigins = ["told-by-user", "tool", "shared", "observed"];
+    /// <summary>Families whose claims of authority must carry evidence (rev-2 §6).</summary>
+    private static readonly string[] EvidenceRequiringFamilies = ["user-preference.", "hosting-config."];
 
+    private static readonly string[] QuotedCapableOrigins = ["told-by-user", "tool", "shared", "observed"];
     private static readonly string[] RestrictiveProfanity = ["avoid", "forbidden"];
+
+    /// <summary>Closed dimension → legal values (rev-2 §6): registerRestrictions are validated.</summary>
+    private static readonly Dictionary<string, string[]> RestrictableDimensions = new()
+    {
+        ["warmth"] = ["cold", "cool", "plain", "warm", "tender"],
+        ["bluntness"] = ["soft", "plain", "blunt"],
+        ["playfulness"] = ["off", "light", "full"],
+        ["teasing"] = ["off", "allowed", "invited"],
+        ["skepticism"] = ["off", "open", "on"],
+        ["intensity"] = ["flat", "even", "raised"],
+        ["verbosity"] = ["terse", "short", "conversational", "expansive"],
+        ["profanity"] = ["unrestricted", "mirror-only", "encouraged", "neutral", "avoid", "forbidden"],
+        ["mirror"] = ["true", "false"],
+    };
+
+    private static bool IsExternalRef(string s) => s.Contains(':');
 
     public static List<string> Validate(PlanV3 plan)
     {
         var errors = new List<string>();
         var ids = new HashSet<string>(StringComparer.Ordinal);
+        var participantIds = new HashSet<string>(plan.Participants.Select(p => p.Id), StringComparer.Ordinal);
+
+        if (plan.Participants.Count != participantIds.Count)
+            errors.Add("duplicate participant ids");
+        if (!plan.Participants.Any(p => p.Role == ParticipantRole.user)
+            || !plan.Participants.Any(p => p.Role == ParticipantRole.companion))
+            errors.Add("participants must include a user and a companion");
 
         foreach (var i in plan.Items)
         {
@@ -107,11 +126,23 @@ public static class PlanV3Codec
                 errors.Add($"{i.Id}: must_not_express requires a reasonCode within the permitted restriction families");
             if (i.Quoted && !QuotedCapableOrigins.Contains(i.Provenance?.Origin ?? ""))
                 errors.Add($"{i.Id}: quoted requires provenance.origin in [{string.Join(", ", QuotedCapableOrigins)}]");
+
+            // ---- audience/owner identity (rev-2 §1): ids or explicit external schemes only
+            if (i.Disclosure == Disclosure.restricted)
+            {
+                if (i.Audience is not { Count: > 0 })
+                    errors.Add($"{i.Id}: disclosure=restricted requires an explicit audience");
+                foreach (var a in i.Audience ?? [])
+                    if (!participantIds.Contains(a) && !IsExternalRef(a))
+                        errors.Add($"{i.Id}: audience '{a}' is neither an in-plan participant id nor a scheme-prefixed principal ref");
+            }
+            if (i.Owner is { } o && !participantIds.Contains(o) && !IsExternalRef(o))
+                errors.Add($"{i.Id}: owner '{o}' is neither an in-plan participant id nor a scheme-prefixed principal ref");
         }
 
         foreach (var i in plan.Items)
             foreach (var s in i.Supersedes ?? [])
-                if (!s.Contains(':') && !ids.Contains(s))
+                if (!IsExternalRef(s) && !ids.Contains(s))
                     errors.Add($"{i.Id}: supersedes '{s}' is neither an in-plan item nor an external scheme reference");
 
         switch (plan.Question.Policy)
@@ -132,6 +163,19 @@ public static class PlanV3Codec
                 break;
         }
 
+        foreach (var r in plan.RegisterRestrictions ?? [])
+        {
+            if (!RestrictableDimensions.TryGetValue(r.Dimension, out var legal))
+                errors.Add($"registerRestrictions: unknown dimension '{r.Dimension}'");
+            else if (!legal.Contains(r.Value))
+                errors.Add($"registerRestrictions: '{r.Value}' is not a legal value for '{r.Dimension}'");
+            if (!RestrictionReasonFamilies.Any(f => r.ReasonCode.StartsWith(f, StringComparison.Ordinal)))
+                errors.Add($"registerRestrictions: reasonCode '{r.ReasonCode}' outside permitted families");
+            else if (EvidenceRequiringFamilies.Any(f => r.ReasonCode.StartsWith(f, StringComparison.Ordinal))
+                     && string.IsNullOrEmpty(r.Provenance?.EvidenceRef))
+                errors.Add($"registerRestrictions: {r.ReasonCode} requires provenance.evidenceRef — authority cannot merely be claimed");
+        }
+
         if (plan.Register.Profanity is { } prof && RestrictiveProfanity.Contains(prof))
         {
             var owned = (plan.RegisterRestrictions ?? []).Any(r =>
@@ -142,8 +186,6 @@ public static class PlanV3Codec
                 errors.Add($"profanity={prof} requires a registerRestrictions entry owned by user-preference.* or hosting-config.*");
         }
 
-        // Over-budget with undroppable obligations is DIAGNOSED, not silently trimmed —
-        // it is a validity error here so the producer resolves it upstream.
         if (plan.Budget?.MaxItems is { } max)
         {
             var undroppable = plan.Items.Count(i => i.Policy is ExpressionPolicy.must_express
@@ -156,7 +198,6 @@ public static class PlanV3Codec
         return errors;
     }
 
-    /// <summary>Canonical register defaults (§9): deterministic, documented, total.</summary>
     public static RegisterVector Canonicalize(RegisterVector r) => new()
     {
         Warmth = r.Warmth ?? "plain",
@@ -171,7 +212,7 @@ public static class PlanV3Codec
         LegacyStyle = r.LegacyStyle,
     };
 
-    // ---- the provenance-aware coaching lint (§2.4 rev-1) --------------------------------
+    // ---- coaching lint (unchanged from rev-1) -------------------------------------------
 
     private static readonly Regex Coaching = new(
         @"(^|[.!?—-]\s*)(own it|say so|be honest|be direct|respond with|make sure( to| you)?|"
@@ -179,26 +220,17 @@ public static class PlanV3Codec
         + @"take (the win|it seriously)|celebrate|no apology|answer honestly)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    /// <summary>Producer-authored interpretive sources whose text the lint polices.</summary>
     private static readonly string[] AuthoredSources = ["working-context", "planner", "supersession"];
 
-    /// <summary>
-    /// The lint targets producer-AUTHORED behavioral coaching only: quoted content,
-    /// memories, tool results, and any non-authored source carry whatever imperatives the
-    /// world put in them — they are facts about what was said, not instructions to the
-    /// mouth (§7-resolution of the review).
-    /// </summary>
     public static string? CoachingViolation(PlanItem item)
         => !item.Quoted
-           && item.Policy != ExpressionPolicy.style_guidance
            && AuthoredSources.Contains(item.Source)
            && item.Text is { } t && Coaching.Match(t) is { Success: true } m
             ? $"{item.Id}: coaching phrase \"{m.Value.Trim()}\" in producer-authored text"
             : null;
 
-    // ---- canonical model-facing serialization (§3.5 rev-1) ------------------------------
+    // ---- canonical model-facing serialization -------------------------------------------
 
-    /// <summary>Closed rendering label for the prompt; open `type` NEVER appears (§10).</summary>
     public static RenderCategory CategoryOf(PlanItem i) => i.Category ?? i.Policy switch
     {
         ExpressionPolicy.admit_unknown => RenderCategory.boundary,
@@ -219,9 +251,9 @@ public static class PlanV3Codec
     ];
 
     /// <summary>
-    /// CompactV3: refuses invalid plans (invalid plans never reach a renderer), sections by
-    /// policy, items by priority desc then ordinal id, CRLF, extensions and open types
-    /// excluded by construction. Stable hash = sha256 over these bytes.
+    /// CompactV3: refuses invalid plans; sections by policy; CLOSED kebab-case category
+    /// labels only (open `type` never appears); legacyStyle is migration metadata and
+    /// NEVER serializes (rev-2 §6); CRLF; deterministic.
     /// </summary>
     public static string CompactV3(PlanV3 plan)
     {
@@ -252,32 +284,152 @@ public static class PlanV3Codec
                 continue;
             Line($"{header} ({note})");
             foreach (var i in items)
-                Line($"  [{i.Id} {CategoryOf(i).ToString().Replace('_', '-')}{DescribeOwner(i)}] {i.Text}");
+                Line($"  [{i.Id} {Kebab(CategoryOf(i))}{DescribeOwner(i)}] {i.Text}");
         }
 
-        var reg = DescribeRegister(Canonicalize(plan.Register));
+        var r = Canonicalize(plan.Register);
         Line("STYLE");
-        Line($"  {reg}");
+        Line($"  warmth={r.Warmth} bluntness={r.Bluntness} playful={r.Playfulness} teasing={r.Teasing}"
+             + $" skepticism={r.Skepticism} intensity={r.Intensity} verbosity={r.Verbosity}"
+             + $" profanity={r.Profanity} mirror={(r.Mirror is true ? "true" : "false")}");
         return sb.ToString();
     }
 
-    public static string PlanHash(PlanV3 plan)
-        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CompactV3(plan)))).ToLowerInvariant();
+    private static string Kebab(RenderCategory c) => c.ToString().Replace('_', '-');
 
     private static string DescribeOwner(PlanItem i)
         => i.Value?["owner"]?.GetValue<string>() is { } o ? $", owner={o}" : "";
 
-    private static string DescribeRegister(RegisterVector r)
+    // ---- the two hashes (rev-2 §2) ------------------------------------------------------
+
+    /// <summary>Exact model-facing bytes. NOT safe to persist for plans containing
+    /// volatile/private text (content-derived) — see CorrelationTag.</summary>
+    public static string RenderPromptHash(PlanV3 plan)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CompactV3(plan)))).ToLowerInvariant();
+
+    /// <summary>
+    /// Canonical wire hash over the COMPLETE v3 document (extensions included), with the
+    /// text/value of volatile_turn_only items redacted to a fixed placeholder so the hash
+    /// derives nothing from low-entropy private content. Canonical JSON per RFC 8785
+    /// semantics for this document class: objects with ordinal (UTF-16 code unit) sorted
+    /// keys, no insignificant whitespace, shortest round-trip number formatting.
+    /// </summary>
+    public static string WirePlanHash(PlanV3 plan)
     {
-        var parts = new List<string>
+        var node = JsonNode.Parse(ToJson(plan))!.AsObject();
+        if (node["items"] is JsonArray items)
+            foreach (var i in items)
+                if (i?["retention"]?.GetValue<string>() == "volatile_turn_only")
+                {
+                    if (i["text"] is not null) i["text"] = "[volatile]";
+                    if (i["value"] is not null) i["value"] = "[volatile]";
+                }
+        var canonical = CanonicalJson(node);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
+    }
+
+    public static bool ContainsVolatile(PlanV3 plan)
+        => plan.Items.Any(i => i.Retention == Retention.volatile_turn_only);
+
+    /// <summary>
+    /// Redacted correlation for telemetry when content-derived identifiers are unsafe:
+    /// deployment-secret keyed HMAC-SHA256 with key-version metadata (rev-2 §3). Rows
+    /// store "v{version}:{tag}" — rotation changes the version, never exposes content.
+    /// </summary>
+    public static string CorrelationTag(PlanV3 plan, byte[] deploymentKey, int keyVersion)
+    {
+        using var hmac = new HMACSHA256(deploymentKey);
+        var tag = hmac.ComputeHash(Encoding.UTF8.GetBytes(CompactV3(plan)));
+        return $"v{keyVersion}:{Convert.ToHexString(tag).ToLowerInvariant()}";
+    }
+
+    /// <summary>Canonical JSON: ordinal-sorted keys, compact, invariant number formatting.</summary>
+    internal static string CanonicalJson(JsonNode? node)
+    {
+        var sb = new StringBuilder();
+        WriteCanonical(node, sb);
+        return sb.ToString();
+    }
+
+    private static void WriteCanonical(JsonNode? node, StringBuilder sb)
+    {
+        switch (node)
         {
-            $"warmth={r.Warmth}", $"bluntness={r.Bluntness}", $"playful={r.Playfulness}",
-            $"teasing={r.Teasing}", $"skepticism={r.Skepticism}", $"intensity={r.Intensity}",
-            $"verbosity={r.Verbosity}", $"profanity={r.Profanity}",
-            $"mirror={(r.Mirror is true ? "true" : "false")}",
-        };
-        if (r.LegacyStyle is { } ls)
-            parts.Add(ls);
-        return string.Join(" ", parts);
+            case null:
+                sb.Append("null");
+                break;
+            case JsonObject o:
+                sb.Append('{');
+                var first = true;
+                foreach (var kv in o.OrderBy(k => k.Key, StringComparer.Ordinal))
+                {
+                    if (!first) sb.Append(',');
+                    first = false;
+                    sb.Append(JsonSerializer.Serialize(kv.Key)).Append(':');
+                    WriteCanonical(kv.Value, sb);
+                }
+                sb.Append('}');
+                break;
+            case JsonArray a:
+                sb.Append('[');
+                for (var i = 0; i < a.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    WriteCanonical(a[i], sb);
+                }
+                sb.Append(']');
+                break;
+            case JsonValue v:
+                // Values may be element-backed (parsed) or CLR-backed (assigned in code,
+                // e.g. the volatile-redaction placeholder); canonicalize both identically.
+                if (v.TryGetValue<JsonElement>(out var el))
+                    sb.Append(el.ValueKind switch
+                    {
+                        JsonValueKind.Number when el.TryGetInt64(out var l)
+                            => l.ToString(CultureInfo.InvariantCulture),
+                        JsonValueKind.Number
+                            => el.GetDouble().ToString("R", CultureInfo.InvariantCulture),
+                        JsonValueKind.String => JsonSerializer.Serialize(el.GetString()),
+                        _ => el.GetRawText(),
+                    });
+                else if (v.TryGetValue<string>(out var str))
+                    sb.Append(JsonSerializer.Serialize(str));
+                else if (v.TryGetValue<bool>(out var b))
+                    sb.Append(b ? "true" : "false");
+                else if (v.TryGetValue<long>(out var l2))
+                    sb.Append(l2.ToString(CultureInfo.InvariantCulture));
+                else
+                    sb.Append(v.GetValue<double>().ToString("R", CultureInfo.InvariantCulture));
+                break;
+        }
+    }
+
+    // ---- protected v2 fallback (rev-2 §5) -----------------------------------------------
+
+    /// <summary>
+    /// Capability check BEFORE any v3→v2 translation: if translation would drop or weaken
+    /// any obligation or protection, the plan is not v2-compatible and must be routed to a
+    /// v3 renderer or fail diagnosed — never rendered knowingly incomplete. An INVALID v3
+    /// plan is never v2-compatible (invalidity does not launder into fallback).
+    /// </summary>
+    public static V2Compatibility CheckV2Compatibility(PlanV3 plan)
+    {
+        var reasons = new List<string>();
+
+        var structural = Validate(plan);
+        if (structural.Count > 0)
+            reasons.Add("plan is invalid; invalid v3 does not imply v2 is semantically safe");
+
+        foreach (var i in plan.Items)
+        {
+            if (i.Retention != Retention.full)
+                reasons.Add($"{i.Id}: retention={i.Retention} has no v2 carrier — protection would be silently lost");
+            if (i.Disclosure == Disclosure.restricted)
+                reasons.Add($"{i.Id}: restricted disclosure has no v2 carrier");
+        }
+        if (plan.RegisterRestrictions is { Count: > 0 })
+            reasons.Add("registerRestrictions have no enforceable v2 carrier");
+
+        return new V2Compatibility(reasons.Count == 0, reasons);
     }
 }

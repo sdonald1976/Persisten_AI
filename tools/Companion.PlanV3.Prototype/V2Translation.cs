@@ -12,6 +12,12 @@ public static class V2Translation
 {
     public static PlanV3 FromV2(ResponsePlan v2, string user = "Scott", string companion = "Ava")
     {
+        // Stable ids authorize; displays label (rev-2 §1). The v2 world is two-party.
+        var participants = new List<Participant>
+        {
+            new("usr-local", ParticipantRole.user, user),
+            new("companion-ava", ParticipantRole.companion, companion),
+        };
         var items = new List<PlanItem>();
         var n = 0;
         string NextId(string prefix) => $"{prefix}{++n}";
@@ -99,7 +105,7 @@ public static class V2Translation
         return new PlanV3
         {
             TraceId = v2.TraceId,
-            Participants = new Participants(user, companion),
+            Participants = participants,
             Act = v2.Act.ToKebab(),
             Question = new QuestionPolicyBlock(
                 v2.Question is { Mandatory: true } ? QuestionPolicy.ask_required
@@ -122,7 +128,22 @@ public static class V2Translation
     /// (v2 has no safe carrier); reconstructs the v2 record so that CompactV2 output
     /// is byte-identical for round-tripped plans.
     /// </summary>
-    public static ResponsePlan ToV2(PlanV3 v3)
+    /// <summary>
+    /// Guarded translation (rev-2 §5): refuses when any obligation or protection would be
+    /// dropped or weakened — the caller must route to a v3 renderer or fail diagnosed,
+    /// never render knowingly incomplete.
+    /// </summary>
+    public static ResponsePlan TranslateToV2(PlanV3 v3)
+    {
+        var compat = PlanV3Codec.CheckV2Compatibility(v3);
+        return compat.Compatible
+            ? ToV2(v3)
+            : throw new InvalidOperationException(
+                "not v2-compatible: " + string.Join("; ", compat.Reasons));
+    }
+
+    /// <summary>Unguarded core, exposed for round-trip testing only.</summary>
+    internal static ResponsePlan ToV2(PlanV3 v3)
     {
         var acks = new List<Acknowledgment>();
         var content = new List<PlannedContent>();
