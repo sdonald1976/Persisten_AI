@@ -1,0 +1,521 @@
+{
+ "name": "twenty-questions-regression",
+ "source": "real conversation, 2026-08-24, anonymized per docs/RENDERER_SHADOW.md §2 (pre-game small talk removed, ids stripped)",
+ "whatItTests": "conversational working-state retention across a structured activity longer than the recency window",
+ "observedFailures": [
+  "moving-parts asked three times (Q6, Q12 variant, Q13)",
+  "texture Yes (Q11) restated as No two turns later",
+  "practical-Yes (Q4) + aesthetic-No (Q9) drifted into 'perhaps decorative' by Q13's summary",
+  "asker role and question budget forgotten; control handed back after ~15 questions"
+ ],
+ "routing": "every displayed reply was production Stheno; the tuned renderer displayed nothing in this conversation",
+ "turns": [
+  {
+   "role": "user",
+   "text": "Oooooh Let's play 20 questions :)",
+   "expectedRetainedState": {}
+  },
+  {
+   "role": "assistant",
+   "text": "Sounds delightful! I'll start by asking yes-or-no questions to try to guess a person, place, or thing you're thinking of. Here's my first question:\n\nIs the entity you're considering something that exists in the physical world?",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1728,
+   "expectedRetainedState": {}
+  },
+  {
+   "role": "user",
+   "text": "Yes",
+   "establishes": {
+    "exists physically": true
+   },
+   "expectedRetainedState": {
+    "exists physically": true
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Excellent! With your affirmative response indicating that the entity exists in the physical world, my next question is:\n\nIs this person, place or thing something that a human can visit or interact with directly (in contrast to purely virtual concepts)?\n\nPlease respond with another simple \"Yes\" or \"No\".",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1600,
+   "expectedRetainedState": {
+    "exists physically": true
+   }
+  },
+  {
+   "role": "user",
+   "text": "Yes",
+   "establishes": {
+    "directly interactable": true
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "With your \"Yes\" confirming the entity can be visited or interacted with physically by humans, my next 20 questions query is:\n\nIs this something man-made (created by human ingenuity and craftsmanship)?\n\nPlease respond again with a simple \"Yes\" or \"No\". I'm intrigued to learn more about what you're thinking of!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1721,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true
+   }
+  },
+  {
+   "role": "user",
+   "text": "Yes",
+   "establishes": {
+    "man-made": true
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "With your affirmative response indicating the entity is man-made (created by human ingenuity), my next 20 questions query is:\n\nIs this object something that serves a practical or functional purpose, as opposed to being primarily decorative or artistic? \n\nPlease respond again with another simple \"Yes\" or \"No\". I'm curious about the nature of what you're thinking of!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1973,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true
+   }
+  },
+  {
+   "role": "user",
+   "text": "Yes",
+   "establishes": {
+    "practical, not decorative": true
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Excellent, your affirmative response suggests this object serves a practical purpose. With that in mind, my next question:\n\nIs it something typically found indoors within human habitations or places of work? Please respond with another simple \"Yes\" or \"No\". I'm eager to refine the scope of what you're thinking of!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1445,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true
+   }
+  },
+  {
+   "role": "user",
+   "text": "Yes",
+   "establishes": {
+    "found indoors": true
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Aha, so your object is likely something commonly used within human environments. Next question:\n\nDoes it have moving parts or mechanical components that facilitate its function? Please respond with a simple \"Yes\" or \"No\". I'm intrigued by the prospect of a man-made tool!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1449,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true
+   }
+  },
+  {
+   "role": "user",
+   "text": "No",
+   "establishes": {
+    "has moving parts": false
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Your negative response suggests the object lacks moving parts or mechanical components. Given it serves a practical purpose indoors, my next question:\n\nIs this man-made object relatively small in scale, fitting comfortably on a typical human workspace like a desk? Please respond with another simple \"Yes\" or \"No\". I'm trying to narrow down what you're thinking of!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1576,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false
+   }
+  },
+  {
+   "role": "user",
+   "text": "Yes",
+   "establishes": {
+    "small / desk-scale": true
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "The fact that your object is man-made, practical for indoor use, and small in scale points towards it being a tool or instrument. My next question:\n\nDoes this object have an obvious purpose tied to productivity, organization, or creative work when used by humans? For example, writing instruments like pens/pencils often serve this function. Please respond with another simple \"Yes\" or \"No\". I'm curious about its primary use case!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1434,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true
+   }
+  },
+  {
+   "role": "user",
+   "text": "No",
+   "establishes": {
+    "tied to productivity/creative work": false
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Your negative response indicates the object's purpose isn't directly tied to productivity, organization, or creative work. Given it still serves a practical function indoors and is small in scale, my next question:\n\nDoes this man-made indoor object have a distinct sensory property or aesthetic appeal that makes it desirable for humans? For instance, an attractive decorative vase might serve no functional use but be valued aesthetically. Please respond with another simple \"Yes\" or \"No\". I'm trying to broaden the scope of possibilities!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1470,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false
+   }
+  },
+  {
+   "role": "user",
+   "text": "No",
+   "establishes": {
+    "notable aesthetic/sensory appeal": false
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Your response suggests the object lacks distinct sensory properties or aesthetic appeal that would make it desirable as a decorative item. Given its small, practical nature indoors and no obvious ties to productivity, my next question:\n\nIs this indoor man-made object commonly found in living spaces like homes for functional purposes unrelated to work or organization? For example, items used during leisure activities might fit this category. Please respond with another simple \"Yes\" or \"No\". I'm exploring its potential household applications!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1516,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false
+   }
+  },
+  {
+   "role": "user",
+   "text": "Yes",
+   "establishes": {
+    "household/leisure context": true
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Your affirmative response aligns well with my hypothesis that the object serves a functional, everyday purpose indoors. Given it's man-made and small in scale, I can infer:\n\nThe object likely has widespread use or familiarity within households for its intended practical function.\n\nThis could mean common usage during daily routines, perhaps tied to personal care or hygiene habits. Alternatively, the item might facilitate social interactions, entertainment, or relaxation activities that take place primarily indoors.\n\nTo better refine our understanding of this object's nature and uses, my next question is:\n\nDoes this indoor man-made tool have a distinct texture or material composition compared to most everyday objects when handled by humans? For example, some items like sponges or scrubbers may feature coarser textures for their intended cleaning purposes. Please respond with another simple \"Yes\" or \"No\". I'm curious about its tactile properties!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1530,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true
+   }
+  },
+  {
+   "role": "user",
+   "text": "Yes",
+   "establishes": {
+    "distinct texture": true
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true,
+    "distinct texture": true
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Your affirmative response suggests the object has a distinct texture or material that differs from many other common handled items. This tactile characteristic could be due to its surface finish, flexibility, absorbency, or some other property.\n\nGiven this information about the object's practical use indoors and unique handling feel:\n\nIt may serve as an assistive tool for individuals with certain abilities or conditions - perhaps aiding those with limited grip strength, dexterity issues, or sensory sensitivities. The unusual texture could also provide a functional benefit like improved traction or control during usage.\n\nHowever, without further details about the object's appearance and function, it remains unclear how exactly its material properties contribute to its purpose.\n\nMy next question aims to shed more light on this:\n\nDoes this indoor tool have movable parts or components that can be adjusted by humans for customized use? For instance, some objects like pens or scissors feature removable tips or adjustable settings to accommodate different users' needs. Please respond with another simple \"Yes\" or \"No\". I'm trying to understand the full extent of its design and functionality!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1588,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true,
+    "distinct texture": true
+   }
+  },
+  {
+   "role": "user",
+   "text": "No",
+   "establishes": {
+    "adjustable/movable components": false
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true,
+    "distinct texture": true,
+    "adjustable/movable components": false
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Given your response, I understand that the indoor man-made object does NOT have a distinct texture or material composition compared to most everyday objects when handled by humans. This insight helps refine our understanding of its nature and uses.\n\nWithout this unusual tactile characteristic, it's likely the object still serves practical purposes indoors but perhaps in more common ways - like utensils, appliances, furniture, or decor items that don't stand out for their feel during handling.\n\nTo continue exploring its possible applications within households, my next question is:\n\nDoes this indoor man-made tool have moving parts or mechanisms that enable it to perform a specific action when used by humans? For instance, some objects like can openers, scissors, or light switches feature components that move in response to human input. Please respond with either \"Yes\" or \"No\". I'm trying to determine if the object's functionality relies on any mechanical aspects!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1634,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true,
+    "distinct texture": true,
+    "adjustable/movable components": false
+   }
+  },
+  {
+   "role": "user",
+   "text": "No",
+   "establishes": {
+    "has moving parts (re-asked)": false
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true,
+    "distinct texture": true,
+    "adjustable/movable components": false,
+    "has moving parts (re-asked)": false
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Given your response, I understand that the indoor man-made object does NOT have moving parts or mechanisms to facilitate a specific action when used by humans. This insight helps narrow down its possible functions.\n\nWithout this characteristic of having operational bits, it's likely the object is more of an inanimate item - perhaps serving decorative purposes, storage containers, placemats, wall hangings, or other static elements within households rather than actively performing tasks.\n\nTo further explore its indoor role and nature:\n\nDoes this decorative or utilitarian man-made object emit light when powered on? For instance, some items like lamps, nightlights, candles (with electric components), string lights etc. give off illumination upon activation.",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1684,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true,
+    "distinct texture": true,
+    "adjustable/movable components": false,
+    "has moving parts (re-asked)": false
+   }
+  },
+  {
+   "role": "user",
+   "text": "No",
+   "establishes": {
+    "emits light": false
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true,
+    "distinct texture": true,
+    "adjustable/movable components": false,
+    "has moving parts (re-asked)": false,
+    "emits light": false
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Given your response that the indoor man-made object does not emit light when powered on, it helps rule out possibilities like lamps or nightlights.\n\nSo far, we've established:\n\n- It's an indoor man-made object commonly handled by humans.\n- Its texture and material composition feel ordinary compared to many everyday items.\n- It doesn't have moving parts or mechanisms for a specific function.\n- And does not emit light when powered on.\n\nWith these characteristics in mind, my next question is:\nDoes this indoor object require any external power source like electricity, batteries, fuel, etc. to fulfill its intended purpose? Or can it be used solely by human effort without additional energy input?",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1678,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true,
+    "distinct texture": true,
+    "adjustable/movable components": false,
+    "has moving parts (re-asked)": false,
+    "emits light": false
+   }
+  },
+  {
+   "role": "user",
+   "text": "No",
+   "establishes": {
+    "needs external power": false
+   },
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true,
+    "distinct texture": true,
+    "adjustable/movable components": false,
+    "has moving parts (re-asked)": false,
+    "emits light": false,
+    "needs external power": false
+   }
+  },
+  {
+   "role": "assistant",
+   "text": "Given your response \"no\", I interpret that the indoor object does not require any external power source like electricity, batteries, fuel etc. to fulfill its intended purpose. It can be used solely by human effort without additional energy input.\n\nNow we've covered whether it's handheld, texture/material, moving parts/mechanisms and power requirements - all pointing towards a static inanimate item commonly found indoors for decorative or storage purposes rather than something needing operation. \n\nWhat would you like to further explore about this indoor object? Its size perhaps, common placement within the home, or other distinguishing characteristics that might help narrow down its specific identity? I'm here to discuss and learn with you!",
+   "modelUsed": "hf.co/bartowski/L3-8B-Stheno-v3.2-GGUF:Q4_K_M",
+   "promptTokens": 1754,
+   "expectedRetainedState": {
+    "exists physically": true,
+    "directly interactable": true,
+    "man-made": true,
+    "practical, not decorative": true,
+    "found indoors": true,
+    "has moving parts": false,
+    "small / desk-scale": true,
+    "tied to productivity/creative work": false,
+    "notable aesthetic/sensory appeal": false,
+    "household/leisure context": true,
+    "distinct texture": true,
+    "adjustable/movable components": false,
+    "has moving parts (re-asked)": false,
+    "emits light": false,
+    "needs external power": false
+   }
+  }
+ ]
+}
