@@ -8,11 +8,17 @@ ROOT = Path(__file__).parent
 DEST = ROOT / "models" / "Qwen2.5-3B-Instruct"
 REPO = "Qwen/Qwen2.5-3B-Instruct"
 
-info = HfApi().model_info(REPO)
-print(f"{REPO} @ {info.sha}")
-path = snapshot_download(REPO, revision=info.sha, local_dir=DEST)
-print(f"downloaded -> {path}")
+# An existing pin wins: on a second machine this reproduces the EXACT base the
+# adapters were trained against, rather than whatever HF is serving today.
+pin_file = ROOT / "dataset" / "base-model-pin.json"
+if pin_file.exists():
+    revision = json.loads(pin_file.read_text(encoding="utf-8"))["revision"]
+    print(f"{REPO} @ {revision} (from existing pin)")
+else:
+    revision = HfApi().model_info(REPO).sha
+    print(f"{REPO} @ {revision} (latest; pinning it now)")
+    pin_file.write_text(json.dumps({"repo": REPO, "revision": revision}, indent=2) + "\n",
+                        encoding="utf-8")
 
-pin = {"repo": REPO, "revision": info.sha}
-(ROOT / "dataset" / "base-model-pin.json").write_text(json.dumps(pin, indent=2) + "\n", encoding="utf-8")
-print(f"pinned: {pin}")
+path = snapshot_download(REPO, revision=revision, local_dir=DEST)
+print(f"downloaded -> {path}")
