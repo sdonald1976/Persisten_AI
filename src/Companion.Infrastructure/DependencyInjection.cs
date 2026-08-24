@@ -418,6 +418,10 @@ public static class DependencyInjection
         // The brain facade every face (CLI, HTTP, voice, avatar) drives the companion through.
         services.AddScoped<IAgent, Agent>();
 
+        // Shadow-isolated activity branch store (Source 1b). Singleton: it scopes its own
+        // DbContext per operation, like the other telemetry stores.
+        services.AddSingleton<IActivityBranchStore, Persistence.ActivityBranchStore>();
+
         services.AddScoped<Seeding.CompanionSeeder>();
 
         return services;

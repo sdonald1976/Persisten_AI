@@ -393,9 +393,35 @@ never a Cartesian product; the procedure audit is explicit and tested).
   final-guess lifecycle are IMPLEMENTED and unit-proven, including a complete
   simulated session that reaches a correct open-domain guess appearing in no
   hard-coded list. STILL PENDING: the shadow-isolated persistent store, the
-  real turn-path assembly call site, activation resolution from a live user
-  request, LifeRunner-driven session volume, labeled shadow rows, and
-  diagnostics/forget wiring. Design: `SOURCE1B_SELECTOR_DESIGN.md`. "Integrated" requires at least one native plan assembled through
+  real turn-path assembly call site and LifeRunner-driven session volume.
+
+  **Counterfactual resolution (the key correctness result):** natural shadow
+  has two realities. The user answers the question PRODUCTION displayed; the
+  native strategy meanwhile selects a question nobody saw. Binding the real
+  answer to the undisplayed native question would fabricate evidence, so
+  branches are typed — `ProductionObserved` (diagnostic only, never parsed
+  into native training targets), `CounterfactualNative` (records the branch
+  point, the proposed move, and its validation; may NEVER consume a
+  subsequent user answer and is never reportable as a completed natural
+  session), and `Simulated` (its moves ARE displayed to a simulated user, so
+  its answers bind legally, labeled simulated and never natural). Every move
+  carries a disposition — observed_displayed / counterfactual_not_displayed /
+  simulated_displayed — the displayed renderer, the displayed question id,
+  and a bindability flag derived from all of it.
+
+  Also landed: the shadow-isolated persistent store (`ActivityBranches`,
+  purely additive migration — its only DropTable is the Down() of the new
+  table) with per-user/conversation isolation, optimistic concurrency,
+  per-input idempotency keys that return the existing transition on duplicate
+  delivery, terminal/age cleanup, and `/forget`; retention enforced AT the
+  persistence boundary so a volatile branch keeps metadata, loses content,
+  and sets ContentWithheld — restart-resume diagnosed unavailable rather
+  than retention silently weakened; and activation resolved through the REAL
+  Procedure store, requiring an explicit request plus exactly one match, with
+  ambiguity yielding clarification and no match a diagnosed non-activation.
+  Subject matter never affects any of it: an activity whose hypothesis is
+  "a dildo" persists exactly like any other, because classification and
+  disclosure decide, not topic. Design: `SOURCE1B_SELECTOR_DESIGN.md`. "Integrated" requires at least one native plan assembled through
   the real turn-path integration AND persisted through the native shadow
   recorder; that has not happened. Inspection complete and the item-5 stop
   condition reached — no question selector exists in production, so the

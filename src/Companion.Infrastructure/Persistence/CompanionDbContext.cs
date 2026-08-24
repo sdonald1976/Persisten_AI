@@ -52,6 +52,10 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<ConceptAssertion> ConceptAssertions => Set<ConceptAssertion>();
     public DbSet<ShadowComparison> ShadowComparisons => Set<ShadowComparison>();
 
+    /// <summary>Shadow-isolated activity branches (docs/SOURCE1B_SELECTOR_DESIGN.md).
+    /// New table; the migration touches no production procedure row.</summary>
+    public DbSet<ActivityBranchRecord> ActivityBranches => Set<ActivityBranchRecord>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // SQLite can't ORDER BY / compare DateTimeOffset directly. This built-in converter
@@ -62,6 +66,14 @@ public sealed class CompanionDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder b)
     {
+
+        // Shadow activity branches: unique branch id, conversation lookup, cleanup scan.
+        b.Entity<ActivityBranchRecord>(e =>
+        {
+            e.HasIndex(x => x.BranchId).IsUnique();
+            e.HasIndex(x => new { x.UserId, x.ConversationId });
+            e.HasIndex(x => x.TerminalAt);
+        });
         b.Entity<ModelCallRecord>(e =>
         {
             e.HasKey(x => x.Id);
