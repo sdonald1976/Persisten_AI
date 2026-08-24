@@ -477,8 +477,34 @@ never a Cartesian product; the procedure audit is explicit and tested).
   produces a cancellation, so those three scenarios are constructed rather than
   live; and cognition has no general typed channel for "this result is required
   in the reply" beyond the nudge tier.
-- Sources 3–5 (persona/preferences, mood/relationship/working-context,
-  world/vision/embodiment) — NOT STARTED.
+- **Source 3 — COMPLETE**: explicit user preferences reach the native plan
+  through a real structured layer. The inspection (`SOURCE3_PERSONA_INSPECTION.md`)
+  found the stop condition on all three counts — no identity, no precedence, no
+  revocation — and the approved amendments shaped the fix:
+  `UserPreferenceRecord` (stable id, closed dimension/value, global scope,
+  evidence, insert-and-link lifecycle), a closed six-pattern command
+  interpreter at the REAL AdjustStyle path (routing untouched; ambiguity
+  creates nothing), a pure order-independent resolver whose report carries no
+  preference text, and two SEPARATE authorities — user records vote under
+  `user-preference.*` with record-id evidence, hosting configuration votes
+  under `hosting-config.*` with config-path evidence, and the assembler's
+  contract precedence (§5.4: user above hosting) decides between them with
+  both recorded. Register preferences are votes; expression restrictions are
+  must_not_express notes under `user-preference.expression-restriction.`
+  (the one new grant). "You can swear again" REVOKES "don't swear" —
+  deactivation with its own evidence, never a competing record. `/forget`
+  invalidates preferences whose evidence was forgotten and purges their
+  statements, wired at the real MemoryCurator path. Ava's tastes
+  (`CompanionPreference`) and the legacy persona blob are untouched —
+  descriptive only, never parsed, never restriction-bearing. Nothing is ever
+  inferred from sentiment, subject matter, or repetition. Results, live vs
+  constructed, and blockers: `SOURCE3_RESULTS.md`.
+
+  STILL MISSING: live capture for expression restrictions and for
+  bare-phrasing commands (both cognition-layer, deliberately not simulated
+  with routing regexes); a live `stored-message` evidence producer.
+- Sources 4–5 (mood/relationship/working-context, world/vision/embodiment)
+  — NOT STARTED.
 
 **Remaining roadmap:**
 - Corpus freeze only after native V3 plans exist and pass shadow validation.

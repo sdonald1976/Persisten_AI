@@ -113,7 +113,17 @@ public static class SourceRegistry
             Cap("mood", "derived", [], register: true),
             Cap("working-context-register", "derived", [], register: true),
             Cap("mirror", "observed", [], register: true),
-            Cap("user-preference", "told-by-user", [], register: true, restrictions: true),
+            // Source 3: register authority (with restriction power) as before, plus the
+            // ONE item shape a user preference can take — an expression restriction,
+            // scoped to its exact reason prefix and requiring the preference record's id
+            // as evidence. Still no way to put an ordinary word into the plan.
+            Cap("user-preference", "told-by-user",
+            [
+                G(RenderCategory.note, ExpressionPolicy.must_not_express,
+                    "an explicit stored user instruction not to raise a subject",
+                    reasonPrefix: "user-preference.expression-restriction.",
+                    origins: ["told-by-user"], evidence: true),
+            ], register: true, restrictions: true),
             Cap("hosting-config", "derived", [], register: true, restrictions: true),
         }
         .ToDictionary(c => c.SourceId);

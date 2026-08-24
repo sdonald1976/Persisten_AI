@@ -16,13 +16,15 @@ public sealed class MemoryCurator : IMemoryCurator
     private readonly TimeProvider _clock;
     private readonly ILogger<MemoryCurator> _logger;
     private readonly IShadowRecorder? _shadow;
+    private readonly IUserPreferenceStore? _userPreferences;
 
     public MemoryCurator(
         IMemoryStore memories,
         IEmbeddingModel embeddings,
         TimeProvider clock,
         ILogger<MemoryCurator> logger,
-        IShadowRecorder? shadow = null)
+        IShadowRecorder? shadow = null,
+        IUserPreferenceStore? userPreferences = null)
     {
         _memories = memories;
         _embeddings = embeddings;
@@ -32,6 +34,7 @@ public sealed class MemoryCurator : IMemoryCurator
         // Optional, like every other measurement seam here: the curator's job is the memory, and a
         // telemetry table that is not switched on must not be something it has to have.
         _shadow = shadow;
+        _userPreferences = userPreferences;
     }
 
     public async Task SupersedeSemanticAsync(
@@ -106,11 +109,13 @@ public sealed class MemoryCurator : IMemoryCurator
     {
         // The excerpts are read BEFORE the status changes, because they are the only handle on the
         // sentences this memory came from and nothing guarantees they stay reachable afterwards.
-        List<string> excerpts = [];
+        // Read unconditionally now: preference invalidation (Source 3) needs the same handles
+        // whether or not the shadow recorder is on.
+        var evidence = await _memories.GetEvidenceAsync(userId, memoryId, ct);
+        var evidenceMessageIds = evidence.Select(e => e.MessageId).Distinct().ToList();
+        List<string> excerpts = evidence.Select(e => e.Excerpt).ToList();
         if (_shadow is { IsRecording: true })
         {
-            excerpts = (await _memories.GetEvidenceAsync(userId, memoryId, ct))
-                .Select(e => e.Excerpt).ToList();
 
             // The id too: pair-capture rows (memory.supersession.pair) reference the stored memory
             // by id rather than by its evidence — the excerpts in a pair row are the user's words
@@ -134,6 +139,18 @@ public sealed class MemoryCurator : IMemoryCurator
             if (removed > 0)
                 _logger.LogInformation(
                     "Forgetting {MemoryId} also removed {Count} captured sentences.", memoryId, removed);
+        }
+
+        // Source 3: a preference whose authority depended on this evidence loses it now —
+        // deactivated (EvidenceForgotten) and its statement purged, so the forgotten text
+        // does not linger in the preference table either.
+        if (forgotten && _userPreferences is not null)
+        {
+            var invalidated = await _userPreferences.InvalidateByForgottenEvidenceAsync(
+                userId, excerpts, evidenceMessageIds, _clock.GetUtcNow(), ct);
+            if (invalidated > 0)
+                _logger.LogInformation(
+                    "Forgetting {MemoryId} also invalidated {Count} user preferences.", memoryId, invalidated);
         }
 
         return forgotten;

@@ -32,6 +32,7 @@ public sealed class Companion : ICompanion
     private readonly SafetyOptions _safety;
     private readonly IShadowRecorder _shadow;
     private readonly IRendererShadow _rendererShadow;
+    private readonly IUserPreferenceStore? _userPreferences;
     private readonly ICognitiveCapture _capture;
     private readonly IDiagnosticsStore? _diagnostics;
     private readonly IConceptKnowledge? _concepts;
@@ -101,12 +102,14 @@ public sealed class Companion : ICompanion
         IDiagnosticsStore? diagnostics = null,
         IConceptKnowledge? concepts = null,
         IGapStore? gaps = null,
-        IRendererShadow? rendererShadow = null)
+        IRendererShadow? rendererShadow = null,
+        IUserPreferenceStore? userPreferences = null)
     {
         _gate = gate ?? new AlwaysOpenGate();
         _safety = safety?.Value ?? new SafetyOptions();
         _shadow = shadow ?? new NoShadowRecorder();
         _rendererShadow = rendererShadow ?? new NullRendererShadow();
+        _userPreferences = userPreferences;
         _capture = capture ?? new NoCognitiveCapture();
         _diagnostics = diagnostics;
         _concepts = concepts;
@@ -658,23 +661,46 @@ public sealed class Companion : ICompanion
         // unexecuted call contributes nothing, a failure can only be acknowledged, and nothing
         // reaches must_express without a planner disposition. Shadow evidence only: the
         // production packet, the reply, and run-1c are untouched either way.
-        if (nativeV3 is not null && toolOutcome.TypedOutcomes.Count > 0)
+        if (nativeV3 is not null)
         {
             try
             {
-                var toolContext = new global::Companion.PlanV3.PlanContributionContext(
-                    traceId, plan.Act.ToKebab(), promptText, userId, "companion-ava", sensitive);
-                var report = global::Companion.PlanV3.PlanV3Assembler.Assemble(
-                    toolContext,
-                    [
-                        new global::Companion.PlanV3.ToolOutcomeContributor(toolOutcome.TypedOutcomes),
-                        new global::Companion.PlanV3.ToolAuthorizationContributor(toolOutcome.TypedOutcomes),
-                    ],
-                    global::Companion.PlanV3.SourceRegistry.Default,
-                    nativeV3);
-                nativeV3 = report.Plan;
-                nativeAssembly = report;
-                nativeLintRejections = [.. nativeLintRejections, .. report.LintRejections];
+                var contributors = new List<global::Companion.PlanV3.IPlanV3Contributor>();
+                if (toolOutcome.TypedOutcomes.Count > 0)
+                {
+                    contributors.Add(new global::Companion.PlanV3.ToolOutcomeContributor(toolOutcome.TypedOutcomes));
+                    contributors.Add(new global::Companion.PlanV3.ToolAuthorizationContributor(toolOutcome.TypedOutcomes));
+                }
+
+                // Source 3 (docs/SOURCE3_PREFERENCE_PLAN.md): the user's explicit standing
+                // preferences, read from the store on this shadow-gated path only. Register
+                // preferences vote; expression restrictions become must_not_express notes;
+                // every one cites its record id as evidence. Hosting configuration votes as
+                // its OWN authority so a deployment restriction can never masquerade as
+                // something the user asked for.
+                if (_userPreferences is not null)
+                {
+                    var activePreferences = await _userPreferences.GetActiveAsync(userId, ct);
+                    if (activePreferences.Count > 0)
+                        contributors.Add(new global::Companion.PlanV3.UserPreferenceContributor(activePreferences));
+                }
+                if (_options.HostingRegisterRestrictions.Count > 0)
+                    contributors.Add(new global::Companion.PlanV3.HostingConfigContributor(
+                        _options.HostingRegisterRestrictions));
+
+                if (contributors.Count > 0)
+                {
+                    var toolContext = new global::Companion.PlanV3.PlanContributionContext(
+                        traceId, plan.Act.ToKebab(), promptText, userId, "companion-ava", sensitive);
+                    var report = global::Companion.PlanV3.PlanV3Assembler.Assemble(
+                        toolContext,
+                        contributors,
+                        global::Companion.PlanV3.SourceRegistry.Default,
+                        nativeV3);
+                    nativeV3 = report.Plan;
+                    nativeAssembly = report;
+                    nativeLintRejections = [.. nativeLintRejections, .. report.LintRejections];
+                }
             }
             catch (Exception ex)
             {
@@ -683,14 +709,15 @@ public sealed class Companion : ICompanion
                 nativeBuildError = $"{ex.GetType().Name}: {Truncate(ex.Message, 120)}";
                 _logger.LogDebug(ex, "Native v3 tool assembly failed for {TraceId}; production unaffected.", traceId);
             }
-            decisions.Add(new DecisionRecord
-            {
-                Stage = "plan.native-v3.tools", Decider = "rule",
-                Verdict = nativeAssembly is null ? "failed"
-                    : $"accepted={nativeAssembly.Accepted}|rejected={nativeAssembly.Rejected}",
-                Reason = nativeAssembly?.AuthorityViolations.Count > 0
-                    ? $"violations:{nativeAssembly.AuthorityViolations.Count}" : nativeBuildError,
-            });
+            if (nativeAssembly is not null || nativeBuildError is not null)
+                decisions.Add(new DecisionRecord
+                {
+                    Stage = "plan.native-v3.tools", Decider = "rule",
+                    Verdict = nativeAssembly is null ? "failed"
+                        : $"accepted={nativeAssembly.Accepted}|rejected={nativeAssembly.Rejected}",
+                    Reason = nativeAssembly?.AuthorityViolations.Count > 0
+                        ? $"violations:{nativeAssembly.AuthorityViolations.Count}" : nativeBuildError,
+                });
         }
 
         // The user-scoped renderer canary (docs/RENDERER_SHADOW.md §8): on this user's

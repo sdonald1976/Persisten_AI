@@ -56,6 +56,10 @@ public sealed class CompanionDbContext : DbContext
     /// New table; the migration touches no production procedure row.</summary>
     public DbSet<ActivityBranchRecord> ActivityBranches => Set<ActivityBranchRecord>();
 
+    /// <summary>Source 3: explicit user-owned standing preferences. Distinct from
+    /// CompanionPreferences (Ava's tastes) by design, not just by name.</summary>
+    public DbSet<UserPreferenceRecord> UserPreferences => Set<UserPreferenceRecord>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // SQLite can't ORDER BY / compare DateTimeOffset directly. This built-in converter
@@ -73,6 +77,21 @@ public sealed class CompanionDbContext : DbContext
             e.HasIndex(x => x.BranchId).IsUnique();
             e.HasIndex(x => new { x.UserId, x.ConversationId });
             e.HasIndex(x => x.TerminalAt);
+        });
+        // Source 3: explicit user preferences. The hot query is "active records for one
+        // user" (every observed turn on the shadow path).
+        b.Entity<UserPreferenceRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(100);
+            e.Property(x => x.Dimension).HasMaxLength(40);
+            e.Property(x => x.Value).HasMaxLength(40);
+            e.Property(x => x.Subject).HasMaxLength(200);
+            e.Property(x => x.Scope).HasMaxLength(40);
+            e.Property(x => x.EvidenceKind).HasMaxLength(30);
+            e.Property(x => x.EvidenceStatement).HasMaxLength(500);
+            e.Property(x => x.RevocationStatement).HasMaxLength(500);
+            e.HasIndex(x => new { x.UserId, x.Status });
         });
         b.Entity<ModelCallRecord>(e =>
         {

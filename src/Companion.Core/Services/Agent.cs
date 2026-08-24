@@ -28,6 +28,7 @@ public sealed class Agent : IAgent
     private readonly IReflectionStore _reflections;
     private readonly ICompanionStateTracker _innerState;
     private readonly IVoiceRephraser _voice;
+    private readonly IUserPreferenceStore _userPreferences;
     private readonly TimeProvider _clock;
 
     public Agent(
@@ -45,6 +46,7 @@ public sealed class Agent : IAgent
         IReflectionStore reflections,
         ICompanionStateTracker innerState,
         IVoiceRephraser voice,
+        IUserPreferenceStore userPreferences,
         TimeProvider clock)
     {
         _intents = intents;
@@ -61,6 +63,7 @@ public sealed class Agent : IAgent
         _reflections = reflections;
         _innerState = innerState;
         _voice = voice;
+        _userPreferences = userPreferences;
         _clock = clock;
     }
 
@@ -404,6 +407,36 @@ public sealed class Agent : IAgent
 
         if (string.IsNullOrWhiteSpace(directive))
             return AgentReply.Act(IntentKind.AdjustStyle, "Tell me how you'd like me to sound.");
+
+        // Source 3: an explicit, unambiguously-readable command ALSO becomes a structured
+        // preference record — the closed interpreter is the only judge, and anything it
+        // declines stays legacy-blob-only exactly as before. A revocation deactivates the
+        // standing preference; it never creates a competing one.
+        var command = PreferenceCommands.Interpret(directive);
+        if (command is { Action: PreferenceCommands.CommandAction.Revoke })
+        {
+            var revoked = await _userPreferences.RevokeAsync(
+                userId, UserPreferenceKind.Register, "global", command.Dimension,
+                _clock.GetUtcNow(), evidenceMessageId: null,
+                revocationStatement: directive.Trim(), ct);
+            return AgentReply.Act(IntentKind.AdjustStyle, revoked is null
+                ? "There wasn't a standing rule about that — so we're already there."
+                : $"Done — the standing \"{command.Dimension}\" rule is lifted.");
+        }
+        if (command is { Action: PreferenceCommands.CommandAction.Set })
+        {
+            await _userPreferences.StateAsync(new UserPreferenceRecord
+            {
+                UserId = userId,
+                Kind = UserPreferenceKind.Register,
+                Dimension = command.Dimension,
+                Value = command.Value!,
+                Restrictive = command.Restrictive,
+                StatedAt = _clock.GetUtcNow(),
+                EvidenceKind = "direct-instruction",
+                EvidenceStatement = directive.Trim(),
+            }, ct);
+        }
 
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var line = "- " + char.ToUpper(directive[0], CultureInfo.InvariantCulture) + directive[1..].TrimEnd('.') + ".";

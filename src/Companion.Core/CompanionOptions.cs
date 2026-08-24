@@ -184,6 +184,15 @@ public sealed class CompanionOptions
     /// </summary>
     public RendererShadowOptions RendererShadow { get; set; } = new();
 
+    /// <summary>
+    /// Source 3: deployment-imposed register restrictions (dimension -> closed-set value,
+    /// e.g. "profanity" -> "avoid"). A SEPARATE authority from user preferences: it votes
+    /// under hosting-config.* with a configuration-path evidence reference and can never
+    /// masquerade as something the user asked for. Empty by default — nothing is
+    /// restricted unless an operator explicitly configures it.
+    /// </summary>
+    public Dictionary<string, string> HostingRegisterRestrictions { get; set; } = [];
+
     /// <summary>Hard ceiling on tool executions in one turn (identical repeats stop earlier).</summary>
     public int MaxToolCallsPerTurn { get; set; } = 3;
 
