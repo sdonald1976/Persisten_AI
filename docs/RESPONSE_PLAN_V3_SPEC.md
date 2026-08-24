@@ -345,7 +345,7 @@ A failed native build records a content-safe diagnostic and production
 continues unchanged (tested). V3 remains parallel shadow evidence — NOT
 authoritative — until a separately approved migration.
 
-**P5 (implemented): the contribution boundary.** `IPlanV3Contributor` lets any
+**P5a (complete): the contribution framework — synthetic proof only.** `IPlanV3Contributor` lets any
 subsystem PROPOSE typed facts/state; `PlanV3Assembler` alone grants authority —
 validating provenance, approving/downgrading/rejecting each proposed policy
 against a registered `SourceCapability`, resolving register conflicts by family
@@ -371,6 +371,12 @@ user-preference, relationship, mood, working-context, mirror) that resolve
 off-diagonal personalities — warm+blunt, tender+terse, cold+playful,
 skeptical+calm, and all four profanity modes — without collapsing to
 "friendly". `PlanV3Builder` did not grow: new organs arrive as contributors.
+
+**Status honesty:** P5a is the FRAMEWORK plus synthetic proof. No live organ
+is integrated: the procedure/tool/world/persona subsystems do not yet emit
+contributions, no native plan has been assembled from a real turn, and the
+register votes exercised in tests are synthetic. Live native-organ
+integration is P5b.
 
 **Remaining roadmap:**
 - Corpus freeze only after native V3 plans exist and pass shadow validation.
