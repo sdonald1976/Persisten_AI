@@ -37,6 +37,32 @@ ordinary answered chat turns only; turns that used tools are skipped (the corpus
 never covered tool results); privacy-sensitive turns are skipped entirely — the
 strictest existing boundary, stricter than the reply-gate's own recording.
 
+### 1.1 Why sensitive plan/4 turns emit no redacted structural row
+
+A structurally-redacted row for sensitive turns was proposed for Phase-A
+collection hardening — protocol version, frame transition, validation result,
+protected/redacted flags and source counts, with no text, character display,
+subject, hash or training eligibility. **It was not built, and the skip stands.**
+
+The cost of not building it is real and measured, not hypothetical: **31% of
+recorded turns (5/16) are privacy-sensitive, and 2 of those carried a frame
+transition.** Those rows are genuinely lost to collection.
+
+It stands anyway because the proposed row leaks through its own existence. A row
+is keyed to a turn and carries a timestamp, so "a privacy-sensitive turn at
+22:14 entered a fiction scene" is recoverable from metadata alone — and
+`frameTransition` is the most correlating field in the set. Privacy-sensitive
+turns are precisely the ones where inference from metadata matters most, which is
+why this rule was set deliberately stricter than the reply gate rather than at
+the minimum defensible line.
+
+The structural distribution this hardening was meant to serve — what a real
+native plan actually contains — is measurable from the 69% of turns that are not
+sensitive. The gain did not justify moving a boundary that was set high on
+purpose.
+
+`RendererShadowSkipTests` pins this so it cannot erode by accident.
+
 ## 2. Privacy and retention
 
 Shadow rows live in the same `ShadowComparisons` table, database, and backup
@@ -192,3 +218,35 @@ GTX 1660: per-turn cost is dominated by the pre-existing pipeline
 (extraction ~27 s + chat ~35 s + reranker/safety/planner ~25 s), not the
 renderer. serve_tuned.py / serve_cpu.py remain lab instruments for
 frozen-eval reproduction against the unmerged adapter.
+
+### 1.2 Runtime-before-canary blockers (not corpus blockers)
+
+Two things are wired but unfed. Neither blocks corpus work — a corpus is built
+from collected rows and generated examples, and both of these affect only what a
+*live* turn can carry:
+
+- **No activity instance producer.** `ActivityInstanceContributor` is connected
+  to the native assembly through `IActivityInstanceProvider`, which nothing
+  implements. Procedures reach a turn only as retrieved prose, and building an
+  `ActivityInstance` from prose would be parsing text back into structure.
+- **No character-roster cognition.** `FrameSession` records transitions, scene
+  identity and lifecycle, but nothing populates `CharactersJson`, so `you-play`
+  and `they-play` do not serialize on live turns.
+
+Both must be resolved **before a Run-2 canary**, because a canary displays what
+the mouth renders and an unfed contributor renders nothing. Neither is on the
+path to a frozen corpus.
+
+### 1.3 The LLM privacy classifier marks roleplay turns sensitive
+
+Observed live during Phase-A verification: `enter` and `exit` frame turns came
+back `privacy=sensitive` and were skipped, while the `continue` turn was not.
+The rule-based classifier keys on explicit phrases ("keep this private", "off
+the record") and secrets; the configured **LLM** classifier is broader, and
+appears to treat roleplay framing as private.
+
+This is recorded, not changed. It is a plausible reading — a roleplay scene may
+well be something someone wants kept out of durable memory — and altering a
+privacy classifier to increase collection volume is the wrong trade in the wrong
+direction. It does mean **frame transitions are the rows most likely to be lost**,
+which matters for §1.1's cost and for any later coverage floor on `enter`/`exit`.
