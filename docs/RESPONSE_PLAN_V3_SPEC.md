@@ -513,9 +513,15 @@ never a Cartesian product; the procedure audit is explicit and tested).
   both recorded. Register preferences are votes; expression restrictions are
   must_not_express notes under `user-preference.expression-restriction.`
   (the one new grant). "You can swear again" REVOKES "don't swear" —
-  deactivation with its own evidence, never a competing record. `/forget`
-  invalidates preferences whose evidence was forgotten and purges their
-  statements, wired at the real MemoryCurator path. Ava's tastes
+  deactivation with its own evidence, never a competing record.
+
+  `/forget` invalidates by STABLE IDENTITY: every captured instruction mints a
+  durable `EvidenceEventId` at capture (the intent path stores no Message row,
+  so without it only text would remain), and the text route is normalized exact
+  equality with ambiguity refusing to revoke anything. The one-active invariant
+  is a DATABASE constraint — a nullable `ActiveSlot` under a unique index —
+  not transaction intent. See §5.5 for what a `hosting-config` vote is (an
+  overridable hosting default, not an enforceable deployment restriction). Ava's tastes
   (`CompanionPreference`) and the legacy persona blob are untouched —
   descriptive only, never parsed, never restriction-bearing. Nothing is ever
   inferred from sentiment, subject matter, or repetition. Results, live vs

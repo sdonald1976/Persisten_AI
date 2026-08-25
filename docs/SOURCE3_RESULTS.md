@@ -1,9 +1,13 @@
 # Source 3 — results against the pre-declared plan
 
 Run 2026-08-24 against `SOURCE3_PREFERENCE_PLAN.md` (frozen before
-implementation) and the ten binding amendments. Suite: **1309 passing** in
-`Companion.Tests` (25 of them Source 3) plus **31** prototype goldens including
-the 804-plan corpus. Zero failures.
+implementation) and the ten binding amendments. Suite at that point: 1309
+passing (25 of them Source 3) plus 31 prototype goldens.
+
+**Read the evidence/forget amendment at the end of this document before
+relying on anything here about `/forget` linkage** — conditional acceptance
+required replacing text containment with stable identity, and the current
+state is 1325 + 31 passing, 41 of them Source 3.
 
 ## What was built
 
@@ -53,9 +57,11 @@ the 804-plan corpus. Zero failures.
    rows carry only the record id — asserted by serialization in criteria 3 and
    7, and end-to-end in scenario 14 ("don't swear" appears nowhere in the
    persisted row). The real `MemoryCurator.ForgetAsync` now also invalidates
-   any active preference whose evidence message or statement matches the
-   forgotten memory's evidence (mutual-contains, ≥12 chars): status becomes
-   `EvidenceForgotten` and the statement is PURGED (scenario 8, live).
+   any active preference whose evidence the forgotten memory carried: status
+   becomes `EvidenceForgotten` and the statement is PURGED (scenario 8, live).
+   **Superseded by the 2026-08-25 amendment below** — the linkage described
+   here was mutual substring containment, which was wrong; it is now exact
+   identity.
 7. **Ava's tastes untouched.** `CompanionPreference` unchanged; scenario 7
    forms a real dislike through `IPreferenceStore` and the user store stays
    empty.
