@@ -688,6 +688,13 @@ public sealed class Companion : ICompanion
                     contributors.Add(new global::Companion.PlanV3.HostingConfigContributor(
                         _options.HostingRegisterRestrictions));
 
+                // Source 4a (docs/SOURCE4_PHASE1_PLAN.md): the turn's own typed cognitive
+                // state votes on verbosity and nothing else. Built from the typed fields
+                // only — the interpretation note and every other prose field are out of its
+                // reach by construction, not by discipline.
+                contributors.Add(
+                    global::Companion.PlanV3.WorkingContextContributor.From(traceId, working));
+
                 if (contributors.Count > 0)
                 {
                     var toolContext = new global::Companion.PlanV3.PlanContributionContext(
