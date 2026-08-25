@@ -530,8 +530,41 @@ never a Cartesian product; the procedure audit is explicit and tested).
   STILL MISSING: live capture for expression restrictions and for
   bare-phrasing commands (both cognition-layer, deliberately not simulated
   with routing regexes); a live `stored-message` evidence producer.
-- Sources 4–5 (mood/relationship/working-context, world/vision/embodiment)
-  — NOT STARTED.
+- **Source 4 — COMPLETE per source, with two declared blockers.** Split into
+  four independently revertible phases; each source reported separately in
+  `SOURCE4_RESULTS.md` so one healthy source cannot vouch for another.
+
+  *Phase 0* repaired an existing privacy gap the inspection found:
+  `EmotionalSignals` are now forgettable by EXACT identity (`MessageId` /
+  `EvidenceEventId`, no text comparison anywhere in the path), redacted rather
+  than deleted so the user's words go while permitted metadata stays, excluded
+  from every snapshot once forgotten, and bounded by a declared 180-day
+  retention swept from `SleepCycle`.
+
+  *4a (working context)* votes `verbosity` from two typed `ConversationMove`
+  values and nothing else. Prose is unreachable by construction — the
+  constructor takes no string — a `Guess` resolution suppresses the whole
+  contribution, and turn-local validity expires by trace id.
+
+  *4b (mood)* is AVA'S `CompanionStateSnapshot`, never inferred user emotion.
+  Its `StateRef` cites a row in the new append-only, versioned
+  `CompanionMoodTransitions` log — a hash of mutable state was rejected as
+  provenance. The `(UserId, Version)` unique index makes concurrent nudges
+  compose instead of clobber. Spirits map to `intensity` with a 0.3 floor
+  below which it is SILENT rather than neutral; decay carries moods back under
+  the floor unaided. Energy votes nothing — no transition event, so no
+  resolvable provenance — declared as a blocker.
+
+  *4c (familiarity)* integrates `FamiliarityStage` only, and only to RESTRAIN:
+  `New` votes `verbosity=short` and `teasing=off`; every later stage votes
+  nothing, so tenure never accrues register permissions and familiarity is
+  never readable as intimacy, consent, or flirtation permission. All
+  EmotionalSignal sentiment stays excluded pending expiry, confidence and
+  correction semantics.
+
+  None of the three can produce an item, a restriction, a claim, or a
+  preference — zero item grants each, adversarially tested per source.
+- Source 5 (world/vision/embodiment) — NOT STARTED.
 
 **Remaining roadmap:**
 - Corpus freeze only after native V3 plans exist and pass shadow validation.
