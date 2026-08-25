@@ -26,6 +26,13 @@ public sealed record PlanV3
     public IReadOnlyList<RegisterRestriction>? RegisterRestrictions { get; init; }
     [JsonPropertyName("budget")] public Budget? Budget { get; init; }
     [JsonPropertyName("extensions")] public JsonObject? Extensions { get; init; }
+
+    /// <summary>
+    /// plan/4: the OPTIONAL fiction frame. Null on every ordinary turn, and null is the
+    /// default, so plan/3 plans are unchanged in meaning and in serialization —
+    /// CompactV3 never sees it and the corpus goldens are untouched.
+    /// </summary>
+    [JsonPropertyName("frame")] public Frame? Frame { get; init; }
 }
 
 /// <summary>
