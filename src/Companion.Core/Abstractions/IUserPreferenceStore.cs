@@ -34,13 +34,21 @@ public interface IUserPreferenceStore
         CancellationToken ct = default);
 
     /// <summary>
-    /// /forget support: deactivates (EvidenceForgotten) every active record whose
-    /// EvidenceMessageId is in <paramref name="messageIds"/> or whose EvidenceStatement
-    /// mutually contains one of <paramref name="excerpts"/> (case-insensitive, either
-    /// direction), and PURGES the statement so the forgotten text does not linger.
-    /// Returns how many were invalidated.
+    /// /forget support, EXACT-IDENTITY ONLY. Deactivates (EvidenceForgotten) and purges
+    /// the statement of every active record whose EvidenceMessageId is in
+    /// <paramref name="evidenceMessageIds"/> — exact id linkage. For the text-only
+    /// /forget flow, <paramref name="forgottenStatements"/> are matched by NORMALIZED
+    /// EXACT EQUALITY (trimmed, ordinal-ignore-case) against EvidenceStatement — never
+    /// containment — and a statement that matches more than one active record is
+    /// AMBIGUOUS: nothing is revoked for it, and the count is reported. Unrelated
+    /// overlapping text can therefore never take a preference's authority.
     /// </summary>
-    Task<int> InvalidateByForgottenEvidenceAsync(
-        string userId, IReadOnlyCollection<string> excerpts, IReadOnlyCollection<Guid> messageIds,
+    Task<PreferenceInvalidationResult> InvalidateByForgottenEvidenceAsync(
+        string userId, IReadOnlyCollection<string> forgottenStatements,
+        IReadOnlyCollection<Guid> evidenceMessageIds,
         DateTimeOffset now, CancellationToken ct = default);
+
+    /// <summary>Exact invalidation by the durable evidence event minted at capture.</summary>
+    Task<int> InvalidateByEvidenceEventAsync(
+        string userId, Guid evidenceEventId, DateTimeOffset now, CancellationToken ct = default);
 }

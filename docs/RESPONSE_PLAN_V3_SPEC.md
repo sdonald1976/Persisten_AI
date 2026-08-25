@@ -150,6 +150,27 @@ nine dimensions) and `value` must be legal for its dimension (validated);
 `provenance.evidenceRef`** (a preference record / configuration key) — a
 subsystem cannot merely claim that authority (validated + tested).
 
+### 5.5 What a `hosting-config` register vote is, and is not
+
+The §5.4 precedence order is UNCHANGED: `user-preference.` outranks
+`hosting-config.`. A `hosting-config` register vote is therefore a **hosting
+DEFAULT** — the register the deployment prefers absent a user statement — and
+NOT an enforceable deployment restriction. An explicit user preference on the
+same dimension overrides it, and the assembler records both.
+
+This is stated because the two read alike in the plan: a hosting vote may carry
+`restrictive: true` and appear in `registerRestrictions`, which makes it look
+enforceable when it is merely owned and overridable. `restrictive` marks a value
+as forbidding rather than shaping; it does not mark it as unoverridable.
+
+**There is currently no enforceable deployment restriction mechanism in this
+contract.** An operator requirement that must hold regardless of what the user
+asks (a legal, safety, or platform obligation) has no home in the register, and
+must not be simulated by re-ranking the families — that would silently invert
+who owns speech. Introducing one is a deliberate contract revision to §5.4 with
+its own review, not a resolver change.
+
+
 ## 6. Ownership matrix — as rev-1, plus: question prohibition = question.policy
 alone; style = RegisterVector + owned restrictions alone; item audience =
 producing subsystem constrained by the privacy classifier (most restrictive

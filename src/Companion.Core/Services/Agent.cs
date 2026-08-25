@@ -434,6 +434,11 @@ public sealed class Agent : IAgent
                 Restrictive = command.Restrictive,
                 StatedAt = _clock.GetUtcNow(),
                 EvidenceKind = "direct-instruction",
+                // The durable evidence EVENT for this capture. The intent path stores no
+                // Message row, so without an id minted here the only handle on this
+                // instruction would be its text — and text is exactly what must not decide
+                // whether a preference keeps its authority.
+                EvidenceEventId = Guid.NewGuid(),
                 EvidenceStatement = directive.Trim(),
             }, ct);
         }

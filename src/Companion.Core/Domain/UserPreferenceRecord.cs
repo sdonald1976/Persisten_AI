@@ -55,6 +55,22 @@ public sealed class UserPreferenceRecord
     /// <summary>The record that replaced this one, when <see cref="Status"/> is Superseded.</summary>
     public Guid? SupersededById { get; set; }
 
+    /// <summary>
+    /// The one-active invariant, enforced by the DATABASE rather than by transaction
+    /// intent: "kind|scope|dimension[|subject]" while this record is Active, and NULL the
+    /// moment it is not. A unique index on (UserId, ActiveSlot) makes a second active
+    /// record for the same slot impossible — and because SQL treats NULLs as distinct,
+    /// any number of deactivated rows coexist. Concurrent writers race to insert; the
+    /// loser gets a constraint violation instead of a silently duplicated preference.
+    /// </summary>
+    public string? ActiveSlot { get; set; }
+
+    /// <summary>Builds the slot key for a record's identity.</summary>
+    public static string SlotKey(UserPreferenceKind kind, string scope, string dimension, string? subject)
+        => kind == UserPreferenceKind.ExpressionRestriction
+            ? $"{kind}|{scope}|{dimension}|{subject}"
+            : $"{kind}|{scope}|{dimension}";
+
     /// <summary>When the user stated it — the effective time; newest wins among actives.</summary>
     public DateTimeOffset StatedAt { get; set; }
 
@@ -62,6 +78,15 @@ public sealed class UserPreferenceRecord
     public DateTimeOffset? DeactivatedAt { get; set; }
 
     // ---- evidence: resolvable, never copied into diagnostics ----
+
+    /// <summary>
+    /// The durable evidence EVENT this preference's authority rests on, minted at capture
+    /// time — even when the intent path creates no Message row. Invalidation is by exact
+    /// identity (this id, or <see cref="EvidenceMessageId"/>), never by text overlap: no
+    /// preference may lose authority because unrelated forgotten text happens to resemble
+    /// its statement.
+    /// </summary>
+    public Guid EvidenceEventId { get; set; }
 
     /// <summary>"direct-instruction" (the statement lives on this record, because the
     /// intent path stores no Message row) or "stored-message" (see
@@ -86,6 +111,14 @@ public sealed class UserPreferenceRecord
 /// (a register setting shapes speech; a restriction forbids a subject) and travel
 /// different mechanisms — votes vs must_not_express notes. One enum, two worlds.</summary>
 public enum UserPreferenceKind { Register, ExpressionRestriction }
+
+/// <summary>
+/// The outcome of an evidence-driven invalidation sweep — counts only, content-safe.
+/// `Ambiguous` counts forgotten statements that matched MORE than one active record by
+/// exact equality: ambiguity must not revoke anything silently, so those records keep
+/// their authority and the ambiguity is reported instead.
+/// </summary>
+public readonly record struct PreferenceInvalidationResult(int Invalidated, int Ambiguous);
 
 public enum UserPreferenceStatus
 {

@@ -141,16 +141,29 @@ public sealed class MemoryCurator : IMemoryCurator
                     "Forgetting {MemoryId} also removed {Count} captured sentences.", memoryId, removed);
         }
 
-        // Source 3: a preference whose authority depended on this evidence loses it now —
-        // deactivated (EvidenceForgotten) and its statement purged, so the forgotten text
-        // does not linger in the preference table either.
+        // Source 3: a preference whose authority depended on THIS evidence loses it now —
+        // deactivated (EvidenceForgotten) and its statement purged.
+        //
+        // Linkage is by exact identity: the evidence message ids above, or a forgotten
+        // excerpt that EQUALS an instruction verbatim. Never containment — an unrelated
+        // memory that merely shares a phrase with a standing instruction must not be able
+        // to revoke it. Where a statement matches more than one active preference the
+        // association is ambiguous, and ambiguity revokes nothing: picking one of two
+        // identical instructions would be a guess, and a guess that silently drops a
+        // user's standing rule is the worst kind.
         if (forgotten && _userPreferences is not null)
         {
-            var invalidated = await _userPreferences.InvalidateByForgottenEvidenceAsync(
+            var result = await _userPreferences.InvalidateByForgottenEvidenceAsync(
                 userId, excerpts, evidenceMessageIds, _clock.GetUtcNow(), ct);
-            if (invalidated > 0)
+            if (result.Invalidated > 0)
                 _logger.LogInformation(
-                    "Forgetting {MemoryId} also invalidated {Count} user preferences.", memoryId, invalidated);
+                    "Forgetting {MemoryId} also invalidated {Count} user preferences.",
+                    memoryId, result.Invalidated);
+            if (result.Ambiguous > 0)
+                _logger.LogWarning(
+                    "Forgetting {MemoryId} matched {Count} ambiguous preference association(s); "
+                    + "none were revoked. Revoke the instruction explicitly to clear it.",
+                    memoryId, result.Ambiguous);
         }
 
         return forgotten;

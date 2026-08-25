@@ -185,11 +185,19 @@ public sealed class CompanionOptions
     public RendererShadowOptions RendererShadow { get; set; } = new();
 
     /// <summary>
-    /// Source 3: deployment-imposed register restrictions (dimension -> closed-set value,
-    /// e.g. "profanity" -> "avoid"). A SEPARATE authority from user preferences: it votes
-    /// under hosting-config.* with a configuration-path evidence reference and can never
-    /// masquerade as something the user asked for. Empty by default — nothing is
-    /// restricted unless an operator explicitly configures it.
+    /// Source 3: hosting register DEFAULTS (dimension -> closed-set value, e.g.
+    /// "profanity" -> "avoid"). A SEPARATE authority from user preferences: it votes under
+    /// hosting-config.* with a configuration-path evidence reference and can never
+    /// masquerade as something the user asked for.
+    ///
+    /// These are OVERRIDABLE, not enforceable (spec §5.5): the frozen precedence in §5.4
+    /// ranks user-preference above hosting-config, so an explicit user statement on the
+    /// same dimension wins and both are recorded. This is the register the deployment
+    /// prefers absent a user statement — it is NOT a mechanism for an operator
+    /// requirement that must hold regardless of what the user asks. No such mechanism
+    /// exists in the contract today.
+    ///
+    /// Empty by default — nothing is defaulted unless an operator configures it.
     /// </summary>
     public Dictionary<string, string> HostingRegisterRestrictions { get; set; } = [];
 

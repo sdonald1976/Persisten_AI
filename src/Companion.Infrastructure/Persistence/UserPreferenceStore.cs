@@ -36,6 +36,10 @@ internal sealed class UserPreferenceStore(CompanionDbContext db) : IUserPreferen
 
         if (record.Id == Guid.Empty)
             record.Id = Guid.NewGuid();
+        if (record.EvidenceEventId == Guid.Empty)
+            record.EvidenceEventId = Guid.NewGuid();
+        record.ActiveSlot = UserPreferenceRecord.SlotKey(
+            record.Kind, record.Scope, record.Dimension, record.Subject);
         db.UserPreferences.Add(record);
 
         if (slot is not null)
@@ -43,6 +47,8 @@ internal sealed class UserPreferenceStore(CompanionDbContext db) : IUserPreferen
             slot.Status = UserPreferenceStatus.Superseded;
             slot.SupersededById = record.Id;
             slot.DeactivatedAt = record.StatedAt;
+            // Vacating the slot is what lets the new row claim it under the unique index.
+            slot.ActiveSlot = null;
         }
 
         await db.SaveChangesAsync(ct);
@@ -69,49 +75,87 @@ internal sealed class UserPreferenceStore(CompanionDbContext db) : IUserPreferen
         slot.DeactivatedAt = revokedAt;
         slot.RevocationEvidenceMessageId = evidenceMessageId;
         slot.RevocationStatement = revocationStatement;
+        slot.ActiveSlot = null;
 
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return slot;
     }
 
-    public async Task<int> InvalidateByForgottenEvidenceAsync(
-        string userId, IReadOnlyCollection<string> excerpts, IReadOnlyCollection<Guid> messageIds,
+    public async Task<PreferenceInvalidationResult> InvalidateByForgottenEvidenceAsync(
+        string userId, IReadOnlyCollection<string> forgottenStatements,
+        IReadOnlyCollection<Guid> evidenceMessageIds,
         DateTimeOffset now, CancellationToken ct = default)
     {
-        // Meaningful excerpts only — the same bar the shadow sweep applies, so a two-word
-        // fragment cannot take out an unrelated preference.
-        var usable = excerpts
-            .Where(e => !string.IsNullOrWhiteSpace(e) && e.Trim().Length >= 12)
-            .Select(e => e.Trim())
-            .ToList();
-
-        var candidates = await db.UserPreferences
+        var active = await db.UserPreferences
             .Where(p => p.UserId == userId && p.Status == UserPreferenceStatus.Active)
             .ToListAsync(ct);
 
-        var invalidated = 0;
-        foreach (var p in candidates)
-        {
-            var byMessage = p.EvidenceMessageId is { } mid && messageIds.Contains(mid);
-            var byStatement = p.EvidenceStatement is { } stmt && usable.Any(e =>
-                stmt.Contains(e, StringComparison.OrdinalIgnoreCase)
-                || e.Contains(stmt, StringComparison.OrdinalIgnoreCase));
-            if (!byMessage && !byStatement)
-                continue;
+        var doomed = new HashSet<Guid>();
 
-            p.Status = UserPreferenceStatus.EvidenceForgotten;
-            p.DeactivatedAt = now;
-            // The authority is gone WITH its text: a forgotten statement must not linger
-            // in this table as a searchable copy of what the user asked to forget.
-            p.EvidenceStatement = null;
+        // (a) EXACT id linkage — the only path that needs no text at all.
+        foreach (var p in active.Where(p => p.EvidenceMessageId is { } mid && evidenceMessageIds.Contains(mid)))
+            doomed.Add(p.Id);
+
+        // (b) The text-only /forget flow. Candidates are resolved SEPARATELY and matched by
+        // normalized exact equality — never containment, so an unrelated memory that merely
+        // shares a phrase with an instruction cannot revoke it. A statement matching more
+        // than one active record is ambiguous: it revokes NOTHING and is reported, because
+        // silently picking one of two identical instructions would be a guess.
+        var ambiguous = 0;
+        foreach (var statement in forgottenStatements.Select(Normalize).Where(t => t.Length > 0).Distinct())
+        {
+            var candidates = active
+                .Where(p => p.EvidenceStatement is { } stmt
+                            && string.Equals(Normalize(stmt), statement, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (candidates.Count == 1)
+                doomed.Add(candidates[0].Id);
+            else if (candidates.Count > 1)
+                ambiguous++;
+        }
+
+        var invalidated = 0;
+        foreach (var p in active.Where(p => doomed.Contains(p.Id)))
+        {
+            Invalidate(p, now);
             invalidated++;
         }
 
         if (invalidated > 0)
             await db.SaveChangesAsync(ct);
-        return invalidated;
+        return new PreferenceInvalidationResult(invalidated, ambiguous);
     }
+
+    public async Task<int> InvalidateByEvidenceEventAsync(
+        string userId, Guid evidenceEventId, DateTimeOffset now, CancellationToken ct = default)
+    {
+        var affected = await db.UserPreferences
+            .Where(p => p.UserId == userId
+                        && p.Status == UserPreferenceStatus.Active
+                        && p.EvidenceEventId == evidenceEventId)
+            .ToListAsync(ct);
+
+        foreach (var p in affected)
+            Invalidate(p, now);
+
+        if (affected.Count > 0)
+            await db.SaveChangesAsync(ct);
+        return affected.Count;
+    }
+
+    private static void Invalidate(UserPreferenceRecord p, DateTimeOffset now)
+    {
+        p.Status = UserPreferenceStatus.EvidenceForgotten;
+        p.DeactivatedAt = now;
+        // The authority is gone WITH its text: a forgotten statement must not linger
+        // in this table as a searchable copy of what the user asked to forget.
+        p.EvidenceStatement = null;
+        p.ActiveSlot = null;
+    }
+
+    private static string Normalize(string? text) => (text ?? string.Empty).Trim();
 
     private Task<UserPreferenceRecord?> ActiveSlotAsync(
         string userId, UserPreferenceKind kind, string scope, string dimension,

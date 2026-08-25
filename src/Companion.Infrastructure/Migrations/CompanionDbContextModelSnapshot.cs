@@ -1835,12 +1835,19 @@ namespace Companion.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ActiveSlot")
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
                     b.Property<long?>("DeactivatedAt")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Dimension")
                         .IsRequired()
                         .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("EvidenceEventId")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("EvidenceKind")
@@ -1900,6 +1907,9 @@ namespace Companion.Infrastructure.Migrations
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ActiveSlot")
+                        .IsUnique();
 
                     b.HasIndex("UserId", "Status");
 

@@ -7,6 +7,7 @@ using Companion.Infrastructure.Renderer;
 using Companion.Infrastructure.Seeding;
 using Companion.PlanV3;
 using Companion.Tests.Fixtures;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -62,6 +63,19 @@ public class UserPreferenceSourceTests
             EvidenceKind = "direct-instruction",
             EvidenceStatement = statement ?? "a synthetic explicit instruction",
         };
+
+    private const string INSTRUCTION = "from now on, don't swear when we talk";
+    private const string INSTRUCTION_CASED = "  From Now On, Don't Swear When We Talk  ";
+    private const string INSTRUCTION_SUB = "don't swear";
+    private const string INSTRUCTION_SUPER = "from now on, don't swear at my mother about the plumbing";
+    private const string INSTRUCTION_PREFIX = "from now on, don't swear when we talk about work";
+    private const string INSTRUCTION_FRAGMENT = "don't swear when we talk";
+    private const string INSTRUCTION_OPENING = "from now on, don't swear";
+    private const string INSTRUCTION_LIVE = "from now on, don't swear";
+    private const string SHARED_STATEMENT = "from now on, keep it short and don't swear";
+
+    private static string Instruction => INSTRUCTION;
+    private static string SharedStatement => SHARED_STATEMENT;
 
     private static async Task<Guid> StartConversationAsync(IServiceProvider sp)
         => (await sp.GetRequiredService<IConversationStore>()
@@ -159,8 +173,10 @@ public class UserPreferenceSourceTests
             ],
             SourceRegistry.Default, Seed());
 
-        // Spec §5.4 ranks user-preference above hosting-config; the decision names the
-        // winning AUTHORITY and its reason code, and the loser is recorded, not dropped.
+        // Spec §5.4 ranks user-preference above hosting-config, so the hosting value is a
+        // DEFAULT the user can override (§5.5) — not an enforceable deployment restriction.
+        // The decision names the winning AUTHORITY and its reason code, and the loser is
+        // recorded rather than dropped.
         var decision = Assert.Single(report.RegisterDecisions);
         Assert.Equal("profanity", decision.Dimension);
         Assert.Equal("mirror-only", decision.Value);
@@ -174,7 +190,7 @@ public class UserPreferenceSourceTests
     // ---- scenario 4 (constructed): hosting alone ---------------------------------------
 
     [Fact]
-    public void Scenario4_HostingRestrictionAlone_WinsItsDimension_WithConfigEvidence()
+    public void Scenario4_HostingDefaultAlone_WinsItsDimension_WithConfigEvidence()
     {
         var report = PlanV3Assembler.Assemble(
             Ctx,
@@ -290,6 +306,243 @@ public class UserPreferenceSourceTests
         Assert.Equal(UserPreferenceStatus.EvidenceForgotten, invalidated.Status);
         // The statement is PURGED — the forgotten text does not linger here.
         Assert.Null(invalidated.EvidenceStatement);
+    // ...and the slot was vacated, so the unique index no longer holds it.
+        Assert.Null(invalidated.ActiveSlot);
+    }
+
+    // ================= the evidence-linkage repair: adversarial =================
+
+    private static UserPreferenceRecord Stated(string statement, string dimension = "profanity",
+        string value = "forbidden", Guid? evidenceEvent = null, Guid? messageId = null)
+        => new()
+        {
+            Id = Guid.NewGuid(),
+            UserId = User,
+            Kind = UserPreferenceKind.Register,
+            Dimension = dimension,
+            Value = value,
+            Restrictive = true,
+            StatedAt = Now,
+            EvidenceKind = messageId is null ? "direct-instruction" : "stored-message",
+            EvidenceEventId = evidenceEvent ?? Guid.NewGuid(),
+            EvidenceMessageId = messageId,
+            EvidenceStatement = statement,
+        };
+
+    /// <summary>
+    /// Requirement 1: overlapping text must never revoke. Each forgotten excerpt here
+    /// shares words with the standing instruction - or contains it, or is contained by it -
+    /// and the old mutual-substring rule would have killed the preference on every one.
+    /// </summary>
+    [Theory]
+    // The three that the OLD mutual-substring rule actually revoked on (verified): a
+    // fragment of the instruction, its opening clause, and a superstring of it. These are
+    // the realistic shape - a memory excerpt that is part of the sentence the instruction
+    // was stated in - and each one silently destroyed a standing rule.
+    [InlineData(INSTRUCTION_FRAGMENT)]
+    [InlineData(INSTRUCTION_OPENING)]
+    [InlineData(INSTRUCTION_PREFIX)]
+    // ...and the short/partial overlaps, which the old length bar happened to spare but
+    // which nothing structural was protecting.
+    [InlineData(INSTRUCTION_SUB)]
+    [InlineData(INSTRUCTION_SUPER)]
+    [InlineData("swear")]
+    [InlineData("From now on")]
+    [InlineData("talk")]
+    public async Task Adversarial_OverlappingForgottenText_NeverRevokesAPreference(string forgotten)
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IUserPreferenceStore>();
+
+        await store.StateAsync(Stated(Instruction));
+
+        var result = await store.InvalidateByForgottenEvidenceAsync(User, [forgotten], [], Now);
+
+        Assert.Equal(0, result.Invalidated);
+        Assert.Equal(0, result.Ambiguous);
+        var survivor = Assert.Single(await store.GetActiveAsync(User));
+        Assert.Equal(Instruction, survivor.EvidenceStatement);
+    }
+
+    /// <summary>Requirement 2: the exact instruction still invalidates, whitespace and
+    /// casing normalized - the repair must not have broken forgetting.</summary>
+    [Theory]
+    [InlineData(INSTRUCTION)]
+    [InlineData(INSTRUCTION_CASED)]
+    public async Task Adversarial_TheExactInstruction_StillInvalidatesAndPurges(string forgotten)
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IUserPreferenceStore>();
+        await store.StateAsync(Stated(Instruction));
+
+        var result = await store.InvalidateByForgottenEvidenceAsync(User, [forgotten], [], Now);
+
+        Assert.Equal(1, result.Invalidated);
+        Assert.Empty(await store.GetActiveAsync(User));
+        var dead = Assert.Single(await store.GetAllAsync(User));
+        Assert.Equal(UserPreferenceStatus.EvidenceForgotten, dead.Status);
+        Assert.Null(dead.EvidenceStatement);
+    }
+
+    /// <summary>Requirement 2: the durable evidence EVENT invalidates exactly, with no
+    /// text involved at all - the path that exists because the intent turn stores no
+    /// Message row.</summary>
+    [Fact]
+    public async Task Adversarial_TheEvidenceEvent_InvalidatesWithoutAnyTextMatching()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IUserPreferenceStore>();
+
+        var mine = Guid.NewGuid();
+        await store.StateAsync(Stated(Instruction, evidenceEvent: mine));
+        await store.StateAsync(Stated("be concise", "verbosity", "short"));
+
+        Assert.Equal(1, await store.InvalidateByEvidenceEventAsync(User, mine, Now));
+
+        var survivor = Assert.Single(await store.GetActiveAsync(User));
+        Assert.Equal("verbosity", survivor.Dimension);
+        // An unrelated event id takes nothing.
+        Assert.Equal(0, await store.InvalidateByEvidenceEventAsync(User, Guid.NewGuid(), Now));
+        Assert.Single(await store.GetActiveAsync(User));
+    }
+
+    /// <summary>
+    /// Requirements 3 and 4: two ACTIVE preferences carrying identical statements. A
+    /// text-only forget cannot tell them apart, so it must revoke NEITHER and report the
+    /// ambiguity - silently picking one would drop a standing rule on a coin flip.
+    /// </summary>
+    [Fact]
+    public async Task Adversarial_IdenticalStatementsFromDifferentEvents_RevokeNothing_AndReportAmbiguity()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IUserPreferenceStore>();
+
+        var first = await store.StateAsync(Stated(SharedStatement));
+        var second = await store.StateAsync(Stated(SharedStatement, "verbosity", "short"));
+        Assert.NotEqual(first.EvidenceEventId, second.EvidenceEventId);
+
+        var result = await store.InvalidateByForgottenEvidenceAsync(User, [SharedStatement], [], Now);
+
+        Assert.Equal(0, result.Invalidated);
+        Assert.Equal(1, result.Ambiguous);
+        Assert.Equal(2, (await store.GetActiveAsync(User)).Count);
+
+        // The unambiguous handle still works: forgetting ONE of the two identical
+        // instructions by its own event id takes exactly that one.
+        Assert.Equal(1, await store.InvalidateByEvidenceEventAsync(User, first.EvidenceEventId, Now));
+        var survivor = Assert.Single(await store.GetActiveAsync(User));
+        Assert.Equal(second.Id, survivor.Id);
+        Assert.Equal(SharedStatement, survivor.EvidenceStatement);
+    }
+
+    /// <summary>Requirement 3: exact id linkage is unaffected by ambiguous text nearby.</summary>
+    [Fact]
+    public async Task Adversarial_MessageIdLinkage_IsExact_EvenWhenStatementsCollide()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IUserPreferenceStore>();
+
+        var target = Guid.NewGuid();
+        var kept = await store.StateAsync(Stated(SharedStatement, "verbosity", "short"));
+        await store.StateAsync(Stated(SharedStatement, messageId: target));
+
+        var result = await store.InvalidateByForgottenEvidenceAsync(User, [SharedStatement], [target], Now);
+
+        // The id-linked one dies; the text-identical one survives, because the text route
+        // was ambiguous and ambiguity revokes nothing.
+        Assert.Equal(1, result.Invalidated);
+        Assert.Equal(1, result.Ambiguous);
+        var survivor = Assert.Single(await store.GetActiveAsync(User));
+        Assert.Equal(kept.Id, survivor.Id);
+    }
+
+    /// <summary>
+    /// Requirement 5: the one-active invariant is a DATABASE constraint, not an intention.
+    /// Two writers racing the same slot cannot both end up active - the loser gets a
+    /// constraint violation rather than a silently duplicated preference.
+    /// </summary>
+    [Fact]
+    public async Task Requirement5_ConcurrentWritesToOneSlot_CannotBothBeActive()
+    {
+        await using var host = new TestHost(Now);
+
+        // Two independent scopes = two DbContexts = a real race, not a same-context write.
+        using var a = host.CreateScope();
+        using var b = host.CreateScope();
+        var storeA = a.ServiceProvider.GetRequiredService<IUserPreferenceStore>();
+
+        await storeA.StateAsync(Stated(Instruction));
+
+        // B never observed A's row and tries to claim the same slot directly.
+        var collision = new UserPreferenceRecord
+        {
+            Id = Guid.NewGuid(),
+            UserId = User,
+            Kind = UserPreferenceKind.Register,
+            Dimension = "profanity",
+            Value = "mirror-only",
+            StatedAt = Now,
+            EvidenceEventId = Guid.NewGuid(),
+            EvidenceStatement = "mirror my profanity",
+            ActiveSlot = UserPreferenceRecord.SlotKey(
+                UserPreferenceKind.Register, "global", "profanity", null),
+        };
+        var db = b.ServiceProvider.GetRequiredService<Infrastructure.Persistence.CompanionDbContext>();
+        db.UserPreferences.Add(collision);
+
+        await Assert.ThrowsAnyAsync<DbUpdateException>(() => db.SaveChangesAsync());
+
+        // Exactly one active record survives the race.
+        using var verify = host.CreateScope();
+        var active = Assert.Single(
+            await verify.ServiceProvider.GetRequiredService<IUserPreferenceStore>().GetActiveAsync(User));
+        Assert.Equal("forbidden", active.Value);
+    }
+
+    /// <summary>Requirement 5, the ordinary path: supersession vacates the slot, so the
+    /// replacement can claim it under the same unique index.</summary>
+    [Fact]
+    public async Task Requirement5_Supersession_VacatesTheSlot_SoTheReplacementCanClaimIt()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IUserPreferenceStore>();
+
+        await store.StateAsync(Stated("be concise", "verbosity", "short"));
+        var replacement = await store.StateAsync(Stated("give me more detail", "verbosity", "expansive"));
+
+        var all = await store.GetAllAsync(User);
+        Assert.Equal(2, all.Count);
+        var superseded = Assert.Single(all, r => r.Status == UserPreferenceStatus.Superseded);
+        Assert.Null(superseded.ActiveSlot);
+        var active = Assert.Single(all, r => r.Status == UserPreferenceStatus.Active);
+        Assert.Equal(replacement.Id, active.Id);
+        Assert.Equal(
+            UserPreferenceRecord.SlotKey(UserPreferenceKind.Register, "global", "verbosity", null),
+            active.ActiveSlot);
+    }
+
+    /// <summary>Live capture mints a durable evidence event, even with no Message row.</summary>
+    [Fact]
+    public async Task LiveCapture_MintsADurableEvidenceEvent_WithNoMessageRow()
+    {
+        await using var host = new TestHost(Now);
+        using var scope = host.CreateScope();
+        var sp = scope.ServiceProvider;
+        var conversationId = await StartConversationAsync(sp);
+
+        await sp.GetRequiredService<IAgent>().HandleAsync(User, conversationId, INSTRUCTION_LIVE);
+
+        var record = Assert.Single(await sp.GetRequiredService<IUserPreferenceStore>().GetActiveAsync(User));
+        Assert.NotEqual(Guid.Empty, record.EvidenceEventId);
+        Assert.Null(record.EvidenceMessageId);          // the intent path stores no Message
+        Assert.Equal("direct-instruction", record.EvidenceKind);
+        Assert.NotNull(record.ActiveSlot);
     }
 
     // ---- scenario 9 (constructed): no evidence, no restrictive authority ---------------

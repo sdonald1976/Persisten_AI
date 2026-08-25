@@ -130,3 +130,87 @@ cooking", and "that swearing earlier was funny" — produces nothing durable
 - **`stored-message` evidence has no live producer** (intent turns store no
   Message row). The kind exists and `/forget` honors it; nothing writes it yet.
 - Sources 4–5 untouched. Source 2's blockers stand as recorded.
+
+---
+
+# Amendment — evidence/forget linkage repair (2026-08-25)
+
+Conditional acceptance required replacing approximate text containment with
+stable identity linkage. Done; **1325 + 31 passing**, 41 of them Source 3.
+
+## What was wrong
+
+`InvalidateByForgottenEvidenceAsync` matched a forgotten excerpt against a
+preference's statement by MUTUAL CONTAINMENT with a 12-character floor. Any
+forgotten sentence that contained a standing instruction — or was contained by
+it — silently destroyed that preference's authority. Verified against the old
+rule, these three all revoked a `profanity=forbidden` rule that had nothing to
+do with the memory being forgotten:
+
+| forgotten excerpt | why it hit |
+|---|---|
+| `don't swear when we talk` | fragment of the instruction |
+| `from now on, don't swear` | opening clause of the instruction |
+| `from now on, don't swear when we talk about work` | superstring of it |
+
+The first two are the realistic shape: an ordinary memory whose evidence excerpt
+is part of the same sentence the instruction was stated in.
+
+## The repair
+
+**Durable evidence event at capture (req. 2).** `EvidenceEventId` is minted in
+`Agent.AdjustStyleAsync` for every captured instruction, whether or not a
+Message row exists — the intent path creates none, which is precisely why text
+was doing the work before. `InvalidateByEvidenceEventAsync` invalidates by that
+id with no text involved at all.
+
+**Exact identity only (req. 1, 3).** Text matching is now normalized EXACT
+EQUALITY (trim + ordinal-ignore-case), never containment. Candidates are
+resolved separately, and a statement matching more than one active record is
+AMBIGUOUS: it revokes nothing, the count is returned in
+`PreferenceInvalidationResult.Ambiguous`, and `MemoryCurator` logs a warning
+telling the user to revoke explicitly. Choosing one of two identical
+instructions would be a coin flip, and a coin flip that silently drops a
+standing rule is the worst available outcome.
+
+**Adversarial coverage (req. 4).** Eight overlapping-phrase cases (the three
+verified old-rule failures plus short phrases, single words, and a common
+opener) assert zero invalidations and zero ambiguity; two exact-match cases
+assert invalidation still works, including whitespace/casing normalization;
+identical statements from different events assert 0 invalidated / 1 ambiguous
+with both records surviving, then assert that forgetting one of them by its own
+event id takes exactly that one; and id-linkage is asserted exact even when a
+text collision is present alongside it.
+
+**One-active invariant in the database (req. 5).** New nullable `ActiveSlot`
+column — `kind|scope|dimension[|subject]` while Active, NULL the moment the
+record is superseded, revoked, or evidence-forgotten — under a UNIQUE index on
+`(UserId, ActiveSlot)`. SQL treats NULLs as distinct, so history is
+unconstrained while a second active row for one slot is impossible. Two
+independent DbContexts racing the same slot are tested: the loser gets a
+`DbUpdateException`, and exactly one active record survives. The invariant no
+longer rests on transaction intent.
+
+**Spec §5.5 (req. 6).** New section stating that a `hosting-config` register
+vote is a hosting DEFAULT, not an enforceable deployment restriction — the §5.4
+precedence is unchanged and NOT silently altered. It records that `restrictive:
+true` marks a value as forbidding rather than shaping, and does **not** mark it
+unoverridable, which is the confusion worth naming; and that no enforceable
+deployment-restriction mechanism exists in the contract today, so an operator
+obligation that must hold regardless of the user has no home in the register and
+must not be simulated by re-ranking families. `CompanionOptions` carries the
+same warning at the configuration site.
+
+## Scope
+
+Legacy persona blob untouched (`UserProfile`, `IProfileStore`,
+`PersonalityService` have zero diff). V2, Run-1c, routing, and displayed output
+unchanged. The migration was regenerated before ever being applied anywhere, so
+it remains a single additive `CreateTable` plus its indexes.
+
+## Blocker closed, blocker remaining
+
+`stored-message` evidence still has no live producer, but it is no longer the
+only exact handle: `EvidenceEventId` gives every captured instruction a durable
+identity today. Remaining Source 3 blockers are unchanged — no live capture for
+expression restrictions or bare-phrasing commands, both cognition-layer.

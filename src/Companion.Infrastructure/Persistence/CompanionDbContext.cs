@@ -91,7 +91,12 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.EvidenceKind).HasMaxLength(30);
             e.Property(x => x.EvidenceStatement).HasMaxLength(500);
             e.Property(x => x.RevocationStatement).HasMaxLength(500);
+            e.Property(x => x.ActiveSlot).HasMaxLength(300);
             e.HasIndex(x => new { x.UserId, x.Status });
+            // The one-active-record invariant, enforced by the database: at most one row
+            // per user per slot may hold a non-null ActiveSlot. Deactivated rows set it to
+            // NULL, and SQL treats NULLs as distinct, so history is unconstrained.
+            e.HasIndex(x => new { x.UserId, x.ActiveSlot }).IsUnique();
         });
         b.Entity<ModelCallRecord>(e =>
         {
