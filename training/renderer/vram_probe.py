@@ -31,6 +31,10 @@ EPOCHS = 2
 OFFHOURS_HOURS_PER_NIGHT = 8
 IMPRACTICAL_NIGHTS = 14          # beyond this, a "feasible" cell is not actually usable.
 
+# A loaded 3B model costs gigabytes; the Windows compositor on a display GPU costs a few
+# hundred MiB. Anything above this is a model that was not stopped.
+OCCUPIED_MIB_MEANS_MODEL_RESIDENT = 1024
+
 # Layer A7b's declared context buckets, in transcript turns — what truncation is measured
 # against, since fiction turns carry both the longest windows and the largest frames.
 FAMILY_TOKENS = {
@@ -47,8 +51,10 @@ FAMILY_TOKENS = {
 BASES = {
     "qwen2.5-3b-instruct": "Qwen/Qwen2.5-3B-Instruct",
     # The declared roleplay-capable comparison: a renderer that must render fiction may need
-    # a base with that disposition rather than a general instruct model.
-    "llama-3.2-3b-instruct": "meta-llama/Llama-3.2-3B-Instruct",
+    # a base with that disposition rather than a general instruct model. Sourced from the
+    # ungated mirror — identical weights, but meta-llama/* requires an access grant this
+    # machine does not hold, and a gated 401 would read as a capability finding it is not.
+    "llama-3.2-3b-instruct": "NousResearch/Llama-3.2-3B-Instruct",
 }
 
 
@@ -100,10 +106,18 @@ def probe_cell(base_id: str, rank: int, seq_len: int, steps: int, batch: int, ac
         elapsed = time.perf_counter() - start
 
         tokens = steps * batch * seq_len
+        total_mib = torch.cuda.get_device_properties(0).total_memory / 2**20
+        peak_mib = torch.cuda.max_memory_allocated() / 2**20
+        reserved_mib = torch.cuda.max_memory_reserved() / 2**20
+        # On Windows, WDDM lets CUDA oversubscribe into system RAM rather than raising
+        # OutOfMemoryError. Such a cell reports success and is not a fit: it is paging over
+        # PCIe every step. Calling that "ok" would mean this probe can never emit OOM at all.
+        spilled = max(peak_mib, reserved_mib) > total_mib
         result.update({
-            "status": "ok",
-            "peakVramMiB": round(torch.cuda.max_memory_allocated() / 2**20),
-            "reservedMiB": round(torch.cuda.max_memory_reserved() / 2**20),
+            "status": "spilled" if spilled else "ok",
+            "spilledToHostRam": spilled,
+            "peakVramMiB": round(peak_mib),
+            "reservedMiB": round(reserved_mib),
             "tokensPerSec": round(tokens / elapsed, 1),
             "secPerStep": round(elapsed / steps, 3),
         })
@@ -118,7 +132,7 @@ def probe_cell(base_id: str, rank: int, seq_len: int, steps: int, batch: int, ac
 
 def project(cell: dict) -> dict:
     """Wall time for the provisional corpus, and whether it is practically reachable."""
-    if cell.get("status") != "ok":
+    if cell.get("status") not in ("ok", "spilled"):
         return cell
 
     tps = cell["tokensPerSec"]
@@ -134,6 +148,9 @@ def project(cell: dict) -> dict:
     # The distinction that matters: fits-but-unusable is not the same as does-not-fit.
     if cell["nightsHigh"] > IMPRACTICAL_NIGHTS:
         cell["verdict"] = "IMPRACTICAL"
+    elif cell.get("spilledToHostRam"):
+        # It completed, but only by paging to host RAM. Not a fit on this card.
+        cell["verdict"] = "DOES-NOT-FIT (host-RAM spill)"
     else:
         cell["verdict"] = "FEASIBLE"
     return cell
@@ -159,10 +176,27 @@ def main() -> None:
     free = torch.cuda.mem_get_info()[0] / 2**20
     total = torch.cuda.get_device_properties(0).total_memory / 2**20
     print(f"GPU: {torch.cuda.get_device_name(0)}  {free:.0f} / {total:.0f} MiB free")
-    if free < total * 0.85:
+    # The hazard is a resident LLM, which costs gigabytes — not the few hundred MiB the
+    # Windows desktop compositor holds on a card that also drives a monitor. Gate on the
+    # absolute occupancy that only a loaded model can explain.
+    if total - free > OCCUPIED_MIB_MEANS_MODEL_RESIDENT:
         raise SystemExit(
-            f"only {free:.0f} MiB free of {total:.0f} — stop Ollama before probing, "
-            "or the results measure contention rather than capacity")
+            f"{total - free:.0f} MiB already occupied — a model is probably still resident. "
+            "Stop it before probing, or the results measure contention rather than capacity")
+
+    # Resolve every base before measuring anything. Otherwise an unreachable or misnamed
+    # repo yields one error row per cell, which reads like a result and is not one.
+    from transformers import AutoConfig
+    unresolved = []
+    for base_name, base_id in BASES.items():
+        try:
+            AutoConfig.from_pretrained(base_id)
+        except Exception as exc:                               # noqa: BLE001
+            unresolved.append(f"  {base_name} -> {base_id}: {type(exc).__name__}")
+    if unresolved:
+        raise SystemExit(
+            "these bases do not resolve; fix or remove them before probing:" + chr(10)
+            + chr(10).join(unresolved))
 
     results = {"gpu": torch.cuda.get_device_name(0), "totalMiB": round(total), "cells": []}
 
