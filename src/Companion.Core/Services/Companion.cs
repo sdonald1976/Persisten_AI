@@ -742,7 +742,15 @@ public sealed class Companion : ICompanion
         // the immediate fallback. Decided before generation so streaming can be handled: the
         // production tokens are not forwarded on a canary turn (the displayed reply may
         // differ), and the chosen reply is reported to the sink once, whole, at the end.
-        var canaryTurn = _rendererShadow.IsCanaryFor(userId) && toolOutcome.Calls.Count == 0;
+        // CAPABILITY ROUTING, not content blocking (2026-08-25). Run-1c's corpus contains no
+        // roleplay: rendering an in-character turn through it produced fabricated dialogue and
+        // control-block echo when measured. So a declared or detected in-character turn stays
+        // on production, which is the model proven to handle the request. This is the same
+        // reasoning as skipping tool turns — route the request to the renderer that can serve
+        // it — and it restricts no subject matter: the production model answers it in full.
+        var canaryTurn = _rendererShadow.IsCanaryFor(userId)
+            && toolOutcome.Calls.Count == 0
+            && !inCharacter;
 
         // 6. Generate the response. The reply generator owns "when to keep going" â€” it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
@@ -894,14 +902,16 @@ public sealed class Companion : ICompanion
             // trained on tool results, so scoring it there measures the corpus's absence
             // rather than the renderer. Its structural V3 evidence is what Source 2 needs,
             // so it takes the plan-only path: the row is written, the renderer never runs.
-            var eligible = !sensitive && toolOutcome.Calls.Count == 0;
+            var eligible = !sensitive && toolOutcome.Calls.Count == 0 && !inCharacter;
             var planOnly = !sensitive && !eligible;
             decisions.Add(new DecisionRecord
             {
                 Stage = "renderer.shadow", Decider = "config",
                 Verdict = eligible ? "observed" : planOnly ? "plan-only" : "skipped",
                 Reason = eligible ? null
-                    : sensitive ? "privacy-sensitive turn" : "turn used tools",
+                    : sensitive ? "privacy-sensitive turn"
+                    : inCharacter ? "in-character turn: run-1c has no roleplay capability"
+                    : "turn used tools",
             });
             if (eligible || planOnly)
             {

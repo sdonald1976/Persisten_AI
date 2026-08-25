@@ -19,7 +19,7 @@ public static class RendererShadowChecks
     /// Runs every real-turn-applicable deterministic class over one reply. Returns violations
     /// prefixed by class name so per-class rates can be aggregated without parsing free text.
     /// </summary>
-    public static List<string> Score(ResponsePlan plan, string reply)
+    public static List<string> Score(ResponsePlan plan, string reply, bool fictionLicensed = false)
     {
         var violations = new List<string>();
         if (string.IsNullOrWhiteSpace(reply))
@@ -32,6 +32,12 @@ public static class RendererShadowChecks
         // PlanFidelity checks (correction ownership, invented contrition, shared-history
         // claims, epistemic honesty). Shared verbatim with training/eval via the file link.
         violations.AddRange(RendererBench.RendererChecks.Check(plan, reply, "v2"));
+
+        // R4: the conditions the frozen plan/2 battery does not cover — plan/3 vocabulary,
+        // fabricated turns, pronoun third-person narration, coaching echo. Same `artifact:`
+        // and `plan-echo` prefixes, so the routing guard consumes them without new strings.
+        violations.AddRange(RendererArtifactChecks.Check(reply, fictionLicensed));
+        violations.AddRange(RendererArtifactChecks.StageDirections(reply, fictionLicensed));
 
         // Question discipline — the run-1c principal behaviors, both directions.
         var endsWithQuestion = reply.TrimEnd().EndsWith('?');
