@@ -1,3 +1,8 @@
+> **SUPERSEDED, 2026-08-25.** The dual `plan/3` + `plan/3.1` scheme in this
+> document is withdrawn. The final design is a single `plan/4` protocol with an
+> optional frame — see `PLAN_V4_FICTION_FRAME.md`. Kept because it is the
+> revision the fine-print review was written against.
+
 # Plan/3 fiction frame — proposed contract revision (rev 2)
 
 **For review. Not implemented.** Revision 2 after fine-print review; rev 1's
