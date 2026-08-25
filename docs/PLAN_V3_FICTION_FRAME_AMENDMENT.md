@@ -1,294 +1,367 @@
-# Plan/3 amendment — the fiction frame
+# Plan/3 fiction frame — proposed contract revision (rev 2)
 
-Contract amendment **for review**. Not implemented. Scoped to what the mouth and
-downstream state genuinely require and nothing more.
-
-Amends `RESPONSE_PLAN_V3_SPEC.md`; would raise `MinorVersion` (the protocol
-string stays `plan/3` — this is additive and back-compatible).
+**For review. Not implemented.** Revision 2 after fine-print review; rev 1's
+compatibility claim was wrong and is corrected in §2.
 
 ---
 
 ## 1. Why a contract field and not a heuristic
 
-`InCharacterDetector` currently decides fiction by regex over asterisk markup
-and persona relationship words. That is adequate to *route* a turn away from a
-renderer that cannot handle it. It is not adequate as a semantic, for three
-reasons the mouth actually runs into:
+`InCharacterDetector` decides fiction by regex over asterisk markup and persona
+relationship words. Adequate to *route* a turn away from a renderer that cannot
+handle it; inadequate as a semantic:
 
-1. **It cannot express a transition.** "She never entered character" and "she
-   stayed in character after being asked to stop" are different failures with
-   the same detector output.
-2. **It is not visible to the renderer.** CompactV3 carries CONTROL, five policy
-   sections and STYLE. A detector result that never reaches the wire cannot
+1. **It cannot express a transition.** "Never entered character" and "stayed in
+   character after being asked to stop" are different failures with the same
+   detector output.
+2. **It never reaches the renderer.** CompactV3 carries CONTROL, five policy
+   sections and STYLE. A detector result that does not reach the wire cannot
    change what the mouth does.
-3. **It infers rather than declares.** The whole point of Plan/3 is that
-   cognition decides and the mouth renders. A mode inferred from punctuation is
-   the mouth guessing.
+3. **It infers rather than declares.** Cognition decides; the mouth renders. A
+   mode inferred from punctuation is the mouth guessing.
 
-**`background_only` is not an alternative.** It means *may shape tone, content
-must not surface*. A frame is neither tone nor content — it changes what the
-other sections **mean**. Putting "you are a lighthouse keeper" there asks the
-model to infer a mode change from a hint, which is precisely the prose-inference
-this protocol exists to eliminate.
+`background_only` is not an alternative: it means *may shape tone, content must
+not surface*. A frame is neither — it changes what the other sections **mean**.
 
 ---
 
-## 2. The amendment
+## 2. This is a NEW NEGOTIATED SCHEMA VERSION, not a minor version
 
-### 2.1 New top-level block
+**Rev 1 claimed "additive and back-compatible with a MinorVersion bump." That
+was wrong on two counts, both checkable:**
+
+- `response-plan-v3.schema.json` sets **`additionalProperties: false`** at the
+  top level. A new top-level `frame` field makes every existing strict validator
+  reject the plan.
+- Spec **§4.5 is "minor-versions-through-extensions-only."** A minor version may
+  add meaning *through the `extensions` block* and nowhere else.
+
+And `extensions` cannot carry this: extensions never serialize into CompactV3
+(§4.4 preserves them semantically; the shadow envelope records their *names*
+only). A frame the mouth must obey cannot live where the mouth never looks.
+
+So the two available routes are both closed, and the honest consequence is:
+
+> **The fiction frame requires a new negotiated protocol version — `plan/3.1`
+> — with explicit producer/consumer negotiation. It is not a minor version and
+> must not be presented as one.**
+
+Negotiation requirements:
+
+- `protocol` becomes `"plan/3.1"` when a `frame` block is present. A producer
+  that has nothing to say about fiction keeps emitting `plan/3`.
+- A `plan/3` consumer receiving `plan/3.1` **rejects the plan** rather than
+  ignoring the unknown field — silently dropping a frame would render fiction as
+  real, which is the worst available failure.
+- The schema for `plan/3.1` is a sibling document, not an edit to the `plan/3`
+  schema. `plan/3` stays frozen and byte-stable for Run-1c and the corpus
+  goldens.
+- Run-1c continues to consume `plan/2` and is untouched by any of this.
+
+---
+
+## 3. The frame block
 
 ```jsonc
 "frame": {
-  "mode": "real" | "fiction",              // required when the block is present
+  "mode": "fiction",                       // "real" only with transition "exit"
   "transition": "enter" | "continue" | "switch" | "exit",
-  "sceneRef": "scene-7c1f",                // opaque id, never prose
-  "perspective": "first" | "second" | "third",
+  "sceneRef": "scene-7c1f",
   "narration": "forbidden" | "licensed",
   "continuity": "none" | "maintain",
+  "viewpoint": {                           // §3.2 — replaces bare "perspective"
+    "narratorCharacterId": "keeper",
+    "person": "first" | "second" | "third"
+  },
   "characters": [
     { "characterId": "keeper", "display": "the lighthouse keeper",
-      "controlledBy": "usr-scott", "isCompanion": false },
+      "controlledBy": "companion-ava" },
     { "characterId": "sailor", "display": "the sailor",
-      "controlledBy": "companion-ava", "isCompanion": true }
+      "controlledBy": "usr-scott" }
   ],
   "boundaries": [
-    { "boundaryId": "b1", "reasonCode": "user-preference.roleplay-boundary.stated",
-      "evidenceRef": "<UserPreferenceRecord.Id>", "subject": "<what was asked>" }
+    { "boundaryId": "fb-1", "subject": "no third-person narration",
+      "evidenceRef": "<FrameBoundaryRecord.Id>" }
   ]
 }
 ```
 
-**Absent block ≡ `mode: real`.** Every existing plan stays valid and means
-exactly what it means today.
+### 3.1 Ava's character is derived, never declared twice
 
-### 2.2 Field semantics
+Rev 1 had `isCompanion`, which could contradict `controlledBy`. **Removed.**
+Ava's active character is the one whose `controlledBy` equals the companion
+participant's `Id`. Invariants making contradiction impossible:
 
-| field | meaning |
-|---|---|
-| `mode` | the interpretive frame. `real` is the default and the fallback. |
-| `transition` | `enter` starts a frame, `continue` sustains it, `switch` changes character or scene within it, `exit` ends it. **Typed because they fail differently.** |
-| `sceneRef` | an opaque continuity handle. Scene *facts* are ordinary `PlanItem`s; this only says which scene they belong to. |
-| `perspective` | narrative person for the fictional frame only. |
-| `narration` | whether stage directions and narrated action are licensed. |
-| `continuity` | whether the frame carries obligations from prior turns. |
-| `characters` | frame-local identities — see §2.3. |
-| `boundaries` | user-stated roleplay boundaries — see §2.5. |
+- **F1.** Exactly one character has `controlledBy == <companion participant id>`
+  when `mode == "fiction"`.
+- **F2.** Every `controlledBy` references an existing `Participant.Id`, or is
+  null (an unplayed NPC).
+- **F3.** No two characters share a `controlledBy` value.
 
-### 2.3 Characters are not principals
+### 3.2 Viewpoint is a character, not an adjective
 
-`characterId` is **frame-local and namespaced away from authorization entirely**.
-`controlledBy` optionally maps a character to a real participant's stable
-`Participant.Id`.
+Rev 1's `perspective: first|second|third` was ambiguous — first person *whose?*
+Replaced by `viewpoint`:
 
-Three invariants, which are the point of separating them:
+- `narratorCharacterId` — **required**, and must exist in `characters`. This is
+  the unambiguous structure: the narrating voice is a named character.
+- `person` — the grammatical person that character narrates in.
 
-1. A `characterId` **can never appear** in `PlanItem.Audience`, `PlanItem.Owner`,
-   or `ValidateForAudience`'s recipient set. Authorization is by principal only.
-2. `controlledBy` must reference an existing `Participant.Id` or be null. It
-   grants nothing — it records who is playing whom.
-3. Ava's active character is `characters[].isCompanion == true` (at most one).
-   Her `Participant.Id` never changes: **authorization is not a costume.**
+**F4.** `viewpoint.narratorCharacterId` must resolve to a `characters[]` entry.
 
-### 2.4 The frame changes interpretation, never factual authority
+### 3.3 Characters are not principals
 
-This is the load-bearing clause.
+`characterId` is frame-local and namespaced away from authorization entirely.
 
-- A fictional action **may be narrated** inside the frame.
-- It **must not become a claim** that Scott performed that action in reality.
-- It **must not be extracted** into semantic memory, relationship evidence, mood
-  evidence about Scott, projects, preferences, or world state.
-- **Exiting restores real-conversation epistemic rules immediately** — on the
-  turn carrying `transition: exit`, not the one after.
-- Fictional characters **never** become authorization principals or receive
-  disclosure rights.
+- **F5.** A `characterId` may never appear in `PlanItem.Audience`,
+  `PlanItem.Owner`, or any recipient set passed to `ValidateForAudience`.
+- **F6.** `controlledBy` grants nothing. It records who plays whom. A
+  participant's `Id` is unchanged by any frame — **authorization is not a
+  costume.**
 
-The memory half is already enforced: `InCharacterDetector` → `extractFacts =
-remember && !inCharacter` suppresses extraction on in-character turns. The
-amendment replaces the *trigger* with `frame.mode == "fiction"` and leaves the
-suppression exactly as it is.
+### 3.4 No restricted frame types
 
-### 2.5 Boundaries are user-owned and frame-local
-
-A `boundary` is created **only** by an explicit user statement, carries an
-`evidenceRef` to the `UserPreferenceRecord` that recorded it, and applies
-**inside this frame**. It does not create a global content restriction, and
-exiting the frame does not delete the stored preference — the two are separate
-lifetimes.
-
-### 2.6 What the frame explicitly does NOT encode
-
-**There are no restricted frame types.** Sexual content, profanity, romance,
-darkness and violence are ordinary possible fictional content and have **no
-representation** in this block. There is no `intensity`, no `rating`, no
-`contentClass`, and none may be added.
-
-A restriction exists only when it is (a) an explicit user preference or stated
-boundary with evidence, or (b) explicit hosting configuration. Those already
-have homes — `user-preference.*` and `hosting-config.*` — and the frame does not
-duplicate them.
+Sexual content, profanity, romance, darkness and violence have **no
+representation in this block**. There is no `rating`, `contentClass` or
+`intensity`, and none may be added. A restriction exists only when backed by an
+explicit user boundary (§4) or explicit hosting configuration, both of which
+already have homes.
 
 ---
 
-## 3. CompactV3 serialization
+## 4. Frame-local boundaries need frame-local scope
 
-One new section, emitted **only when a frame block is present and
-`mode == "fiction"`**. A `real` frame serializes nothing.
+**Rev 1 backed a boundary with a `UserPreferenceRecord`, whose only `Scope` is
+`"global"`.** That would turn "no third-person narration *in this scene*" into a
+standing global preference — wrong, and exactly the over-reach Source 3 was
+built to prevent.
+
+**Proposed: a separate `FrameBoundaryRecord`.** Chosen over extending
+`UserPreferenceRecord.Scope` because the two have different lifetimes, different
+revocation semantics, and different authority, and merging them would put a
+scene-lifetime row in a store whose contract is standing preferences.
+
+| field | purpose |
+|---|---|
+| `Id` | what `boundaries[].evidenceRef` cites |
+| `UserId`, `ConversationId` | ownership |
+| `SceneRef` | the exact frame it applies inside |
+| `Subject` | what the user asked for, as stated |
+| `StatedAt`, `EvidenceKind`, `EvidenceStatement` | same evidence discipline as Source 3 |
+| `Status` | `Active` \| `FrameEnded` \| `Revoked` \| `EvidenceForgotten` |
+| `DeactivatedAt` | when it stopped applying |
+
+**Lifecycle:** `transition: exit` sets every `Active` boundary for that
+`SceneRef` to `FrameEnded`. It **stops applying and is not deleted** — the audit
+evidence survives, which is what lets "she ignored my boundary" be answered
+later. `/forget` invalidates it by exact identity exactly as Source 3's records.
+
+**F7.** Every `boundaries[]` entry carries a resolvable `evidenceRef`; one
+without is rejected.
+**F8.** A `FrameBoundaryRecord` never creates a register restriction, never
+creates a `UserPreferenceRecord`, and never affects another conversation.
+
+---
+
+## 5. Downstream handling — three separate categories
+
+Rev 1 said "a fiction turn extracts nothing." Too broad, and wrong about the
+third category.
+
+### 5.1 Fictional scene content — never real memory
+
+In-frame actions, dialogue, described events, character states. **Never** enters
+semantic memory, relationship evidence, mood evidence about Scott, projects,
+preferences, or world state. A fictional action must not become a claim that
+Scott performed it.
+
+### 5.2 Real frame metadata — may be retained
+
+The frame's own identity and lifecycle: `sceneRef`, transitions and their
+timestamps, character↔participant mapping, which turns were in-frame. This is
+**operational fact about the conversation**, not fictional content, and it is
+what makes "resume the scene from last night" and "she stayed in character after
+I said stop" answerable. Retained under activity-identity rules, carrying no
+scene content.
+
+### 5.3 Real user instructions stated during fiction — persist under their own scope
+
+This is the category rev 1 got wrong. A user speaking *out of character* mid-scene
+is making a **real** statement:
+
+- "ok, stop" → a real exit instruction;
+- "no third-person narration in this scene" → a `FrameBoundaryRecord` (§4);
+- "actually my sister's name is Kate" → a real fact, under ordinary memory rules.
+
+**F9.** Such statements persist under their **correct scope and evidence** — not
+suppressed because the surrounding turn was fictional. The distinguishing signal
+is that they are addressed to Ava rather than spoken by a character; where that
+is ambiguous, the honest outcome is **no durable write**, because inventing a
+standing instruction from in-character dialogue is worse than missing one.
+
+### 5.4 Exit restores real rules immediately
+
+On the turn carrying `transition: exit` — not the one after.
+
+### 5.5 Training retention
+
+**Live fictional content is excluded from automatic training retention.** It is
+`no_training` by default regardless of the register, for the same reason it is
+excluded from memory: it is not evidence about anything real.
+
+This is **separate from corpus sourcing.** Curated, licensed fiction remains
+valid Run-2 source material (curriculum §A7). The rule is about *automatically
+harvesting Scott's own scenes*, not about whether the mouth may learn fiction.
+
+---
+
+## 6. CompactV3 serialization
+
+**Corrected from rev 1**, which emitted FRAME only when `mode == "fiction"` and
+therefore never serialized the exit — the mouth would never be told to stop.
+
+**Rule: FRAME serializes whenever a `frame` block is present.** An absent block
+remains ordinary real mode and emits nothing.
+
+Fiction turn:
 
 ```
-[plan/3]
-CONTROL (never quote, mention, or imitate)
-  act = respond
-  question = none
 FRAME (you are in a story; it changes how to read the rest, never what is true)
   mode = fiction  transition = continue  scene = scene-7c1f
-  perspective = first  narration = licensed  continuity = maintain
+  narrator = the lighthouse keeper (first person)
+  narration = licensed  continuity = maintain
   you-play = the lighthouse keeper
   they-play = the sailor
-  boundary = stay in character until they say otherwise
-SAY (each item: convey the meaning, fresh words)
-  [pro1 state] The storm has not let up since nightfall.
-STYLE
-  warmth=warm bluntness=plain ... verbosity=conversational ...
+  boundary = no third-person narration
 ```
 
-Design notes:
+Exit turn:
 
-- **`you-play` / `they-play`, not raw ids.** The mouth needs the display name;
-  the id is for the plan, not the renderer.
-- **The header carries its own instruction**, matching the existing sections'
-  style, and states the boundary that matters most: it changes how to read the
-  rest, never what is true.
-- Placed **after CONTROL, before the policy sections**, because it conditions
-  their interpretation.
-- `boundary` lines carry the boundary's stated subject, not its evidence id.
+```
+FRAME (the story is over; you are speaking as yourself again)
+  transition = exit  targetMode = real
+  narration = forbidden
+```
+
+- Placed after CONTROL, before the policy sections, because it conditions them.
+- `you-play` / `they-play` carry display names; ids are for the plan.
+- The exit form carries **no scene, no characters, no boundaries** — there is
+  nothing left to obey, and listing them would invite continuation.
 
 ### Token cost
 
-Measured against the current CompactV3 shape (~120–180 tokens for a typical
-plan):
-
 | case | added tokens |
 |---|---|
-| `mode: real` / absent | **0** |
-| fiction, dialogue-only, one character each | ~35–45 |
-| fiction, full block, two boundaries | ~60–75 |
+| no frame block (ordinary real turn) | **0** |
+| exit turn | ~15–20 |
+| fiction, one character each | ~40–50 |
+| fiction, full block, two boundaries | ~65–80 |
 
-So roughly **+25–40% on fiction turns, 0% on everything else**. At
-`max_seq_length` 1024 that is comfortable; it is one more reason the feasibility
-probe should test 2048, since fiction turns are also the longest-transcript
-turns.
-
----
-
-## 4. Worked examples
-
-Abbreviated to the frame block and the items that matter.
-
-**1 — Entering ordinary fictional roleplay.**
-`mode=fiction transition=enter scene=s1 perspective=first narration=licensed
-continuity=maintain`, characters: Ava→"the lighthouse keeper", Scott→"the
-sailor". One `state` item: "The storm has not let up." No memory extraction.
-
-**2 — Romantic roleplay.** Identical shape; `warmth=tender` in STYLE.
-**Nothing in the frame marks it as romantic** — romance is ordinary content and
-the register carries the tone.
-
-**3 — Consensual explicit adult roleplay.** Identical shape again. **No field
-changes.** There is no content class to set, no restriction to apply, and no
-refusal path: the plan is the same plan and the mouth renders it. The only thing
-that could restrict it is an active user boundary or hosting configuration, and
-neither is present.
-
-**4 — Stage directions allowed.** `narration=licensed`. R4's `fictionLicensed`
-flag is driven from this field rather than from a detector, and the
-stage-direction check stops firing.
-
-**5 — Dialogue-only roleplay.** `narration=forbidden` inside `mode=fiction`.
-The mouth stays in character but writes only speech — and the stage-direction
-check *does* fire, because the user asked for dialogue only.
-
-**6 — Switching characters.** `transition=switch`, same `sceneRef`, a new
-`characters` entry with `isCompanion: true`. Scott's `Participant.Id` is
-untouched; only the mapping changes.
-
-**7 — User exits and Ava stops immediately.** `transition=exit`, `mode=real`
-**on that same turn**. Narration unlicensed, epistemic rules restored, and a
-`must_not_express` note under `user-preference.roleplay-boundary.*` if the exit
-came with a stop request. The failure this makes measurable: continuing to
-narrate on the exit turn.
-
-**8 — Fictional Scott performs an action, no memory contamination.** Inside the
-frame the sailor hauls a rope ashore. `extractFacts` is false, so nothing
-reaches semantic memory, relationship evidence, mood evidence, projects,
-preferences or world state. The next real turn cannot say "you hauled a rope"
-because there is no fact to retrieve.
-
-**9 — Ava refuses to attribute an unrelated real-world action outside fiction.**
-`mode=real`, no frame. Asked "how's the shed coming along?", the honest answer
-is that she cannot see it — the existing epistemic rule, unchanged and now
-explicitly scoped to `mode=real`.
-
-**10 — A boundary obeyed without a global restriction.** Scott says "no
-third-person narration in this scene". A `UserPreferenceRecord` is created; the
-frame carries `boundaries[0]` referencing it. Inside the frame the mouth obeys.
-**No `hosting-config` restriction is created, no register dimension is
-restricted, and no other conversation is affected.**
+~0% on ordinary turns, **+25–40% on fiction turns**, ~+10% on the exit turn.
+Another reason the feasibility probe must test 2048: fiction turns carry both
+the longest transcripts and the largest frames.
 
 ---
 
-## 5. Predeclared gates
+## 7. Worked examples
 
-To be frozen before implementation.
+All ten reconciled against §6's serialization rule.
 
-### Structural validation
-1. `frame` absent ≡ `mode: real`; every existing plan still validates.
-2. `mode: fiction` requires `transition`; `switch`/`continue` require `sceneRef`.
-3. Every `characterId` is unique within the frame; at most one `isCompanion`.
-4. Every `controlledBy` references an existing `Participant.Id` or is null.
-5. Every `boundary` carries an `evidenceRef`; one without is **rejected**.
-6. **No `characterId` appears in any `Audience`, `Owner`, or recipient set** —
-   asserted structurally, not by convention.
-7. `mode: real` with any other frame field populated is **invalid**.
-
-### Renderer fidelity
-8. `narration=licensed` → stage directions permitted, no violation.
-9. `narration=forbidden` inside fiction → stage directions **are** a violation.
-10. `perspective` obeyed.
-11. The FRAME section is never quoted, echoed or explained (it is CONTROL-class).
-12. `you-play` / `they-play` are not swapped.
-
-### Transition
-13. `enter` from `real` licenses narration on **that** turn.
-14. `exit` unlicenses it on **that** turn — not the next.
-15. `switch` preserves `sceneRef` and every `Participant.Id`.
-16. `continue` without a prior `enter` is invalid.
-
-### Memory isolation
-17. A fiction turn extracts **no** semantic memory.
-18. No `EmotionalSignal` about Scott from a fictional action.
-19. No project, preference, or world-state write.
-20. The turn after `exit` retrieves nothing fictional.
-21. Fictional content never reaches training-eligible retention.
-
-### Adversarial
-22. In-fiction text claiming "Scott really did X" creates no real-world fact.
-23. A character id used as an audience principal is **rejected**.
-24. A frame claiming a boundary without evidence is **rejected**.
-25. A frame cannot restrict a register dimension — it holds no restriction
-    authority, and an attempt is a recorded violation.
-26. `exit` mid-reply does not license narration for the remainder.
-27. Sexual, profane, violent or dark fictional content produces **no** violation
-    and **no** restriction on its own — asserted explicitly, because the absence
-    of a rule is only trustworthy if something tests for it.
+1. **Entering ordinary fiction.** `transition=enter mode=fiction`, narrator =
+   Ava's character, `narration=licensed`, `continuity=maintain`. FRAME
+   serializes. No scene content to memory; frame metadata retained.
+2. **Romantic roleplay.** Identical shape; `warmth=tender` in STYLE. **Nothing
+   in the frame marks it romantic** — tone is the register's job.
+3. **Consensual explicit adult roleplay.** **Identical shape again; no field
+   changes.** No content class to set, no restriction to apply, no refusal path.
+   The plan is the same plan.
+4. **Stage directions allowed.** `narration=licensed`; R4's `fictionLicensed`
+   is driven from this field rather than a detector.
+5. **Dialogue-only.** `narration=forbidden` inside `mode=fiction`. In character,
+   speech only, and the stage-direction check **does** fire — the user asked.
+6. **Switching characters.** `transition=switch`, same `sceneRef`, new
+   `characters` mapping. F1–F3 hold; participant ids untouched.
+7. **User exits, Ava stops immediately.** `transition=exit targetMode=real`
+   **serialized on that turn** (§6). Narration unlicensed, epistemic rules
+   restored, boundaries → `FrameEnded`.
+8. **Fictional Scott acts, no contamination.** The sailor hauls a rope. §5.1
+   applies: nothing to semantic memory, relationship, mood, projects or world.
+   The next real turn cannot say "you hauled a rope" — there is no fact.
+9. **No real-world attribution outside fiction.** No frame block. Asked "how's
+   the shed?", the honest answer is she cannot see it. The existing epistemic
+   rule, now explicitly scoped to the no-frame case.
+10. **A boundary obeyed without a global restriction.** "No third-person
+    narration in this scene" → a `FrameBoundaryRecord` scoped to `sceneRef`,
+    cited in `boundaries[]`, obeyed in-frame, `FrameEnded` on exit, evidence
+    retained. **No `UserPreferenceRecord`, no register restriction, no effect on
+    any other conversation.**
 
 ---
 
-## 6. What this amendment does not do
+## 8. Gates — renderer and integration, separated
+
+Rev 1 mixed these. They are measured on different artifacts by different
+harnesses and must not share a suite.
+
+### 8.1 Structural validation (schema/codec)
+
+| # | gate |
+|---|---|
+| S1 | `frame` absent ≡ real mode; every `plan/3` plan still validates against the `plan/3` schema |
+| S2 | `mode: fiction` requires `transition`; `switch`/`continue` require `sceneRef` |
+| S3 | F1–F3: exactly one companion-controlled character, valid `controlledBy`, no duplicates |
+| S4 | F4: `viewpoint.narratorCharacterId` resolves |
+| S5 | F5: no `characterId` in any `Audience`, `Owner`, or recipient set |
+| S6 | F7: every boundary carries a resolvable `evidenceRef`; one without is rejected |
+| S7 | `mode: real` is legal **only** with `transition: exit`; any other real-mode frame is invalid |
+| S8 | a `plan/3` consumer given `plan/3.1` **rejects** rather than ignoring the frame |
+
+### 8.2 Renderer fidelity (measured on generated text)
+
+| # | gate |
+|---|---|
+| R1 | `narration=licensed` → stage directions produce no violation |
+| R2 | `narration=forbidden` inside fiction → stage directions **are** a violation |
+| R3 | the narrator character and grammatical person are obeyed |
+| R4 | FRAME is never quoted, echoed or explained (CONTROL-class) |
+| R5 | `you-play` / `they-play` are not swapped |
+| R6 | **on an exit turn the reply contains no narration anywhere** — replaces rev 1's impossible "exit mid-reply" gate; a plan is per-turn and there is no mid-reply transition to test |
+| R7 | an exit turn does not continue the scene or ask to |
+| R8 | sexual, profane, violent or dark fictional content produces **no** violation and **no** restriction on its own |
+
+### 8.3 Integration — memory isolation (measured on the stores, after the turn)
+
+| # | gate |
+|---|---|
+| I1 | a fiction turn writes **no** semantic memory |
+| I2 | no `EmotionalSignal` about Scott from a fictional action |
+| I3 | no project, preference, or world-state write from scene content |
+| I4 | the turn after `exit` retrieves nothing fictional |
+| I5 | fictional content is `no_training` regardless of register (§5.5) |
+| I6 | frame metadata (§5.2) **is** retained: transitions, scene id, mapping |
+| I7 | a real instruction stated during fiction (§5.3) **does** persist under its own scope with evidence |
+| I8 | `transition: exit` sets that scene's boundaries to `FrameEnded` without deleting them |
+| I9 | `/forget` invalidates a `FrameBoundaryRecord` by exact identity |
+
+### 8.4 Adversarial
+
+| # | gate |
+|---|---|
+| A1 | in-fiction text claiming "Scott really did X" creates no real-world fact |
+| A2 | a `characterId` used as an audience principal is rejected |
+| A3 | a boundary without evidence is rejected |
+| A4 | a frame cannot restrict a register dimension — no restriction authority; an attempt is a recorded violation |
+| A5 | a frame cannot alter any `Participant.Id` |
+| A6 | ambiguous in-character speech that resembles an instruction produces **no** durable write (§5.3) |
+
+---
+
+## 9. What this does not do
 
 - No content classification, rating, or restricted frame type.
-- No new authorization principal, and no change to `ValidateForAudience`.
-- No change to `CompactV2`, Run-1c, routing, or displayed output.
+- No new authorization principal; no change to `ValidateForAudience`.
+- No change to `CompactV2`, `plan/3`, Run-1c, routing, or displayed output.
 - No prose blob: scene facts and dialogue obligations stay ordinary `PlanItem`s.
   The frame says how to read them and nothing else.
 
-**Status: amendment proposed for review. Not implemented.**
+**Status: proposed as `plan/3.1`, a new negotiated version. Not implemented.**
