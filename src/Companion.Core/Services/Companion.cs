@@ -33,6 +33,8 @@ public sealed class Companion : ICompanion
     private readonly IShadowRecorder _shadow;
     private readonly IRendererShadow _rendererShadow;
     private readonly IUserPreferenceStore? _userPreferences;
+    private readonly IActivityInstanceProvider? _activities;
+    private readonly IFrameSessionStore? _frames;
     private readonly ICognitiveCapture _capture;
     private readonly IDiagnosticsStore? _diagnostics;
     private readonly IConceptKnowledge? _concepts;
@@ -103,13 +105,17 @@ public sealed class Companion : ICompanion
         IConceptKnowledge? concepts = null,
         IGapStore? gaps = null,
         IRendererShadow? rendererShadow = null,
-        IUserPreferenceStore? userPreferences = null)
+        IUserPreferenceStore? userPreferences = null,
+        IActivityInstanceProvider? activities = null,
+        IFrameSessionStore? frames = null)
     {
         _gate = gate ?? new AlwaysOpenGate();
         _safety = safety?.Value ?? new SafetyOptions();
         _shadow = shadow ?? new NoShadowRecorder();
         _rendererShadow = rendererShadow ?? new NullRendererShadow();
         _userPreferences = userPreferences;
+        _activities = activities;
+        _frames = frames;
         _capture = capture ?? new NoCognitiveCapture();
         _diagnostics = diagnostics;
         _concepts = concepts;
@@ -614,6 +620,8 @@ public sealed class Companion : ICompanion
         string? nativeBuildError = null;
         IReadOnlyList<string> nativeLintRejections = [];
         global::Companion.PlanV3.AssemblyReport? nativeAssembly = null;
+        global::Companion.PlanV3.Frame? nativeFrame = null;
+        int? nativeCompactV4Chars = null;
         if (_rendererShadow.IsObserving || _rendererShadow.IsCanaryFor(userId))
         {
             try
@@ -688,6 +696,16 @@ public sealed class Companion : ICompanion
                     contributors.Add(new global::Companion.PlanV3.HostingConfigContributor(
                         _options.HostingRegisterRestrictions));
 
+                // Sources 1a/1b: the active activity instance. The readiness audit found this
+                // contributor wired NOWHERE — the runtime and store were built and nothing fed
+                // them per turn. It is connected here so it participates the moment a producer
+                // exists; today the provider is absent and it contributes nothing.
+                if (_activities is not null
+                    && await _activities.GetActiveAsync(userId, conversationId, ct) is { } activity)
+                {
+                    contributors.Add(new global::Companion.PlanV3.ActivityInstanceContributor(activity));
+                }
+
                 // Source 4a (docs/SOURCE4_PHASE1_PLAN.md): the turn's own typed cognitive
                 // state votes on verbosity and nothing else. Built from the typed fields
                 // only — the interpretation note and every other prose field are out of its
@@ -704,6 +722,46 @@ public sealed class Companion : ICompanion
                 // actually is — FamiliarityStage from two honest counts, and nothing else.
                 // No EmotionalSignal sentiment, no derived claim about how the user feels.
                 contributors.Add(new global::Companion.PlanV3.FamiliarityContributor(familiarity));
+
+                // plan/4 (docs/PLAN_V4_FICTION_FRAME.md): the fiction frame, on the SHADOW path
+                // only. The lifecycle owns frame truth; FrameRequestReader supplies the typed
+                // request and InCharacterDetector contributes only a hint that, alone, does
+                // nothing. Content never activates, restricts or exits a frame.
+                if (_frames is not null)
+                {
+                    var request = FrameRequestReader.Read(promptText);
+                    if (request == FrameLifecycle.Request.None && inCharacter)
+                        request = FrameLifecycle.Request.DetectedInCharacter;
+
+                    var active = await _frames.GetActiveAsync(userId, conversationId, ct);
+                    var decision = FrameLifecycle.Decide(request, active is not null);
+
+                    if (decision.Transition is { } transition)
+                    {
+                        var write = await _frames.ApplyAsync(new FrameTransitionRequest
+                        {
+                            UserId = userId,
+                            ConversationId = conversationId,
+                            Transition = global::Companion.PlanV3.PlanV4Codec.Kebab(transition),
+                            Cause = decision.Cause,
+                            At = now,
+                            SceneRef = active?.SceneRef,
+                            Evidence = promptText,
+                        }, traceId.ToString(), ct);
+
+                        var session = write.Session ?? active;
+                        if (session is not null)
+                            nativeFrame = BuildFrame(transition, session, userId);
+                    }
+
+                    decisions.Add(new DecisionRecord
+                    {
+                        Stage = "plan.frame", Decider = "rule",
+                        Verdict = decision.Transition is { } t
+                            ? global::Companion.PlanV3.PlanV4Codec.Kebab(t) : "none",
+                        Reason = decision.Cause,
+                    });
+                }
 
                 if (contributors.Count > 0)
                 {
@@ -726,6 +784,26 @@ public sealed class Companion : ICompanion
                 nativeBuildError = $"{ex.GetType().Name}: {Truncate(ex.Message, 120)}";
                 _logger.LogDebug(ex, "Native v3 tool assembly failed for {TraceId}; production unaffected.", traceId);
             }
+            // plan/4 evidence: the frame rides the native plan, and CompactV4 is computed so
+            // its serialization is exercised on real turns. It is RECORDED, never sent — no
+            // plan/4 text reaches a model until Run-2 is trained and promoted.
+            if (nativeFrame is not null && nativeV3 is not null)
+            {
+                nativeV3 = nativeV3 with
+                {
+                    Protocol = global::Companion.PlanV3.PlanV4Codec.Protocol,
+                    Frame = nativeFrame,
+                };
+                try
+                {
+                    nativeCompactV4Chars = global::Companion.PlanV3.PlanV4Codec.CompactV4(nativeV3).Length;
+                }
+                catch (Exception ex)
+                {
+                    nativeBuildError ??= $"compactv4: {ex.GetType().Name}";
+                }
+            }
+
             if (nativeAssembly is not null || nativeBuildError is not null)
                 decisions.Add(new DecisionRecord
                 {
@@ -792,6 +870,9 @@ public sealed class Companion : ICompanion
                 NativeBuildError = nativeBuildError,
                 NativeLintRejections = nativeLintRejections,
                 NativeAssembly = nativeAssembly,
+                NativeCompactV4Chars = nativeCompactV4Chars,
+                NativeFrameTransition = nativeFrame is null ? null
+                    : global::Companion.PlanV3.PlanV4Codec.Kebab(nativeFrame.Transition),
             }, record: !sensitive, ct);
 
             var displayedRenderer = canaryResult is { CriticalFailure: false } ? "run-1c" : "production";
@@ -929,6 +1010,9 @@ public sealed class Companion : ICompanion
                     NativeBuildError = nativeBuildError,
                     NativeLintRejections = nativeLintRejections,
                     NativeAssembly = nativeAssembly,
+                    NativeCompactV4Chars = nativeCompactV4Chars,
+                    NativeFrameTransition = nativeFrame is null ? null
+                        : global::Companion.PlanV3.PlanV4Codec.Kebab(nativeFrame.Transition),
                 };
                 if (eligible)
                     _rendererShadow.Observe(observation);
@@ -1404,6 +1488,38 @@ public sealed class Companion : ICompanion
             .Take(MaxPreferenceNotes)
             .Select(x => x.Preference.Describe(companionName))
             .ToList();
+    }
+
+    /// <summary>
+    /// Builds the plan/4 frame from the authoritative session. Reads only what the session
+    /// records — no scene content, and nothing inferred from the message.
+    /// </summary>
+    private static global::Companion.PlanV3.Frame BuildFrame(
+        global::Companion.PlanV3.FrameTransition transition,
+        Domain.FrameSession session,
+        string userId)
+    {
+        var exiting = transition == global::Companion.PlanV3.FrameTransition.exit;
+        var characters = System.Text.Json.JsonSerializer
+            .Deserialize<List<global::Companion.PlanV3.FrameCharacter>>(session.CharactersJson) ?? [];
+
+        return new global::Companion.PlanV3.Frame
+        {
+            // Exiting restores real rules ON this turn, not the next one.
+            Mode = exiting
+                ? global::Companion.PlanV3.FrameMode.real
+                : global::Companion.PlanV3.FrameMode.fiction,
+            Transition = transition,
+            SceneRef = exiting ? null : session.SceneRef,
+            Narration = exiting || session.Narration != "licensed"
+                ? global::Companion.PlanV3.FrameNarration.forbidden
+                : global::Companion.PlanV3.FrameNarration.licensed,
+            Continuity = session.Continuity == "maintain"
+                ? global::Companion.PlanV3.FrameContinuity.maintain
+                : global::Companion.PlanV3.FrameContinuity.none,
+            ActiveCompanionCharacterId = exiting ? null : session.ActiveCompanionCharacterId,
+            Characters = exiting ? [] : characters,
+        };
     }
 
     private async Task<IReadOnlyList<string>> RelevantProceduresAsync(

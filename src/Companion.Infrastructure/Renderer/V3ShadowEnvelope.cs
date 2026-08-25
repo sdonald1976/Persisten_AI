@@ -57,6 +57,14 @@ public sealed record V3ShadowEnvelope
     /// <summary>Semantic parity by class; differences are evidence, never behavior.</summary>
     public IReadOnlyList<V3ParityClass> Parity { get; init; } = [];
 
+    /// <summary>plan/4: the frame transition this turn carried, when any. A token, never text.</summary>
+    public string? FrameTransition { get; init; }
+
+    /// <summary>plan/4: CompactV4's size in characters, when a frame was present. A NUMBER —
+    /// the serialization is exercised on real turns and recorded as evidence, and the text
+    /// itself reaches no model until Run-2 is promoted.</summary>
+    public int? CompactV4Chars { get; init; }
+
     /// <summary>P5: contribution-boundary diagnostics. Ids, decisions, reasons — no text.</summary>
     public V3AssemblySection? Assembly { get; init; }
 }

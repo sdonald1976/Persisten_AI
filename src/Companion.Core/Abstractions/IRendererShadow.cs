@@ -105,6 +105,16 @@ public sealed record RendererShadowObservation
     /// <summary>The reply production actually sent, after all filters and gates.</summary>
     public required string ProductionResponse { get; init; }
 
+    /// <summary>
+    /// plan/4 evidence: the size of the CompactV4 serialization for this turn, when a frame
+    /// was present. A NUMBER, never the text — CompactV4 is recorded as evidence that the
+    /// serializer runs on real turns, and reaches no model until Run-2 is promoted.
+    /// </summary>
+    public int? NativeCompactV4Chars { get; init; }
+
+    /// <summary>plan/4 evidence: the frame's transition, when there was one. A token.</summary>
+    public string? NativeFrameTransition { get; init; }
+
     /// <summary>P5/Source 2: the content-safe assembler report for the contributions folded
     /// into <see cref="NativeV3"/>. Ids, decisions, reason codes and counts — no text.</summary>
     public Companion.PlanV3.AssemblyReport? NativeAssembly { get; init; }

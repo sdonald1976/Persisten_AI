@@ -478,6 +478,14 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         if (obs.NativeAssembly is { } assembly)
             envelope = V3ShadowEnvelopeBuilder.WithAssembly(envelope, assembly);
 
+        // plan/4 evidence: a transition token and a size. No plan/4 text is stored or sent.
+        if (obs.NativeFrameTransition is not null || obs.NativeCompactV4Chars is not null)
+            envelope = envelope with
+            {
+                FrameTransition = obs.NativeFrameTransition,
+                CompactV4Chars = obs.NativeCompactV4Chars,
+            };
+
         Interlocked.Increment(ref envelope.Valid ? ref _v3Valid : ref _v3Invalid);
         if (envelope.V2Compatible) Interlocked.Increment(ref _v3Compatible);
         if (envelope.ContainsProtected) Interlocked.Increment(ref _v3Protected);

@@ -47,5 +47,7 @@
   "NativeBuildError": null,
   "NativeLintRejections": [],
   "Parity": [],
+  "FrameTransition": null,
+  "CompactV4Chars": null,
   "Assembly": null
 }
