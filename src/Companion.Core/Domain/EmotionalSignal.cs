@@ -12,8 +12,30 @@ public sealed class EmotionalSignal
     public Guid Id { get; set; }
     public string UserId { get; set; } = default!;
 
-    /// <summary>The user message this reading was taken from (soft reference for explainability).</summary>
+    /// <summary>The user message this reading was taken from. Since Phase 0 this is an
+    /// EXACT forgetting handle, not merely an explainability hint: /forget matches on it
+    /// by identity and never by text.</summary>
     public Guid MessageId { get; set; }
+
+    /// <summary>
+    /// The durable identity of the evidence EVENT behind this reading, assigned at capture.
+    /// Exists so a signal can be forgotten by an exact handle even when no Message row backs
+    /// it (the same reason `UserPreferenceRecord.EvidenceEventId` exists). Never text.
+    /// </summary>
+    public Guid EvidenceEventId { get; set; }
+
+    /// <summary>What kind of thing <see cref="EvidenceEventId"/> identifies. "user-message"
+    /// is the only producer today.</summary>
+    public string EvidenceKind { get; set; } = "user-message";
+
+    /// <summary>
+    /// True once the evidence behind this reading was forgotten. The row survives as
+    /// METADATA ONLY — the user's words (<see cref="Evidence"/>, <see cref="Topic"/>) are
+    /// purged — and it contributes nothing to any snapshot: authority dies with its evidence.
+    /// </summary>
+    public bool EvidenceForgotten { get; set; }
+
+    public DateTimeOffset? ForgottenAt { get; set; }
 
     public DateTimeOffset Timestamp { get; set; }
 

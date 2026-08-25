@@ -27,7 +27,11 @@ public sealed class RelationshipTracker : IRelationshipTracker
     public async Task<RelationshipSnapshot> BuildAsync(string userId, CancellationToken ct = default)
     {
         // Newest-first from the store; reverse to chronological for trend math.
+        // Forgotten signals contribute NOTHING — not to the average, not to the trend, not to
+        // the recent read. The store already excludes them; this is the defence in depth that
+        // keeps the guarantee true for any IEmotionStore implementation.
         var recent = (await _emotions.GetRecentSignalsAsync(userId, Window, ct))
+            .Where(s => !s.EvidenceForgotten)
             .OrderBy(s => s.Timestamp)
             .ToList();
         if (recent.Count == 0)

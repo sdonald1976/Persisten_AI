@@ -17,6 +17,7 @@ public sealed class MemoryCurator : IMemoryCurator
     private readonly ILogger<MemoryCurator> _logger;
     private readonly IShadowRecorder? _shadow;
     private readonly IUserPreferenceStore? _userPreferences;
+    private readonly IEmotionStore? _emotions;
 
     public MemoryCurator(
         IMemoryStore memories,
@@ -24,7 +25,8 @@ public sealed class MemoryCurator : IMemoryCurator
         TimeProvider clock,
         ILogger<MemoryCurator> logger,
         IShadowRecorder? shadow = null,
-        IUserPreferenceStore? userPreferences = null)
+        IUserPreferenceStore? userPreferences = null,
+        IEmotionStore? emotions = null)
     {
         _memories = memories;
         _embeddings = embeddings;
@@ -35,6 +37,7 @@ public sealed class MemoryCurator : IMemoryCurator
         // telemetry table that is not switched on must not be something it has to have.
         _shadow = shadow;
         _userPreferences = userPreferences;
+        _emotions = emotions;
     }
 
     public async Task SupersedeSemanticAsync(
@@ -164,6 +167,18 @@ public sealed class MemoryCurator : IMemoryCurator
                     "Forgetting {MemoryId} matched {Count} ambiguous preference association(s); "
                     + "none were revoked. Revoke the instruction explicitly to clear it.",
                     memoryId, result.Ambiguous);
+        }
+
+        // Phase 0: the emotional readings taken from those same messages lose their evidence
+        // too. Matched by EXACT id only — a signal is never redacted because forgotten text
+        // resembled its cue phrase. The row survives as metadata; the user's words do not.
+        if (forgotten && _emotions is not null && evidenceMessageIds.Count > 0)
+        {
+            var redacted = await _emotions.ForgetByEvidenceAsync(
+                userId, evidenceMessageIds, [], _clock.GetUtcNow(), ct);
+            if (redacted > 0)
+                _logger.LogInformation(
+                    "Forgetting {MemoryId} also redacted {Count} emotional signal(s).", memoryId, redacted);
         }
 
         return forgotten;

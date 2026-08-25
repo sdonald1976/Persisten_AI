@@ -1465,6 +1465,9 @@ public sealed class Companion : ICompanion
             Id = Guid.NewGuid(),
             UserId = userId,
             MessageId = userMessage.Id,
+            // The durable forgetting handle, assigned once at capture (Phase 0).
+            EvidenceEventId = Guid.NewGuid(),
+            EvidenceKind = "user-message",
             Timestamp = now,
             Sentiment = mood.Sentiment,
             Valence = mood.Valence,

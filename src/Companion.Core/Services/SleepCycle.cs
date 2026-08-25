@@ -32,6 +32,13 @@ public sealed class SleepCycle : ISleepCycle
     /// </summary>
     public static readonly TimeSpan ExperienceRetention = TimeSpan.FromDays(30);
 
+    /// <summary>
+    /// Phase 0: the DECLARED retention lifetime for emotional readings. Longer than telemetry
+    /// because the relational layer is meant to have a memory, bounded because a durable log
+    /// of how someone felt should not be permanent by default.
+    /// </summary>
+    public static readonly TimeSpan EmotionalSignalRetention = TimeSpan.FromDays(180);
+
     private readonly IReflector _reflector;
     private readonly IMemoryConsolidator _consolidator;
     private readonly IReflectionStore _reflections;
@@ -41,6 +48,7 @@ public sealed class SleepCycle : ISleepCycle
     private readonly TimeProvider _clock;
     private readonly ILogger<SleepCycle> _logger;
     private readonly IGapStore? _gaps;
+    private readonly IEmotionStore? _emotions;
 
     /// <summary>How long an unpursued knowledge gap is held before aging to Expired.
     /// Diagnostics-grade retention: a gap is working epistemic state, never biography.</summary>
@@ -55,9 +63,11 @@ public sealed class SleepCycle : ISleepCycle
         IExperienceStore experiences,
         TimeProvider clock,
         ILogger<SleepCycle> logger,
-        IGapStore? gaps = null)
+        IGapStore? gaps = null,
+        IEmotionStore? emotions = null)
     {
         _gaps = gaps;
+        _emotions = emotions;
         _reflector = reflector;
         _consolidator = consolidator;
         _reflections = reflections;
@@ -90,6 +100,8 @@ public sealed class SleepCycle : ISleepCycle
         // debugging and model comparisons, and the tables stay bounded without a separate job.
         await _diagnostics.PruneAsync(_clock.GetUtcNow() - DiagnosticsRetention, ct);
         await _experiences.PruneAsync(_clock.GetUtcNow() - ExperienceRetention, ct);
+        if (_emotions is not null)
+            await _emotions.PruneAsync(_clock.GetUtcNow() - EmotionalSignalRetention, ct);
         if (_gaps is not null)
             await _gaps.ExpireStaleAsync(userId, _clock.GetUtcNow() - StaleGapAge, ct);
 
