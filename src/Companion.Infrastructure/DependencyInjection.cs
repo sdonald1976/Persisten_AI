@@ -313,6 +313,7 @@ public static class DependencyInjection
         services.AddScoped<IMemoryCurator, MemoryCurator>();
         services.AddScoped<IUserPreferenceStore, Persistence.UserPreferenceStore>();
         services.AddSingleton<ICompanionMoodLog, Persistence.CompanionMoodLog>();
+        services.AddSingleton<IFrameSessionStore, Persistence.FrameSessionStore>();
         services.AddScoped<IProjectCurator, ProjectCurator>();
 
         // Consolidation (Phase 6).

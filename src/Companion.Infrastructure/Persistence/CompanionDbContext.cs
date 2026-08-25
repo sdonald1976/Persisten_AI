@@ -63,6 +63,10 @@ public sealed class CompanionDbContext : DbContext
     /// <summary>Source 4b: the append-only, versioned log of Ava's mood transitions.</summary>
     public DbSet<CompanionMoodTransition> CompanionMoodTransitions => Set<CompanionMoodTransition>();
 
+    /// <summary>plan/4: authoritative frame truth, and scene-scoped user boundaries.</summary>
+    public DbSet<FrameSession> FrameSessions => Set<FrameSession>();
+    public DbSet<FrameBoundaryRecord> FrameBoundaries => Set<FrameBoundaryRecord>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // SQLite can't ORDER BY / compare DateTimeOffset directly. This built-in converter
@@ -141,6 +145,34 @@ public sealed class CompanionDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.UserId).HasMaxLength(100);
             e.HasIndex(x => new { x.UserId, x.Version }).IsUnique();
+        });
+        // plan/4 frame truth. Version is the optimistic-concurrency token, so a lost update
+        // is a visible conflict rather than a silent clobber.
+        b.Entity<FrameSession>(e =>
+        {
+            e.HasKey(x => x.SessionId);
+            e.Property(x => x.UserId).HasMaxLength(100);
+            e.Property(x => x.SceneRef).HasMaxLength(64);
+            e.Property(x => x.ActiveCompanionCharacterId).HasMaxLength(64);
+            e.Property(x => x.Narration).HasMaxLength(20);
+            e.Property(x => x.Continuity).HasMaxLength(20);
+            e.Property(x => x.NarratorKind).HasMaxLength(20);
+            e.Property(x => x.NarratorCharacterId).HasMaxLength(64);
+            e.Property(x => x.ViewpointCharacterId).HasMaxLength(64);
+            e.Property(x => x.Person).HasMaxLength(10);
+            e.Property(x => x.Version).IsConcurrencyToken();
+            e.HasIndex(x => new { x.UserId, x.ConversationId, x.Status });
+            e.HasIndex(x => x.EndedAt);
+        });
+        b.Entity<FrameBoundaryRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(100);
+            e.Property(x => x.SceneRef).HasMaxLength(64);
+            e.Property(x => x.Subject).HasMaxLength(200);
+            e.Property(x => x.EvidenceKind).HasMaxLength(30);
+            e.Property(x => x.EvidenceStatement).HasMaxLength(500);
+            e.HasIndex(x => new { x.UserId, x.ConversationId, x.SceneRef, x.Status });
         });
 
         b.Entity<Concept>(e =>

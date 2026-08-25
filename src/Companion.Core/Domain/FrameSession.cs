@@ -41,6 +41,14 @@ public sealed class FrameSession
     public DateTimeOffset LastTransitionAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
 
+    /// <summary>Optimistic-concurrency token. A losing writer sees a conflict rather than
+    /// silently overwriting a transition somebody else already applied.</summary>
+    public int Version { get; set; }
+
+    /// <summary>Idempotency keys already applied (normally turn trace ids), serialized.
+    /// A retried turn returns the existing session instead of transitioning twice.</summary>
+    public string AppliedKeysJson { get; set; } = "[]";
+
     /// <summary>Append-only transition log: kind, when, and the evidence that caused it.
     /// This is what makes "she never entered" and "she stayed in after I said stop"
     /// separable after the fact.</summary>
