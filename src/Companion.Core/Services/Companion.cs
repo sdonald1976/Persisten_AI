@@ -695,6 +695,11 @@ public sealed class Companion : ICompanion
                 contributors.Add(
                     global::Companion.PlanV3.WorkingContextContributor.From(traceId, working));
 
+                // Source 4b (docs/SOURCE4_PHASE2_PLAN.md): AVA'S OWN state modulates intensity,
+                // citing the mood TRANSITION it descends from. Never MoodReading, never an
+                // inference about how the user feels — and never anything but a register vote.
+                contributors.Add(new global::Companion.PlanV3.MoodContributor(innerState));
+
                 if (contributors.Count > 0)
                 {
                     var toolContext = new global::Companion.PlanV3.PlanContributionContext(

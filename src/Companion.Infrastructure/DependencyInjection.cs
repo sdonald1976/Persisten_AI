@@ -312,6 +312,7 @@ public static class DependencyInjection
         // Temporal revision & corrections (Phase 5).
         services.AddScoped<IMemoryCurator, MemoryCurator>();
         services.AddScoped<IUserPreferenceStore, Persistence.UserPreferenceStore>();
+        services.AddSingleton<ICompanionMoodLog, Persistence.CompanionMoodLog>();
         services.AddScoped<IProjectCurator, ProjectCurator>();
 
         // Consolidation (Phase 6).

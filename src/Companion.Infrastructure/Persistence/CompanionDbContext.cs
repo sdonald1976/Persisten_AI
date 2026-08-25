@@ -60,6 +60,9 @@ public sealed class CompanionDbContext : DbContext
     /// CompanionPreferences (Ava's tastes) by design, not just by name.</summary>
     public DbSet<UserPreferenceRecord> UserPreferences => Set<UserPreferenceRecord>();
 
+    /// <summary>Source 4b: the append-only, versioned log of Ava's mood transitions.</summary>
+    public DbSet<CompanionMoodTransition> CompanionMoodTransitions => Set<CompanionMoodTransition>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // SQLite can't ORDER BY / compare DateTimeOffset directly. This built-in converter
@@ -129,6 +132,15 @@ public sealed class CompanionDbContext : DbContext
             // Dedupe path: one live gap per (kind, subject); status path for the sweeps.
             e.HasIndex(x => new { x.UserId, x.Kind, x.Subject });
             e.HasIndex(x => new { x.UserId, x.Status });
+        });
+        // Source 4b: (UserId, Version) unique is the concurrency guard — two simultaneous
+        // nudges cannot both claim one version, so a lost update is a conflict to retry
+        // rather than a silent clobber.
+        b.Entity<CompanionMoodTransition>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(100);
+            e.HasIndex(x => new { x.UserId, x.Version }).IsUnique();
         });
 
         b.Entity<Concept>(e =>

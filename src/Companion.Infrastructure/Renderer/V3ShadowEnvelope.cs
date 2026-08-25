@@ -214,7 +214,10 @@ public static class V3ShadowEnvelopeBuilder
                     .ToDictionary(g => g.Key, g => g.Count()),
                 native.Items.GroupBy(i => PlanV3Codec.CategoryOf(i).ToString())
                     .ToDictionary(g => g.Key, g => g.Count()),
+                // Every dimension the schema has. It previously listed six of nine, so a
+                // row could not report an intensity/teasing/skepticism decision it contained.
                 $"warmth={reg.Warmth} bluntness={reg.Bluntness} playful={reg.Playfulness} "
+                + $"teasing={reg.Teasing} skepticism={reg.Skepticism} intensity={reg.Intensity} "
                 + $"verbosity={reg.Verbosity} profanity={reg.Profanity} mirror={reg.Mirror}",
                 native.Items.GroupBy(i => i.Source).ToDictionary(g => g.Key, g => g.Count())),
             NativeLintRejections = nativeLintRejections,
