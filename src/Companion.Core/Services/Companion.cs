@@ -633,8 +633,13 @@ public sealed class Companion : ICompanion
         // 6. Generate the response. The reply generator owns "when to keep going" â€” it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
         // task), and streams to the sink across rounds when one is provided.
+        // The exact text the model receives. Rendered once, here, so what is shown in
+        // diagnostics is the same string that was sent rather than a second rendering that
+        // might differ.
+        var renderedPrompt = packet.Render();
+
         var generated = await _replyGenerator.GenerateAsync(
-            packet.Render(), promptText, canaryTurn ? null : tokenSink,
+            renderedPrompt, promptText, canaryTurn ? null : tokenSink,
             identityProjection?.CompanionName, ct);
 
         // Her own transcript is in the prompt, and she sometimes continues it instead of replying â€”
@@ -1017,6 +1022,10 @@ public sealed class Companion : ICompanion
             TraceId = traceId,
             At = now,
             UserMessagePreview = promptText.Length <= 80 ? promptText : promptText[..80],
+            PromptChars = renderedPrompt.Length,
+            // Full text only when explicitly switched on; the preview above is always safe.
+            PromptSystem = _options.CapturePromptText ? renderedPrompt : null,
+            PromptUser = _options.CapturePromptText ? promptText : null,
             MemoriesRetrieved = selectedMemories.Count,
             RetrievedSummaries = selectedMemories.Take(5)
                 .Select(r => (r.Memory.Content.Length <= 120 ? r.Memory.Content : r.Memory.Content[..120])

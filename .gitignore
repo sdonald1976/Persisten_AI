@@ -46,3 +46,9 @@ models/
 
 # Generated corpora and evaluation artifacts - large, and either reproducible from a recorded command or machine-local experimental records. See docs/SYNTHETIC_LIFE.md.
 artifacts/
+
+# Merged/quantized renderer artifacts: multi-GB build outputs, rebuildable from the
+# adapter in training/renderer/runs/. LFS refuses files over 2 GB and they do not
+# belong in history regardless.
+training/renderer/merged/
+training/renderer/*.log

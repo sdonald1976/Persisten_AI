@@ -1,5 +1,8 @@
+using System.Text;
+using Companion.Core;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Microsoft.Extensions.Options;
 
 namespace Companion.Api;
 
@@ -13,6 +16,72 @@ internal static class DiagnosticsEndpoints
         // The in-memory ring: the last few turns' full operational story (sections, retrieval, tools).
         app.MapGet("/diagnostics/turns", (IUserContext user, ITurnTraceLog log) =>
             Results.Ok(log.Recent(user.UserId, 5)));
+
+        // ---- what the model was actually given ----
+        //
+        // The exact rendered system prompt and user message per turn. Requires
+        // Companion:CapturePromptText=true; without it the text fields are null and only the
+        // sizes are shown, which is the honest failure mode — an empty prompt view is better
+        // than a plausible-looking reconstruction.
+
+        // Table view: one row per recent turn, with the full text on each.
+        app.MapGet("/diagnostics/prompt", (
+            IUserContext user, ITurnTraceLog log, IOptions<CompanionOptions> options, int? count) =>
+        {
+            var captured = options.Value.CapturePromptText;
+            var turns = log.Recent(user.UserId, Math.Clamp(count ?? 5, 1, 50));
+            return Results.Ok(new
+            {
+                capturing = captured,
+                note = captured
+                    ? "systemPrompt is the exact text handed to the conversation model."
+                    : "Set Companion:CapturePromptText=true and restart to capture the text; sizes are shown regardless.",
+                turns = turns.Select(t => new
+                {
+                    t.TraceId,
+                    t.At,
+                    t.ModelUsed,
+                    promptChars = t.PromptChars,
+                    sections = t.ContextSections,
+                    systemPrompt = t.PromptSystem,
+                    userMessage = t.PromptUser ?? t.UserMessagePreview,
+                }),
+            });
+        });
+
+        // Plain-text view of one turn — the whole thing, exactly as sent, nothing escaped.
+        // Defaults to the most recent turn; pass ?trace=<guid> for a specific one.
+        app.MapGet("/diagnostics/prompt/text", (
+            IUserContext user, ITurnTraceLog log, IOptions<CompanionOptions> options, Guid? trace) =>
+        {
+            if (!options.Value.CapturePromptText)
+                return Results.Text(
+                    "Prompt capture is off. Set Companion:CapturePromptText=true and restart.",
+                    "text/plain");
+
+            var turns = log.Recent(user.UserId, 50);
+            var turn = trace is { } id
+                ? turns.FirstOrDefault(t => t.TraceId == id)
+                : turns.FirstOrDefault(t => t.PromptSystem is not null);
+
+            if (turn?.PromptSystem is null)
+                return Results.Text(
+                    "No captured prompt for that turn yet — send a message and try again.",
+                    "text/plain");
+
+            var text = new StringBuilder()
+                .AppendLine($"=== turn {turn.TraceId} at {turn.At:u} ===")
+                .AppendLine($"=== model: {turn.ModelUsed ?? "(unrecorded)"} | system prompt: {turn.PromptChars} chars ===")
+                .AppendLine()
+                .AppendLine("----- SYSTEM PROMPT (exactly as sent) -----")
+                .AppendLine(turn.PromptSystem)
+                .AppendLine()
+                .AppendLine("----- USER MESSAGE (exactly as sent) -----")
+                .AppendLine(turn.PromptUser ?? "(not captured)")
+                .ToString();
+
+            return Results.Text(text, "text/plain");
+        });
 
         // Durable turn history, newest first: the decision evidence that survives a restart —
         // working-context reading, intent, retrieval with scores, decisions. Bounded previews;

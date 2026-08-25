@@ -184,6 +184,18 @@ public sealed class CompanionOptions
     /// </summary>
     public RendererShadowOptions RendererShadow { get; set; } = new();
 
+    /// <summary>
+    /// Capture the EXACT text sent to the conversation model — the rendered system prompt and
+    /// the user message — into the in-memory turn ring, readable at /diagnostics/prompt.
+    ///
+    /// Off by default, and deliberately in-memory only. ModelCallRecord stores sizes and never
+    /// text, for a stated reason: a durable prompt log is a second copy of every conversation,
+    /// with none of the privacy machinery the first copy has. This keeps that property — the
+    /// ring is short, per-process, and forgets on restart — while still letting you see what
+    /// she was actually given on the turns you are looking at.
+    /// </summary>
+    public bool CapturePromptText { get; set; }
+
     /// <summary>Hard ceiling on tool executions in one turn (identical repeats stop earlier).</summary>
     public int MaxToolCallsPerTurn { get; set; } = 3;
 

@@ -77,6 +77,20 @@ public sealed record TurnDiagnostics
     /// beside what the model then said. The future renderer's input contract.</summary>
     public ResponsePlan? Plan { get; init; }
 
+    /// <summary>
+    /// The EXACT rendered system prompt handed to the conversation model this turn, when
+    /// CapturePromptText is on. Null otherwise. This is the whole text, unclipped — the point
+    /// is to see what she actually received, and a truncated prompt answers a different
+    /// question than the one being asked.
+    /// </summary>
+    public string? PromptSystem { get; init; }
+
+    /// <summary>The user message as sent to the model, when capture is on.</summary>
+    public string? PromptUser { get; init; }
+
+    /// <summary>Size of the system prompt in characters — present even when capture is off.</summary>
+    public int PromptChars { get; init; }
+
     /// <summary>Which packet sections were present this turn (mood, musing, temporal, …).</summary>
     public IReadOnlyList<string> ContextSections { get; init; } = Array.Empty<string>();
 
