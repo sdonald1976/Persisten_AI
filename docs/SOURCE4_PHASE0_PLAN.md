@@ -91,26 +91,37 @@ same 180 days as an active row.
 `SourceEvidenceEventId`, so `/forget` reaches the transitions a forgotten moment
 produced and purges their `AppliedValence`.
 
-## Known residual — reported, not solved
+## Privacy compaction (contract decision, 2026-08-25)
 
-Purging `AppliedValence` removes the *stored* derivative but not the
-*arithmetic*. Her spirits trajectory is a deterministic function of the valences
-that moved it, so a redacted transition's neighbours bracket it exactly:
+The amendment above purged `AppliedValence`, which removed the *stored*
+derivative but not the *arithmetic*. Her spirits trajectory is a deterministic
+function of the valences that moved it, so a redacted transition's neighbours
+bracketed it exactly. The contract decision resolved it:
 
-```
-valence_n = (NewSpirits_n − PreviousSpirits_n × 0.85) ÷ 0.15
-```
+> `/forget` removes the evidence and its reconstructable derivative history, but
+> does **not** retroactively un-move Ava's present mood.
 
-and `PreviousSpirits_n` / `NewSpirits_n` are recoverable from transitions
-*n−1* and *n+1* even when row *n* is fully nulled. Verified numerically.
+**How it works.** `ICompanionMoodLog.CompactForgottenAsync` deletes the
+transition chain and writes a single opaque **baseline** carrying her spirits as
+they actually stand: `IsBaseline = true`, `PreviousSpirits = null`,
+`AppliedValence = null`, `SourceEvidenceEventId = null`, `CompactedAt` set.
+Later transitions continue from it, versions staying monotonic.
 
-Closing it requires deciding whether forgetting a moment should also **un-move
-her mood** — deleting the transition and re-deriving the chain, which rewrites
-her present state and breaks exact replay across the gap. That is a product
-decision about whether her mood history is rewritable at all, so it is reported
-rather than assumed. The residual is encoded as
-`KnownResidual_TheSpiritsTrajectory_StillPermitsAlgebraicRecovery`, which fails
-loudly if anyone closes it, forcing this document to be updated with it.
+**Compaction is total, and partial compaction was tried first.** Cutting only
+at-or-before the boundary looks tidier and does not work: the row immediately
+after the cut carries the boundary's own result as its `PreviousSpirits`, and
+its own `AppliedValence` is intact, so the forgotten value falls straight back
+out. Severing that costs the successor's history anyway, so the honest move is
+the complete one.
+
+**What is deliberately lost.** Exact replay across a baseline is unavailable,
+because the rows it would need are exactly the rows whose arithmetic leaked.
+`MoodReplay.Replay` reports this rather than approximating it: `CoversFullHistory`
+is false and `Diagnosis` names the compaction version. A number produced by
+guessing at deleted history would be worse than no number.
+
+**What is deliberately kept.** Her present mood. Being affected by a moment
+happened; forgetting the record of it does not undo that.
 
 ## Amendment tests (7)
 
@@ -121,4 +132,16 @@ loudly if anyone closes it, forcing this document to be updated with it.
 4. the 180-day sweep treats active and redacted rows alike;
 5. forgetting purges the linked mood transition's stored reading;
 6. the real `/forget` path reaches both stores in one pass;
-7. the known residual, characterised.
+7. the real `/forget` path compacting the chain while preserving her mood.
+
+## Compaction tests (11, in `MoodCompactionTests`)
+
+The characterisation test that existed to fail when the leak was fixed is gone,
+replaced by its inverted form: a generous recovery oracle that tries the stored
+value, each row's own endpoints, and **every pair of endpoints the log still
+exposes**, and must find nothing. Applied to first / middle / latest forgetting
+over a five-event chain, plus: mood preserved as an opaque baseline; later
+transitions continuing contiguously; replay diagnosed rather than approximated;
+survival across a process restart against a file-backed database; six nudges
+racing a compaction; cross-user isolation with both users living the same
+valence; a no-op for an unknown event; and the real `/forget` path end to end.

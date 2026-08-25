@@ -203,7 +203,7 @@ public class MoodRegisterTests
         Assert.Equal(snapshot.StateRef, row!.Id);
         // Her spirits start at the profile default of 0.2, so one -0.9 nudge lands here.
         Assert.Equal(0.2 * 0.85 + -0.9 * 0.15, row.NewSpirits, 6);
-        Assert.Equal(0.2, row.PreviousSpirits, 6);
+        Assert.Equal(0.2, row.PreviousSpirits!.Value, 6);
         Assert.Equal(-0.9, row.AppliedValence!.Value, 6);
     }
 
@@ -227,7 +227,7 @@ public class MoodRegisterTests
         Assert.Equal(12, history.Select(t => t.Id).Distinct().Count());
         // They COMPOSED: each landed on the previous result rather than clobbering it.
         for (var i = 1; i < history.Count; i++)
-            Assert.Equal(history[i - 1].NewSpirits, history[i].PreviousSpirits, 6);
+            Assert.Equal(history[i - 1].NewSpirits, history[i].PreviousSpirits!.Value, 6);
         Assert.True(history[^1].NewSpirits > history[0].NewSpirits);
     }
 
@@ -248,7 +248,7 @@ public class MoodRegisterTests
         Assert.Equal(4, history.Count);
 
         // Replay: same start, same valences, same arithmetic — every step must match the row.
-        var replayed = history[0].PreviousSpirits;
+        var replayed = history[0].PreviousSpirits!.Value;
         foreach (var t in history)
         {
             replayed = replayed * (1 - 0.15) + t.AppliedValence!.Value * 0.15;

@@ -73,36 +73,81 @@ internal sealed class CompanionMoodLog(IServiceScopeFactory scopes) : ICompanion
             .FirstOrDefaultAsync(ct);
     }
 
-    public async Task<int> ForgetByEvidenceAsync(
-        string userId, IReadOnlyCollection<Guid> evidenceEventIds, DateTimeOffset now,
-        CancellationToken ct = default)
+    public async Task<MoodCompactionResult> CompactForgottenAsync(
+        string userId, IReadOnlyCollection<Guid> evidenceEventIds, double currentSpirits,
+        DateTimeOffset now, CancellationToken ct = default)
     {
         if (evidenceEventIds.Count == 0)
-            return 0;
+            return new MoodCompactionResult(false, 0, null);
 
         var events = evidenceEventIds.ToHashSet();
-        using var scope = scopes.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
 
-        var doomed = await db.CompanionMoodTransitions
-            .Where(t => t.UserId == userId
-                        && !t.EvidenceForgotten
-                        && t.SourceEvidenceEventId != null
-                        && events.Contains(t.SourceEvidenceEventId!.Value))
-            .ToListAsync(ct);
-
-        foreach (var t in doomed)
+        for (var attempt = 1; ; attempt++)
         {
-            t.EvidenceForgotten = true;
-            // The stored reading of the user's moment goes. Her own trajectory
-            // (PreviousSpirits/NewSpirits) and the version chain stay — they are her state,
-            // and the chain is what keeps concurrency and audit honest.
-            t.AppliedValence = null;
-        }
+            using var scope = scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-        if (doomed.Count > 0)
-            await db.SaveChangesAsync(ct);
-        return doomed.Count;
+            var all = await db.CompanionMoodTransitions
+                .Where(t => t.UserId == userId)
+                .OrderBy(t => t.Version)
+                .ToListAsync(ct);
+
+            // The boundary is the NEWEST forgotten transition. Everything at or before it goes:
+            // a nulled row's neighbours reconstruct it exactly, so partial severing is not
+            // severing at all.
+            var boundary = all
+                .Where(t => t.SourceEvidenceEventId is { } id && events.Contains(id))
+                .Select(t => (int?)t.Version)
+                .DefaultIfEmpty(null)
+                .Max();
+
+            if (boundary is not { } cut)
+            {
+                await tx.RollbackAsync(ct);
+                return new MoodCompactionResult(false, 0, null);
+            }
+
+            // TOTAL, not partial. Cutting only at-or-before the boundary looks tidier and does
+            // not work: the row immediately AFTER the cut still carries PreviousSpirits (the
+            // boundary's own result) and its own applied valence, from which the forgotten
+            // value falls straight out. Severing that too costs the successor's history
+            // anyway, so the honest move is the complete one — every transition goes, and a
+            // single opaque baseline carries where she actually stands.
+            var doomed = all;
+            db.CompanionMoodTransitions.RemoveRange(doomed);
+
+            // Her mood is NOT rewound. The baseline carries where she actually stands, with
+            // no predecessor and no applied valence — nothing to solve the arithmetic with.
+            var baseline = new CompanionMoodTransition
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                // Continue the version sequence rather than restarting it: versions stay
+                // monotonic across compactions, which keeps the audit trail readable.
+                Version = all[^1].Version,
+                PreviousSpirits = null,
+                NewSpirits = Math.Clamp(currentSpirits, -1.0, 1.0),
+                AppliedValence = null,
+                SourceEvidenceEventId = null,
+                OccurredAt = now,
+                IsBaseline = true,
+                CompactedAt = now,
+            };
+            db.CompanionMoodTransitions.Add(baseline);
+
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                return new MoodCompactionResult(true, doomed.Count, baseline.Version);
+            }
+            catch (DbUpdateException) when (attempt < MaxAttempts)
+            {
+                // A nudge landed while we were compacting. Read again and redo the cut.
+                await tx.RollbackAsync(ct);
+            }
+        }
     }
 
     public async Task<IReadOnlyList<CompanionMoodTransition>> GetHistoryAsync(

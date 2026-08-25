@@ -22,8 +22,12 @@ public sealed class CompanionMoodTransition
     /// <summary>Monotonic per user, starting at 1. Unique with UserId — the concurrency guard.</summary>
     public int Version { get; set; }
 
-    /// <summary>Effective spirits BEFORE this transition (already decayed to the moment).</summary>
-    public double PreviousSpirits { get; set; }
+    /// <summary>
+    /// Effective spirits BEFORE this transition (already decayed to the moment). NULL on a
+    /// BASELINE row: a baseline has no predecessor by construction, which is precisely what
+    /// makes it opaque — there is no earlier value to reconstruct anything from.
+    /// </summary>
+    public double? PreviousSpirits { get; set; }
 
     /// <summary>Spirits after applying the nudge. This is what the next read decays from.</summary>
     public double NewSpirits { get; set; }
@@ -50,6 +54,24 @@ public sealed class CompanionMoodTransition
 
     /// <summary>True once the evidence behind this transition was forgotten.</summary>
     public bool EvidenceForgotten { get; set; }
+
+    /// <summary>
+    /// A PRIVACY-COMPACTION BASELINE: the opaque starting point written when /forget removed a
+    /// reconstructable chain. It carries her spirits as they stood at that moment and nothing
+    /// about how they got there — no predecessor, no applied valence, no source event.
+    ///
+    /// Her present mood is deliberately NOT rewound: forgetting an evidence removes the record
+    /// of it, not the fact that she was affected. What it does remove is every row from which
+    /// the forgotten valence could be recomputed, so the arithmetic that survived plain
+    /// redaction has nothing left to work on.
+    ///
+    /// Exact replay across a baseline is intentionally unavailable, and diagnosed as such
+    /// rather than silently approximated.
+    /// </summary>
+    public bool IsBaseline { get; set; }
+
+    /// <summary>When this baseline was written, for audit. Null on ordinary transitions.</summary>
+    public DateTimeOffset? CompactedAt { get; set; }
 
     public DateTimeOffset OccurredAt { get; set; }
 }

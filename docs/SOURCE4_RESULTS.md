@@ -4,7 +4,7 @@ Run 2026-08-25 against the four frozen plans. Four independently revertible
 commits. **Each source is reported on its own; none of them inherits another's
 status.**
 
-Suite: **1391 passing** in `Companion.Tests` (66 of them Source 4) plus **31**
+Suite: **1399 passing** in `Companion.Tests` (74 of them Source 4) plus **31**
 prototype goldens including the 804-plan corpus. Zero failures.
 
 | phase | status | live / constructed |
@@ -51,17 +51,29 @@ rather than substituting a neutral claim. The tombstone is now exactly `Id`,
 produced and purges their `AppliedValence` too. Seven amendment tests, including
 a real process-restart case against a file-backed database.
 
-**Known residual, reported not solved.** Purging `AppliedValence` removes the
-stored derivative but not the arithmetic: her spirits trajectory is a
-deterministic function of the valences that moved it, so a redacted transition's
-neighbours bracket it exactly —
-`valence = (New − Prev × 0.85) ÷ 0.15`, with both operands recoverable from the
-adjacent rows. Verified numerically. Closing it means deciding whether
-forgetting a moment should also *un-move her mood*, which rewrites her present
-state and breaks exact replay across the gap — a product decision, so it is
-reported rather than assumed. Encoded as
-`KnownResidual_TheSpiritsTrajectory_StillPermitsAlgebraicRecovery`, which fails
-loudly if anyone closes it.
+**Privacy compaction (contract decision, 2026-08-25).** Purging `AppliedValence`
+removed the stored derivative but not the arithmetic — her spirits trajectory is
+a deterministic function of the valences that moved it, so a redacted
+transition's neighbours bracketed it exactly. Resolved by compaction:
+`/forget` now deletes the transition chain and writes a single opaque
+**baseline** carrying her spirits as they stand, with later transitions
+continuing from it. Her present mood is **not** rewound — being affected
+happened; forgetting the record of it does not undo that.
+
+Partial compaction was tried first and does not work: the row after the cut
+carries the boundary's own result as its `PreviousSpirits`, handing the
+forgotten value straight back. So it is total.
+
+Exact replay across a baseline is intentionally unavailable and **diagnosed**:
+`MoodReplay.Replay` returns `CoversFullHistory = false` with a reason naming the
+compaction version, rather than approximating a number from deleted history.
+
+The characterisation test that existed to fail when the leak was fixed has been
+deleted, as directed. In its place is its inverted form — a deliberately
+generous recovery oracle that tries the stored value, each row's own endpoints,
+and every pair of endpoints the log still exposes, and must find nothing —
+applied across first / middle / latest forgetting, restart, concurrent
+nudge-versus-compaction, and cross-user isolation. 11 tests.
 
 **Live**, 12 tests against the real store and the real `MemoryCurator` path.
 The adversarial cases are 2 and 3: overlapping cue text, and byte-identical cue
@@ -214,9 +226,6 @@ lifecycle; it did not give it confidence or correction, so the exclusion stands.
 
 ## Remaining blockers
 
-- **Mood-transition algebraic residual** — a forgotten moment's valence is still
-  recoverable from the surrounding spirits trajectory. Needs a decision on
-  whether her mood history may be rewritten. See Phase 0 above.
 - **4b energy** — no resolvable provenance; votes nothing.
 - **4c sentiment** — no expiry, confidence, or correction; excluded entirely.
 - **Mood and relationship state remain per-user, not per-conversation.** Two

@@ -19,6 +19,7 @@ public sealed class MemoryCurator : IMemoryCurator
     private readonly IUserPreferenceStore? _userPreferences;
     private readonly IEmotionStore? _emotions;
     private readonly ICompanionMoodLog? _moodLog;
+    private readonly ICompanionStateTracker? _innerState;
 
     public MemoryCurator(
         IMemoryStore memories,
@@ -28,7 +29,8 @@ public sealed class MemoryCurator : IMemoryCurator
         IShadowRecorder? shadow = null,
         IUserPreferenceStore? userPreferences = null,
         IEmotionStore? emotions = null,
-        ICompanionMoodLog? moodLog = null)
+        ICompanionMoodLog? moodLog = null,
+        ICompanionStateTracker? innerState = null)
     {
         _memories = memories;
         _embeddings = embeddings;
@@ -41,6 +43,7 @@ public sealed class MemoryCurator : IMemoryCurator
         _userPreferences = userPreferences;
         _emotions = emotions;
         _moodLog = moodLog;
+        _innerState = innerState;
     }
 
     public async Task SupersedeSemanticAsync(
@@ -190,15 +193,20 @@ public sealed class MemoryCurator : IMemoryCurator
                 _logger.LogInformation(
                     "Forgetting {MemoryId} also redacted {Count} emotional signal(s).", memoryId, redacted);
 
-            // And the mood transitions those moments produced lose their stored reading too.
-            if (_moodLog is not null && affected.Count > 0)
+            // And her mood log is COMPACTED past those moments. Not rewound — she was
+            // affected, and forgetting the record of it does not undo that — but every row
+            // from which the forgotten valence could be recomputed is replaced by one opaque
+            // baseline carrying where she actually stands.
+            if (_moodLog is not null && _innerState is not null && affected.Count > 0)
             {
-                var moodRedacted = await _moodLog.ForgetByEvidenceAsync(
-                    userId, affected, _clock.GetUtcNow(), ct);
-                if (moodRedacted > 0)
+                var spirits = (await _innerState.BuildAsync(userId, ct)).Spirits;
+                var compaction = await _moodLog.CompactForgottenAsync(
+                    userId, affected, spirits, _clock.GetUtcNow(), ct);
+                if (compaction.Compacted)
                     _logger.LogInformation(
-                        "Forgetting {MemoryId} also redacted {Count} mood transition(s).",
-                        memoryId, moodRedacted);
+                        "Forgetting {MemoryId} compacted {Count} mood transition(s) behind a "
+                        + "baseline at version {Version}; replay before it is unavailable by design.",
+                        memoryId, compaction.RowsRemoved, compaction.BaselineVersion);
             }
         }
 
