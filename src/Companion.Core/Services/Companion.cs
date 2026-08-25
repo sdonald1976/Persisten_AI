@@ -621,7 +621,14 @@ public sealed class Companion : ICompanion
         // the immediate fallback. Decided before generation so streaming can be handled: the
         // production tokens are not forwarded on a canary turn (the displayed reply may
         // differ), and the chosen reply is reported to the sink once, whole, at the end.
-        var canaryTurn = _rendererShadow.IsCanaryFor(userId) && toolOutcome.Calls.Count == 0;
+        // CAPABILITY ROUTING, not content blocking (2026-08-25). Run-1c's corpus contains no
+        // roleplay: rendering an in-character turn through it produced fabricated dialogue and
+        // control-block echo when measured. So a declared or detected in-character turn stays
+        // on production, which is the model proven to handle the request. Same reasoning as
+        // skipping tool turns, and it restricts no subject matter — production answers in full.
+        var canaryTurn = _rendererShadow.IsCanaryFor(userId)
+            && toolOutcome.Calls.Count == 0
+            && !inCharacter;
 
         // 6. Generate the response. The reply generator owns "when to keep going" â€” it continues a
         // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
@@ -765,13 +772,15 @@ public sealed class Companion : ICompanion
         // both the GPU work and the row.
         if (!canaryTurn && _rendererShadow.IsObserving)
         {
-            var eligible = !sensitive && toolOutcome.Calls.Count == 0;
+            var eligible = !sensitive && toolOutcome.Calls.Count == 0 && !inCharacter;
             decisions.Add(new DecisionRecord
             {
                 Stage = "renderer.shadow", Decider = "config",
                 Verdict = eligible ? "observed" : "skipped",
                 Reason = eligible ? null
-                    : sensitive ? "privacy-sensitive turn" : "turn used tools",
+                    : sensitive ? "privacy-sensitive turn"
+                    : inCharacter ? "in-character turn: run-1c has no roleplay capability"
+                    : "turn used tools",
             });
             if (eligible)
             {
