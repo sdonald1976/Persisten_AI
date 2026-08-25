@@ -1477,13 +1477,15 @@ public sealed class Companion : ICompanion
         if (topic is not null)
             await _emotions.MarkTopicFollowedUpAsync(userId, topic, ct);
 
+        // The durable forgetting handle, assigned once at capture (Phase 0) and shared with
+        // the mood transition this moment produces, so /forget can reach both.
+        var evidenceEventId = Guid.NewGuid();
         await _emotions.AddSignalAsync(new EmotionalSignal
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             MessageId = userMessage.Id,
-            // The durable forgetting handle, assigned once at capture (Phase 0).
-            EvidenceEventId = Guid.NewGuid(),
+            EvidenceEventId = evidenceEventId,
             EvidenceKind = "user-message",
             Timestamp = now,
             Sentiment = mood.Sentiment,
@@ -1495,7 +1497,7 @@ public sealed class Companion : ICompanion
         }, ct);
 
         // The moment rubs off on her too â€” honest emotional contagion, one small step.
-        await _innerState.NudgeAsync(userId, mood.Valence, ct);
+        await _innerState.NudgeAsync(userId, mood.Valence, evidenceEventId, ct);
 
         _logger.LogDebug(
             "Captured mood for {UserId}: {Sentiment} ({Valence:+0.00;-0.00}) about \"{Topic}\" from \"{Evidence}\"",

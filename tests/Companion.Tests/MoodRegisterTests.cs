@@ -204,7 +204,7 @@ public class MoodRegisterTests
         // Her spirits start at the profile default of 0.2, so one -0.9 nudge lands here.
         Assert.Equal(0.2 * 0.85 + -0.9 * 0.15, row.NewSpirits, 6);
         Assert.Equal(0.2, row.PreviousSpirits, 6);
-        Assert.Equal(-0.9, row.AppliedValence, 6);
+        Assert.Equal(-0.9, row.AppliedValence!.Value, 6);
     }
 
     // ---- case 9: concurrent nudges compose ----------------------------------------------
@@ -251,7 +251,7 @@ public class MoodRegisterTests
         var replayed = history[0].PreviousSpirits;
         foreach (var t in history)
         {
-            replayed = replayed * (1 - 0.15) + t.AppliedValence * 0.15;
+            replayed = replayed * (1 - 0.15) + t.AppliedValence!.Value * 0.15;
             Assert.Equal(t.NewSpirits, replayed, 6);
         }
         Assert.Equal(history[^1].NewSpirits, replayed, 6);

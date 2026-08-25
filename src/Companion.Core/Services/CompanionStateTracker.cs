@@ -61,7 +61,8 @@ public sealed class CompanionStateTracker : ICompanionStateTracker
         };
     }
 
-    public async Task NudgeAsync(string userId, double valence, CancellationToken ct = default)
+    public async Task NudgeAsync(string userId, double valence, Guid? sourceEvidenceEventId = null,
+        CancellationToken ct = default)
     {
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var now = _clock.GetUtcNow();
@@ -77,7 +78,8 @@ public sealed class CompanionStateTracker : ICompanionStateTracker
         if (_moodLog is not null)
         {
             var transition = await _moodLog.AppendAsync(
-                userId, current, nudged, Math.Clamp(valence, -1.0, 1.0), now, ct);
+                userId, current, nudged, Math.Clamp(valence, -1.0, 1.0), now,
+                sourceEvidenceEventId, ct);
             await _profiles.SetCompanionSpiritsAsync(userId, transition.NewSpirits, now, ct);
             return;
         }

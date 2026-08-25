@@ -17,7 +17,17 @@ public interface ICompanionMoodLog
     /// </summary>
     Task<CompanionMoodTransition> AppendAsync(
         string userId, double previousSpirits, double newSpirits, double appliedValence,
-        DateTimeOffset occurredAt, CancellationToken ct = default);
+        DateTimeOffset occurredAt, Guid? sourceEvidenceEventId = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Purges the applied valence of every transition produced by one of these forgotten
+    /// evidence events, by EXACT id. What survives is her own state trajectory and the
+    /// version chain; what goes is the stored reading of the user's moment.
+    /// </summary>
+    Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> evidenceEventIds, DateTimeOffset now,
+        CancellationToken ct = default);
 
     /// <summary>The newest transition for this user, or null when her mood has never moved.</summary>
     Task<CompanionMoodTransition?> GetLatestAsync(string userId, CancellationToken ct = default);

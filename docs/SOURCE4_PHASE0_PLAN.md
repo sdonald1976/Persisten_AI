@@ -62,3 +62,63 @@ explainability" and nothing links through it.
 5. A declared retention lifecycle exists and runs from `SleepCycle`.
 6. Migration is additive; full suite green; V2/Run-1c/routing/displayed output
    unchanged.
+
+---
+
+# Amendment, 2026-08-25: the tombstone is smaller than declared
+
+Conditional acceptance corrected §3 of the plan above. `Sentiment`, `Valence`
+and `Label` were declared "privacy-permitted metadata". They are not: each is a
+semantic DERIVATIVE of the forgotten sentence — a reading *of* it — and a
+lexicon token is still a reading. All three are now purged alongside `Evidence`
+and `Topic`, together with `ProjectId` (which says what the feeling attached to).
+
+`Sentiment` and `Valence` became nullable to make purging honest: zeroing a
+valence or bucketing a sentiment to `Neutral` would have written a *claim* where
+the reading used to be.
+
+**The tombstone, in full:** `Id`, `UserId`, `MessageId`, `EvidenceEventId`,
+`EvidenceKind`, `EvidenceForgotten`, `ForgottenAt`, `Timestamp`, `FollowedUp`.
+Identifiers, status, and operational timestamps — nothing else. `Timestamp` is
+retained because the declared 180-day lifecycle sweeps by age, and idempotency
+needs the row to stay findable.
+
+**Retention lifecycle, restated:** age decides, status does not. A tombstone is
+neither kept longer for audit nor dropped sooner for privacy — it expires at the
+same 180 days as an active row.
+
+**Mood transitions are covered too.** `CompanionMoodTransition` gained
+`SourceEvidenceEventId`, so `/forget` reaches the transitions a forgotten moment
+produced and purges their `AppliedValence`.
+
+## Known residual — reported, not solved
+
+Purging `AppliedValence` removes the *stored* derivative but not the
+*arithmetic*. Her spirits trajectory is a deterministic function of the valences
+that moved it, so a redacted transition's neighbours bracket it exactly:
+
+```
+valence_n = (NewSpirits_n − PreviousSpirits_n × 0.85) ÷ 0.15
+```
+
+and `PreviousSpirits_n` / `NewSpirits_n` are recoverable from transitions
+*n−1* and *n+1* even when row *n* is fully nulled. Verified numerically.
+
+Closing it requires deciding whether forgetting a moment should also **un-move
+her mood** — deleting the transition and re-deriving the chain, which rewrites
+her present state and breaks exact replay across the gap. That is a product
+decision about whether her mood history is rewritable at all, so it is reported
+rather than assumed. The residual is encoded as
+`KnownResidual_TheSpiritsTrajectory_StillPermitsAlgebraicRecovery`, which fails
+loudly if anyone closes it, forcing this document to be updated with it.
+
+## Amendment tests (7)
+
+1. a forgotten row serializes with no evidence, topic, sentiment, valence or label;
+2. forgetting one event leaves a semantically identical one fully intact;
+3. snapshot reconstruction ignores tombstones before AND after a process restart
+   against the same database file;
+4. the 180-day sweep treats active and redacted rows alike;
+5. forgetting purges the linked mood transition's stored reading;
+6. the real `/forget` path reaches both stores in one pass;
+7. the known residual, characterised.

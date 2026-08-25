@@ -17,7 +17,8 @@ internal sealed class CompanionMoodLog(IServiceScopeFactory scopes) : ICompanion
 
     public async Task<CompanionMoodTransition> AppendAsync(
         string userId, double previousSpirits, double newSpirits, double appliedValence,
-        DateTimeOffset occurredAt, CancellationToken ct = default)
+        DateTimeOffset occurredAt, Guid? sourceEvidenceEventId = null,
+        CancellationToken ct = default)
     {
         for (var attempt = 1; ; attempt++)
         {
@@ -44,6 +45,7 @@ internal sealed class CompanionMoodLog(IServiceScopeFactory scopes) : ICompanion
                 PreviousSpirits = from,
                 NewSpirits = Math.Clamp(applied, -1.0, 1.0),
                 AppliedValence = appliedValence,
+                SourceEvidenceEventId = sourceEvidenceEventId,
                 OccurredAt = occurredAt,
             };
 
@@ -69,6 +71,38 @@ internal sealed class CompanionMoodLog(IServiceScopeFactory scopes) : ICompanion
             .Where(t => t.UserId == userId)
             .OrderByDescending(t => t.Version)
             .FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> evidenceEventIds, DateTimeOffset now,
+        CancellationToken ct = default)
+    {
+        if (evidenceEventIds.Count == 0)
+            return 0;
+
+        var events = evidenceEventIds.ToHashSet();
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
+
+        var doomed = await db.CompanionMoodTransitions
+            .Where(t => t.UserId == userId
+                        && !t.EvidenceForgotten
+                        && t.SourceEvidenceEventId != null
+                        && events.Contains(t.SourceEvidenceEventId!.Value))
+            .ToListAsync(ct);
+
+        foreach (var t in doomed)
+        {
+            t.EvidenceForgotten = true;
+            // The stored reading of the user's moment goes. Her own trajectory
+            // (PreviousSpirits/NewSpirits) and the version chain stay — they are her state,
+            // and the chain is what keeps concurrency and audit honest.
+            t.AppliedValence = null;
+        }
+
+        if (doomed.Count > 0)
+            await db.SaveChangesAsync(ct);
+        return doomed.Count;
     }
 
     public async Task<IReadOnlyList<CompanionMoodTransition>> GetHistoryAsync(

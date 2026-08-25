@@ -29,9 +29,12 @@ public sealed class EmotionalSignal
     public string EvidenceKind { get; set; } = "user-message";
 
     /// <summary>
-    /// True once the evidence behind this reading was forgotten. The row survives as
-    /// METADATA ONLY — the user's words (<see cref="Evidence"/>, <see cref="Topic"/>) are
-    /// purged — and it contributes nothing to any snapshot: authority dies with its evidence.
+    /// True once the evidence behind this reading was forgotten. What survives is a minimum
+    /// TOMBSTONE — identifiers, this flag, and operational timestamps — kept only for audit
+    /// and idempotency. Everything else goes: the user's words
+    /// (<see cref="Evidence"/>, <see cref="Topic"/>) and every semantic derivative of them
+    /// (<see cref="Sentiment"/>, <see cref="Valence"/>, <see cref="Label"/>). A tombstone
+    /// contributes to nothing: authority dies with its evidence, and so does the reading.
     /// </summary>
     public bool EvidenceForgotten { get; set; }
 
@@ -39,13 +42,20 @@ public sealed class EmotionalSignal
 
     public DateTimeOffset Timestamp { get; set; }
 
-    /// <summary>The coarse valence bucket.</summary>
-    public Sentiment Sentiment { get; set; }
+    /// <summary>
+    /// The coarse valence bucket. NULL on a forgotten row: a sentiment reading is a semantic
+    /// DERIVATIVE of the words that produced it, not neutral metadata, so it is purged with
+    /// them.
+    /// </summary>
+    public Sentiment? Sentiment { get; set; }
 
-    /// <summary>Signed intensity in [-1, 1]: negative = distressed, positive = upbeat, 0 = neutral.</summary>
-    public double Valence { get; set; }
+    /// <summary>Signed intensity in [-1, 1]. Null on a forgotten row, for the same reason as
+    /// <see cref="Sentiment"/>.</summary>
+    public double? Valence { get; set; }
 
-    /// <summary>Dominant emotion word, e.g. "stressed" or "excited"; null when only overall valence is known.</summary>
+    /// <summary>Dominant emotion word, e.g. "stressed" or "excited". Null when only overall
+    /// valence is known — and null on a forgotten row: a lexicon token is still a reading OF
+    /// something the user said.</summary>
     public string? Label { get; set; }
 
     /// <summary>The cue phrase that triggered the reading, kept so a reading can explain itself.</summary>

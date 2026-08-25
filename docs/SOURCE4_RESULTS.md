@@ -4,7 +4,7 @@ Run 2026-08-25 against the four frozen plans. Four independently revertible
 commits. **Each source is reported on its own; none of them inherits another's
 status.**
 
-Suite: **1384 passing** in `Companion.Tests` (59 of them Source 4) plus **31**
+Suite: **1391 passing** in `Companion.Tests` (66 of them Source 4) plus **31**
 prototype goldens including the 804-plan corpus. Zero failures.
 
 | phase | status | live / constructed |
@@ -27,13 +27,41 @@ through it. It is now an exact forgetting handle, joined by a durable
 nothing else** — a reflection test asserts the signature carries no string but
 the user id, because a path that *can* compare text eventually will.
 
-Forgetting redacts rather than deletes: `Evidence` and `Topic` (the user's own
-words) are purged; timestamp, sentiment, valence and the lexicon `Label` stay as
-privacy-permitted metadata. `RelationshipTracker` excludes forgotten rows, so a
-redacted signal contributes **nothing** — not a neutral reading, no reading.
+Forgetting redacts rather than deletes: everything the evidence produced is
+purged — the user's words (`Evidence`, `Topic`) and every reading of them
+(`Sentiment`, `Valence`, `Label`, `ProjectId`) — leaving a tombstone of
+identifiers, status and operational timestamps. `RelationshipTracker` excludes
+forgotten rows, and guards again on a null valence, so a redacted signal
+contributes **nothing** — not a neutral reading, no reading.
 
 Retention is now declared: `EmotionalSignalRetention = 180 days`, swept from
-`SleepCycle` beside the diagnostics and experience sweeps.
+`SleepCycle` beside the diagnostics and experience sweeps. Age decides and status
+does not: a tombstone is neither kept longer for audit nor dropped sooner for
+privacy.
+
+**Amended 2026-08-25.** The first cut kept `Sentiment`, `Valence` and `Label` as
+"privacy-permitted metadata". That was wrong — each is a semantic derivative of
+the forgotten sentence, and a lexicon token is still a reading *of* what someone
+said. All three are now purged with `Evidence`, `Topic` and `ProjectId`;
+`Sentiment` and `Valence` became nullable so that purging writes *nothing*
+rather than substituting a neutral claim. The tombstone is now exactly `Id`,
+`UserId`, `MessageId`, `EvidenceEventId`, `EvidenceKind`, `EvidenceForgotten`,
+`ForgottenAt`, `Timestamp`, `FollowedUp`. `CompanionMoodTransition` gained
+`SourceEvidenceEventId` so `/forget` reaches the transitions a forgotten moment
+produced and purges their `AppliedValence` too. Seven amendment tests, including
+a real process-restart case against a file-backed database.
+
+**Known residual, reported not solved.** Purging `AppliedValence` removes the
+stored derivative but not the arithmetic: her spirits trajectory is a
+deterministic function of the valences that moved it, so a redacted transition's
+neighbours bracket it exactly —
+`valence = (New − Prev × 0.85) ÷ 0.15`, with both operands recoverable from the
+adjacent rows. Verified numerically. Closing it means deciding whether
+forgetting a moment should also *un-move her mood*, which rewrites her present
+state and breaks exact replay across the gap — a product decision, so it is
+reported rather than assumed. Encoded as
+`KnownResidual_TheSpiritsTrajectory_StillPermitsAlgebraicRecovery`, which fails
+loudly if anyone closes it.
 
 **Live**, 12 tests against the real store and the real `MemoryCurator` path.
 The adversarial cases are 2 and 3: overlapping cue text, and byte-identical cue
@@ -47,8 +75,22 @@ conversations, missing evidence both ways, and double-forgetting.
 
 Commit `dc0f2da`.
 
-**Authority in full:** verbosity, from `ConfirmsClaim` and `Correction`, both →
-`short`. Every other move votes nothing.
+**Authority in full — the complete behavioural mapping, stated here so the
+assumption is reviewable rather than buried in code:**
+
+| `ConversationMove` | vote | why |
+|---|---|---|
+| `ConfirmsClaim` | `verbosity = short` | the user emphatically agreed with something she already said; over-explaining an agreement is the known failure mode |
+| `Correction` | `verbosity = short` | the user is correcting her; a long reply here becomes over-apology |
+| `NewTopic` | *none* | no honest verbosity implication |
+| `ContinuesThread` | *none* | no honest verbosity implication |
+| `AnswersOpenQuestion` | *none* | could plausibly go either way, so it says nothing |
+| `ResolvesReference` | *none* | about *what* was meant, not about length |
+
+`short` is the only value this source can emit, on the only dimension it can
+touch. It has no mapping to `terse`, `conversational` or `expansive` — it can
+ask for brevity and nothing else. §5.4 ranks it second-to-last, so both
+`user-preference` and `relationship` override it.
 
 **Prose is unreachable by construction.** The constructor takes a trace id, a
 `Move`, a `ResolutionConfidence?` and an optional referent message id — no
@@ -172,6 +214,9 @@ lifecycle; it did not give it confidence or correction, so the exclusion stands.
 
 ## Remaining blockers
 
+- **Mood-transition algebraic residual** — a forgotten moment's valence is still
+  recoverable from the surrounding spirits trajectory. Needs a decision on
+  whether her mood history may be rewritten. See Phase 0 above.
 - **4b energy** — no resolvable provenance; votes nothing.
 - **4c sentiment** — no expiry, confidence, or correction; excluded entirely.
 - **Mood and relationship state remain per-user, not per-conversation.** Two

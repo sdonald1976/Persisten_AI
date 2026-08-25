@@ -60,7 +60,7 @@ public class EmotionalSignalRetentionTests
     // ---- case 1: the basic redaction ---------------------------------------------------
 
     [Fact]
-    public async Task Case1_ForgettingTheEvidenceMessage_RedactsTheSignal_KeepingOnlyMetadata()
+    public async Task Case1_ForgettingTheEvidenceMessage_LeavesOnlyATombstone()
     {
         await using var host = new TestHost(Now);
         var messageId = Guid.NewGuid();
@@ -73,13 +73,16 @@ public class EmotionalSignalRetentionTests
         Assert.NotNull(row);
         Assert.True(row!.EvidenceForgotten);
         Assert.Equal(Now, row.ForgottenAt);
-        // The user's words are gone...
+        // The user's words are gone, and so is every reading OF them. The 2026-08-25
+        // amendment corrected this: a sentiment bucket, a valence and a lexicon label are
+        // semantic derivatives of the forgotten sentence, not neutral metadata.
+        // Full coverage lives in EmotionalSignalTombstoneTests.
         Assert.Null(row.Evidence);
         Assert.Null(row.Topic);
-        // ...the privacy-permitted metadata stays.
-        Assert.Equal(Sentiment.Negative, row.Sentiment);
-        Assert.Equal(-0.6, row.Valence);
-        Assert.Equal("stressed", row.Label);       // a lexicon token, not the user's text
+        Assert.Null(row.Sentiment);
+        Assert.Null(row.Valence);
+        Assert.Null(row.Label);
+        // What stays is the tombstone: identifiers, status, operational timestamps.
         Assert.Equal(Now, row.Timestamp);
     }
 

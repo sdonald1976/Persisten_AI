@@ -28,9 +28,28 @@ public sealed class CompanionMoodTransition
     /// <summary>Spirits after applying the nudge. This is what the next read decays from.</summary>
     public double NewSpirits { get; set; }
 
-    /// <summary>The moment's valence in [-1, 1] that caused the move. Metadata, not content:
-    /// a number, never the user's words or the cue that produced it.</summary>
-    public double AppliedValence { get; set; }
+    /// <summary>
+    /// The moment's valence in [-1, 1] that caused the move. NULL once the evidence behind it
+    /// was forgotten — a valence is a reading OF something the user said, so it is purged
+    /// here for the same reason it is purged from the signal itself.
+    ///
+    /// KNOWN RESIDUAL (see SOURCE4_RESULTS.md): purging this field removes the stored
+    /// derivative but not the arithmetic. Her spirits trajectory is a deterministic function
+    /// of the valences that moved it, so the neighbouring transitions bracket a redacted one
+    /// exactly. Closing that needs a decision about whether forgetting a moment should also
+    /// un-move her mood; it is reported, not silently assumed.
+    /// </summary>
+    public double? AppliedValence { get; set; }
+
+    /// <summary>
+    /// The evidence event this nudge came from, when it came from one — the link that lets
+    /// /forget find the transitions a forgotten moment produced. Null for nudges with no
+    /// emotional-signal origin.
+    /// </summary>
+    public Guid? SourceEvidenceEventId { get; set; }
+
+    /// <summary>True once the evidence behind this transition was forgotten.</summary>
+    public bool EvidenceForgotten { get; set; }
 
     public DateTimeOffset OccurredAt { get; set; }
 }

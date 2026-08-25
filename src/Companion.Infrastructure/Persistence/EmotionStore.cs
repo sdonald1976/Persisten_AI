@@ -77,11 +77,15 @@ public sealed class EmotionStore : IEmotionStore
         {
             s.EvidenceForgotten = true;
             s.ForgottenAt = now;
-            // The user's own words go with the evidence. What stays is metadata the privacy
-            // contract permits: when, how it read, how strong — plus the lexicon label, which
-            // is a dictionary token rather than anything the user wrote.
+            // Everything the evidence produced goes with it. Not just the user's words, but
+            // every semantic derivative of them: a sentiment bucket, a valence, and a lexicon
+            // label are all readings OF the forgotten sentence, not neutral facts about it.
             s.Evidence = null;
             s.Topic = null;
+            s.Sentiment = null;
+            s.Valence = null;
+            s.Label = null;
+            s.ProjectId = null;
             // A redacted concern can never be surfaced again.
             s.FollowedUp = true;
         }

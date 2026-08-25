@@ -18,6 +18,7 @@ public sealed class MemoryCurator : IMemoryCurator
     private readonly IShadowRecorder? _shadow;
     private readonly IUserPreferenceStore? _userPreferences;
     private readonly IEmotionStore? _emotions;
+    private readonly ICompanionMoodLog? _moodLog;
 
     public MemoryCurator(
         IMemoryStore memories,
@@ -26,7 +27,8 @@ public sealed class MemoryCurator : IMemoryCurator
         ILogger<MemoryCurator> logger,
         IShadowRecorder? shadow = null,
         IUserPreferenceStore? userPreferences = null,
-        IEmotionStore? emotions = null)
+        IEmotionStore? emotions = null,
+        ICompanionMoodLog? moodLog = null)
     {
         _memories = memories;
         _embeddings = embeddings;
@@ -38,6 +40,7 @@ public sealed class MemoryCurator : IMemoryCurator
         _shadow = shadow;
         _userPreferences = userPreferences;
         _emotions = emotions;
+        _moodLog = moodLog;
     }
 
     public async Task SupersedeSemanticAsync(
@@ -174,11 +177,29 @@ public sealed class MemoryCurator : IMemoryCurator
         // resembled its cue phrase. The row survives as metadata; the user's words do not.
         if (forgotten && _emotions is not null && evidenceMessageIds.Count > 0)
         {
+            // Read the affected signals FIRST: their evidence event ids are the handle the
+            // mood log needs, and redaction is about to remove everything else.
+            var affected = (await _emotions.GetRecentSignalsAsync(userId, int.MaxValue, ct))
+                .Where(s => evidenceMessageIds.Contains(s.MessageId))
+                .Select(s => s.EvidenceEventId)
+                .ToList();
+
             var redacted = await _emotions.ForgetByEvidenceAsync(
                 userId, evidenceMessageIds, [], _clock.GetUtcNow(), ct);
             if (redacted > 0)
                 _logger.LogInformation(
                     "Forgetting {MemoryId} also redacted {Count} emotional signal(s).", memoryId, redacted);
+
+            // And the mood transitions those moments produced lose their stored reading too.
+            if (_moodLog is not null && affected.Count > 0)
+            {
+                var moodRedacted = await _moodLog.ForgetByEvidenceAsync(
+                    userId, affected, _clock.GetUtcNow(), ct);
+                if (moodRedacted > 0)
+                    _logger.LogInformation(
+                        "Forgetting {MemoryId} also redacted {Count} mood transition(s).",
+                        memoryId, moodRedacted);
+            }
         }
 
         return forgotten;
