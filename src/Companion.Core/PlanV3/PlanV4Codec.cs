@@ -195,7 +195,7 @@ public static class PlanV4Codec
             : f.Characters.FirstOrDefault(c => c.CharacterId == characterId)?.Display;
 
     /// <summary>`switchScene` is spelled `switch` on the wire; `continue` loses its `@`.</summary>
-    internal static string Kebab(FrameTransition t) => t switch
+    public static string Kebab(FrameTransition t) => t switch
     {
         FrameTransition.switchScene => "switch",
         FrameTransition.@continue => "continue",
