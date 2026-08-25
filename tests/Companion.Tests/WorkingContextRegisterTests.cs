@@ -281,11 +281,19 @@ public class WorkingContextRegisterTests
             .ToList();
         Assert.NotEmpty(rows);
 
-        // At least one turn's native row carries a working-context register decision, and no
-        // row anywhere carries the interpretation note or any other prose from this source.
+        // At least one turn's native row shows this source's vote reaching adjudication, and
+        // no row anywhere carries the interpretation note or any other prose from it.
+        //
+        // ADJUDICATED, not necessarily won: these are brand-new conversations, so Source 4c
+        // votes verbosity=short from FamiliarityStage.New and outranks working-context (§5.4
+        // relationship > working-context). The turn's read of the moment losing to the state
+        // of the relationship is the contract working, so the assertion is that the vote was
+        // weighed — as winner or as recorded loser — rather than that it prevailed.
         var envelopes = rows.Select(r => JsonSerializer.Deserialize<V3ShadowEnvelope>(r.Input!)!).ToList();
         Assert.Contains(envelopes, e => e.Assembly is not null
-            && e.Assembly.RegisterDecisions.Any(d => d.WinningSource == "working-context-register"));
+            && e.Assembly.RegisterDecisions.Any(d =>
+                d.WinningSource == "working-context-register"
+                || d.Losers.Any(l => l.StartsWith("working-context-register:", StringComparison.Ordinal))));
         Assert.All(envelopes, e => Assert.Empty(e.Assembly?.AuthorityViolations ?? []));
         Assert.All(rows, r => Assert.DoesNotContain("ask to clarify rather than guessing", r.Input!));
     }

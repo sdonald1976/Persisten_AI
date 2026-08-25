@@ -700,6 +700,11 @@ public sealed class Companion : ICompanion
                 // inference about how the user feels — and never anything but a register vote.
                 contributors.Add(new global::Companion.PlanV3.MoodContributor(innerState));
 
+                // Source 4c (docs/SOURCE4_PHASE3_PLAN.md): how far along the relationship
+                // actually is — FamiliarityStage from two honest counts, and nothing else.
+                // No EmotionalSignal sentiment, no derived claim about how the user feels.
+                contributors.Add(new global::Companion.PlanV3.FamiliarityContributor(familiarity));
+
                 if (contributors.Count > 0)
                 {
                     var toolContext = new global::Companion.PlanV3.PlanContributionContext(
