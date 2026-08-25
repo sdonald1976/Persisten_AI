@@ -52,6 +52,21 @@ public sealed class CompanionDbContext : DbContext
     public DbSet<ConceptAssertion> ConceptAssertions => Set<ConceptAssertion>();
     public DbSet<ShadowComparison> ShadowComparisons => Set<ShadowComparison>();
 
+    /// <summary>Shadow-isolated activity branches (docs/SOURCE1B_SELECTOR_DESIGN.md).
+    /// New table; the migration touches no production procedure row.</summary>
+    public DbSet<ActivityBranchRecord> ActivityBranches => Set<ActivityBranchRecord>();
+
+    /// <summary>Source 3: explicit user-owned standing preferences. Distinct from
+    /// CompanionPreferences (Ava's tastes) by design, not just by name.</summary>
+    public DbSet<UserPreferenceRecord> UserPreferences => Set<UserPreferenceRecord>();
+
+    /// <summary>Source 4b: the append-only, versioned log of Ava's mood transitions.</summary>
+    public DbSet<CompanionMoodTransition> CompanionMoodTransitions => Set<CompanionMoodTransition>();
+
+    /// <summary>plan/4: authoritative frame truth, and scene-scoped user boundaries.</summary>
+    public DbSet<FrameSession> FrameSessions => Set<FrameSession>();
+    public DbSet<FrameBoundaryRecord> FrameBoundaries => Set<FrameBoundaryRecord>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // SQLite can't ORDER BY / compare DateTimeOffset directly. This built-in converter
@@ -62,6 +77,34 @@ public sealed class CompanionDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder b)
     {
+
+        // Shadow activity branches: unique branch id, conversation lookup, cleanup scan.
+        b.Entity<ActivityBranchRecord>(e =>
+        {
+            e.HasIndex(x => x.BranchId).IsUnique();
+            e.HasIndex(x => new { x.UserId, x.ConversationId });
+            e.HasIndex(x => x.TerminalAt);
+        });
+        // Source 3: explicit user preferences. The hot query is "active records for one
+        // user" (every observed turn on the shadow path).
+        b.Entity<UserPreferenceRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(100);
+            e.Property(x => x.Dimension).HasMaxLength(40);
+            e.Property(x => x.Value).HasMaxLength(40);
+            e.Property(x => x.Subject).HasMaxLength(200);
+            e.Property(x => x.Scope).HasMaxLength(40);
+            e.Property(x => x.EvidenceKind).HasMaxLength(30);
+            e.Property(x => x.EvidenceStatement).HasMaxLength(500);
+            e.Property(x => x.RevocationStatement).HasMaxLength(500);
+            e.Property(x => x.ActiveSlot).HasMaxLength(300);
+            e.HasIndex(x => new { x.UserId, x.Status });
+            // The one-active-record invariant, enforced by the database: at most one row
+            // per user per slot may hold a non-null ActiveSlot. Deactivated rows set it to
+            // NULL, and SQL treats NULLs as distinct, so history is unconstrained.
+            e.HasIndex(x => new { x.UserId, x.ActiveSlot }).IsUnique();
+        });
         b.Entity<ModelCallRecord>(e =>
         {
             e.HasKey(x => x.Id);
@@ -93,6 +136,43 @@ public sealed class CompanionDbContext : DbContext
             // Dedupe path: one live gap per (kind, subject); status path for the sweeps.
             e.HasIndex(x => new { x.UserId, x.Kind, x.Subject });
             e.HasIndex(x => new { x.UserId, x.Status });
+        });
+        // Source 4b: (UserId, Version) unique is the concurrency guard — two simultaneous
+        // nudges cannot both claim one version, so a lost update is a conflict to retry
+        // rather than a silent clobber.
+        b.Entity<CompanionMoodTransition>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(100);
+            e.HasIndex(x => new { x.UserId, x.Version }).IsUnique();
+        });
+        // plan/4 frame truth. Version is the optimistic-concurrency token, so a lost update
+        // is a visible conflict rather than a silent clobber.
+        b.Entity<FrameSession>(e =>
+        {
+            e.HasKey(x => x.SessionId);
+            e.Property(x => x.UserId).HasMaxLength(100);
+            e.Property(x => x.SceneRef).HasMaxLength(64);
+            e.Property(x => x.ActiveCompanionCharacterId).HasMaxLength(64);
+            e.Property(x => x.Narration).HasMaxLength(20);
+            e.Property(x => x.Continuity).HasMaxLength(20);
+            e.Property(x => x.NarratorKind).HasMaxLength(20);
+            e.Property(x => x.NarratorCharacterId).HasMaxLength(64);
+            e.Property(x => x.ViewpointCharacterId).HasMaxLength(64);
+            e.Property(x => x.Person).HasMaxLength(10);
+            e.Property(x => x.Version).IsConcurrencyToken();
+            e.HasIndex(x => new { x.UserId, x.ConversationId, x.Status });
+            e.HasIndex(x => x.EndedAt);
+        });
+        b.Entity<FrameBoundaryRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(100);
+            e.Property(x => x.SceneRef).HasMaxLength(64);
+            e.Property(x => x.Subject).HasMaxLength(200);
+            e.Property(x => x.EvidenceKind).HasMaxLength(30);
+            e.Property(x => x.EvidenceStatement).HasMaxLength(500);
+            e.HasIndex(x => new { x.UserId, x.ConversationId, x.SceneRef, x.Status });
         });
 
         b.Entity<Concept>(e =>

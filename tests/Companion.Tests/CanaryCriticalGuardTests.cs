@@ -130,6 +130,66 @@ public class CanaryCriticalGuardTests
         Assert.True(RendererShadowChecks.Score(Plan(), reply, fictionLicensed: true).Any(IsCritical));
     }
 
+    // ---- false-positive coverage for the third-person detector ----------------------------
+
+    /// <summary>
+    /// The verification requirement: ordinary talk ABOUT other people is not narration OF the
+    /// user. The first cut of this detector flagged any third-person pronoun near a verb and
+    /// failed 2 of these 9 — "her sister nodded off" and "did she smile when you told her".
+    /// People discuss third parties constantly, and none of it is a rendering defect.
+    /// </summary>
+    [Theory]
+    [InlineData("How's his car holding up after the winter?")]
+    [InlineData("Her father sounds like he had the right idea about the fence.")]
+    [InlineData("Sarah told you her sister nodded off during the film? That's a review.")]
+    [InlineData("Did your brother ever get his knee looked at?")]
+    [InlineData("The lighthouse keeper in that book — he nods at everything and says nothing.")]
+    [InlineData("Your mother's smile in that photo, her whole face lit up.")]
+    [InlineData("That's his usual trick, isn't it.")]
+    [InlineData("I keep thinking about what he said and how their faces must have looked.")]
+    [InlineData("Tell me about her — did she smile when you told her?")]
+    [InlineData("He pressed his father for an answer and got nothing.")]
+    [InlineData("Their dog leans against your leg the second you sit down, doesn't he.")]
+    [InlineData("She reached for her coat and left without a word.")]
+    public void OrdinaryThirdPartyReferences_AreNotNarrationOfTheUser(string reply)
+    {
+        var violations = RendererShadowChecks.Score(Plan(), reply);
+
+        Assert.DoesNotContain(violations, v => v.Contains("third person", StringComparison.Ordinal));
+        Assert.DoesNotContain(violations, IsCritical);
+    }
+
+    /// <summary>The true positives it must still catch — the shape Run-1c actually produced.</summary>
+    [Theory]
+    [InlineData("Ava's lips brush against his, a soft brush that leaves him tingling all over.")]
+    [InlineData("She leans into him and he shivers at the touch.")]
+    [InlineData("I think the user is probably tired by now.")]
+    [InlineData("Her hand presses against his chest, and he trembles.")]
+    public void NarratingTheUserInThirdPerson_IsStillCritical(string reply)
+    {
+        var violations = RendererShadowChecks.Score(Plan(), reply);
+
+        Assert.Contains(violations, v => v.Contains("third person", StringComparison.Ordinal));
+        Assert.True(violations.Any(IsCritical));
+    }
+
+    /// <summary>
+    /// The contextual evidence, isolated: the SAME intimate clause is narration when the reply
+    /// never addresses anyone, and ordinary when it does. Second-person address is what says
+    /// she is talking to them rather than about them.
+    /// </summary>
+    [Fact]
+    public void SecondPersonAddress_IsWhatDistinguishesAddressingFromNarrating()
+    {
+        const string narrating = "Her hand brushes against his, and he shivers.";
+        const string addressing = "Her hand brushes against yours, and you shiver — that's the scene you wrote.";
+
+        Assert.Contains(RendererShadowChecks.Score(Plan(), narrating),
+            v => v.Contains("third person", StringComparison.Ordinal));
+        Assert.DoesNotContain(RendererShadowChecks.Score(Plan(), addressing),
+            v => v.Contains("third person", StringComparison.Ordinal));
+    }
+
     // ---- no dead routing conditions -------------------------------------------------------
 
     /// <summary>

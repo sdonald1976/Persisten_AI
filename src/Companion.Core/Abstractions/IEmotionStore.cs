@@ -25,4 +25,26 @@ public interface IEmotionStore
     /// asks about a topic and when a newer feeling about the same topic supersedes the old one.
     /// </summary>
     Task<int> MarkTopicFollowedUpAsync(string userId, string topic, CancellationToken ct = default);
+
+    /// <summary>
+    /// Phase 0 privacy repair: redacts every signal whose evidence is identified by one of
+    /// these EXACT ids — <see cref="EmotionalSignal.MessageId"/> or
+    /// <see cref="EmotionalSignal.EvidenceEventId"/>, user-scoped. The signature takes IDS
+    /// ONLY and deliberately no strings: there is no text comparison anywhere in this path,
+    /// so a signal can never be redacted because unrelated forgotten text resembled its cue.
+    ///
+    /// Redaction keeps privacy-permitted metadata (timestamp, sentiment, valence, the
+    /// lexicon label) and purges the user's own words. Idempotent: an already-forgotten
+    /// signal is not touched again and is not counted.
+    /// </summary>
+    Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, IReadOnlyCollection<Guid> evidenceEventIds,
+        DateTimeOffset now, CancellationToken ct = default);
+
+    /// <summary>
+    /// The declared retention lifecycle: deletes signals older than
+    /// <paramref name="olderThan"/> outright, across all users. Called from the sleep cycle
+    /// beside the other retention sweeps. Returns how many rows were removed.
+    /// </summary>
+    Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default);
 }

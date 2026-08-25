@@ -25,12 +25,16 @@ public sealed class CompanionStateTracker : ICompanionStateTracker
     private readonly IProfileStore _profiles;
     private readonly IReflectionStore _reflections;
     private readonly TimeProvider _clock;
+    private readonly ICompanionMoodLog? _moodLog;
 
-    public CompanionStateTracker(IProfileStore profiles, IReflectionStore reflections, TimeProvider clock)
+    public CompanionStateTracker(
+        IProfileStore profiles, IReflectionStore reflections, TimeProvider clock,
+        ICompanionMoodLog? moodLog = null)
     {
         _profiles = profiles;
         _reflections = reflections;
         _clock = clock;
+        _moodLog = moodLog;
     }
 
     public async Task<CompanionStateSnapshot> BuildAsync(string userId, CancellationToken ct = default)
@@ -44,15 +48,21 @@ public sealed class CompanionStateTracker : ICompanionStateTracker
 
         var energy = Math.Clamp(EnergyAt(_clock.GetLocalNow().Hour) + (rested ? 0.1 : 0.0), 0.0, 1.0);
 
+        // Source 4b: the transition this reading descends from, so the state can be cited.
+        var moodTransition = _moodLog is null ? null : await _moodLog.GetLatestAsync(userId, ct);
+
         return new CompanionStateSnapshot
         {
             Spirits = DecayedSpirits(profile.CompanionSpirits, profile.CompanionSpiritsNudgedAt, now),
             Energy = energy,
             Rested = rested,
+            StateRef = moodTransition?.Id,
+            Version = moodTransition?.Version ?? 0,
         };
     }
 
-    public async Task NudgeAsync(string userId, double valence, CancellationToken ct = default)
+    public async Task NudgeAsync(string userId, double valence, Guid? sourceEvidenceEventId = null,
+        CancellationToken ct = default)
     {
         var profile = await _profiles.GetOrCreateAsync(userId, ct);
         var now = _clock.GetUtcNow();
@@ -61,6 +71,18 @@ public sealed class CompanionStateTracker : ICompanionStateTracker
         // toward the moment's valence.
         var current = DecayedSpirits(profile.CompanionSpirits, profile.CompanionSpiritsNudgedAt, now);
         var nudged = current * (1 - NudgeWeight) + Math.Clamp(valence, -1.0, 1.0) * NudgeWeight;
+
+        // The transition is recorded BEFORE the profile is updated, and its result is what the
+        // profile then stores: under concurrency the log is the arbiter, so two simultaneous
+        // nudges compose onto each other instead of one silently clobbering the other.
+        if (_moodLog is not null)
+        {
+            var transition = await _moodLog.AppendAsync(
+                userId, current, nudged, Math.Clamp(valence, -1.0, 1.0), now,
+                sourceEvidenceEventId, ct);
+            await _profiles.SetCompanionSpiritsAsync(userId, transition.NewSpirits, now, ct);
+            return;
+        }
 
         await _profiles.SetCompanionSpiritsAsync(userId, nudged, now, ct);
     }

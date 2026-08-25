@@ -27,7 +27,14 @@ public sealed class RelationshipTracker : IRelationshipTracker
     public async Task<RelationshipSnapshot> BuildAsync(string userId, CancellationToken ct = default)
     {
         // Newest-first from the store; reverse to chronological for trend math.
+        // Forgotten signals contribute NOTHING — not to the average, not to the trend, not to
+        // the recent read. The store already excludes them; this is the defence in depth that
+        // keeps the guarantee true for any IEmotionStore implementation.
+        // Tombstones contribute NOTHING: a forgotten row keeps no reading to average, and
+        // the null-valence guard is the second lock on the same door — a row that lost its
+        // semantics cannot be read even if something forgot to filter the flag.
         var recent = (await _emotions.GetRecentSignalsAsync(userId, Window, ct))
+            .Where(s => !s.EvidenceForgotten && s.Valence.HasValue)
             .OrderBy(s => s.Timestamp)
             .ToList();
         if (recent.Count == 0)
@@ -35,14 +42,14 @@ public sealed class RelationshipTracker : IRelationshipTracker
 
         // Longer arc includes everything, even closed-out concerns — the trend can still show a low
         // that has since been resolved lifting back up.
-        var average = recent.Average(s => s.Valence);
+        var average = recent.Average(s => s.Valence!.Value);
         var trend = Trend(recent);
 
         // The "right now" read and any concern to surface come from ACTIVE signals only: a worry the
         // user has already engaged with (followed-up) no longer counts as current, so it can't drag
         // the present mood or be raised again.
         var activeRecent = recent.TakeLast(RecentSlice).Where(s => !s.FollowedUp).ToList();
-        var recentAverage = activeRecent.Count > 0 ? activeRecent.Average(s => s.Valence) : 0.0;
+        var recentAverage = activeRecent.Count > 0 ? activeRecent.Average(s => s.Valence!.Value) : 0.0;
         var recentMood = Bucket(recentAverage);
 
         // The dominant recent signal: the freshest active one whose sign matches the recent mood (so a
@@ -51,13 +58,13 @@ public sealed class RelationshipTracker : IRelationshipTracker
         var dominant = activeRecent
             .AsEnumerable()
             .Reverse()
-            .FirstOrDefault(s => s.Label is not null && Math.Sign(s.Valence) == Math.Sign(recentAverage));
+            .FirstOrDefault(s => s.Label is not null && Math.Sign(s.Valence!.Value) == Math.Sign(recentAverage));
 
         // Prefer the topic from the dominant signal; fall back to the freshest active topic that
         // shares the mood's direction, so a labelled-but-topicless cue still gets its subject.
         var recentTopic = dominant?.Topic
             ?? activeRecent.AsEnumerable().Reverse()
-                .FirstOrDefault(s => s.Topic is not null && Math.Sign(s.Valence) == Math.Sign(recentAverage))
+                .FirstOrDefault(s => s.Topic is not null && Math.Sign(s.Valence!.Value) == Math.Sign(recentAverage))
                 ?.Topic;
 
         return new RelationshipSnapshot
@@ -77,8 +84,8 @@ public sealed class RelationshipTracker : IRelationshipTracker
             return MoodTrend.Steady; // not enough history to call a direction
 
         var mid = chronological.Count / 2;
-        var older = chronological.Take(mid).Average(s => s.Valence);
-        var newer = chronological.Skip(mid).Average(s => s.Valence);
+        var older = chronological.Take(mid).Average(s => s.Valence!.Value);
+        var newer = chronological.Skip(mid).Average(s => s.Valence!.Value);
         var delta = newer - older;
 
         if (delta >= TrendThreshold)

@@ -17,6 +17,117 @@ namespace Companion.Infrastructure.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.18");
 
+            modelBuilder.Entity("Companion.Core.Domain.ActivityBranchRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("ActivatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ActivationEvidence")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActivityType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AnswerBindingsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AppliedKeysJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BranchId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BranchKind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("BranchPointQuestionNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ContentWithheld")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("CurrentQuestionNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FinalGuess")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("FinalGuessCorrect")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("HypothesesJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InstanceId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Lifecycle")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MovesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ParentBranchId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ProcedureDefinitionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("QuestionLimit")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Retention")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("StrategyVersion")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("TerminalAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("UpdatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BranchId")
+                        .IsUnique();
+
+                    b.HasIndex("TerminalAt");
+
+                    b.HasIndex("UserId", "ConversationId");
+
+                    b.ToTable("ActivityBranches");
+                });
+
             modelBuilder.Entity("Companion.Core.Domain.Anticipation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -178,6 +289,52 @@ namespace Companion.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Capabilities");
+                });
+
+            modelBuilder.Entity("Companion.Core.Domain.CompanionMoodTransition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("AppliedValence")
+                        .HasColumnType("REAL");
+
+                    b.Property<long?>("CompactedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("EvidenceForgotten")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsBaseline")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double>("NewSpirits")
+                        .HasColumnType("REAL");
+
+                    b.Property<long>("OccurredAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("PreviousSpirits")
+                        .HasColumnType("REAL");
+
+                    b.Property<Guid?>("SourceEvidenceEventId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("CompanionMoodTransitions");
                 });
 
             modelBuilder.Entity("Companion.Core.Domain.CompanionPreference", b =>
@@ -489,7 +646,20 @@ namespace Companion.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid>("EvidenceEventId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("EvidenceForgotten")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("EvidenceKind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("FollowedUp")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("ForgottenAt")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Label")
@@ -503,7 +673,6 @@ namespace Companion.Infrastructure.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Sentiment")
-                        .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("TEXT");
 
@@ -519,7 +688,7 @@ namespace Companion.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
-                    b.Property<double>("Valence")
+                    b.Property<double?>("Valence")
                         .HasColumnType("REAL");
 
                     b.HasKey("Id");
@@ -671,6 +840,145 @@ namespace Companion.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Feedback");
+                });
+
+            modelBuilder.Entity("Companion.Core.Domain.FrameBoundaryRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("DeactivatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("EvidenceKind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("EvidenceMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EvidenceStatement")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SceneRef")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("StatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ConversationId", "SceneRef", "Status");
+
+                    b.ToTable("FrameBoundaries");
+                });
+
+            modelBuilder.Entity("Companion.Core.Domain.FrameSession", b =>
+                {
+                    b.Property<Guid>("SessionId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActiveCompanionCharacterId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AppliedKeysJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CharactersJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Continuity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("EndedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("EnteredAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("LastTransitionAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Narration")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NarratorCharacterId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NarratorKind")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Person")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SceneRef")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TransitionLogJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ViewpointCharacterId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("SessionId");
+
+                    b.HasIndex("EndedAt");
+
+                    b.HasIndex("UserId", "ConversationId", "Status");
+
+                    b.ToTable("FrameSessions");
                 });
 
             modelBuilder.Entity("Companion.Core.Domain.KnowledgeGap", b =>
@@ -1716,6 +2024,93 @@ namespace Companion.Infrastructure.Migrations
                     b.HasIndex("UserId", "Timestamp");
 
                     b.ToTable("TurnRecords");
+                });
+
+            modelBuilder.Entity("Companion.Core.Domain.UserPreferenceRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActiveSlot")
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("DeactivatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Dimension")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("EvidenceEventId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EvidenceKind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("EvidenceMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EvidenceStatement")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Restrictive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("RevocationEvidenceMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RevocationStatement")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("RevokedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("StatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SupersededById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ActiveSlot")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Status");
+
+                    b.ToTable("UserPreferences");
                 });
 
             modelBuilder.Entity("Companion.Core.Domain.UserProfile", b =>

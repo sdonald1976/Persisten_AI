@@ -29,6 +29,26 @@ public class RelationshipTrackerTests
                     .Take(count)
                     .ToList());
 
+        public Task<int> ForgetByEvidenceAsync(
+            string userId, IReadOnlyCollection<Guid> messageIds, IReadOnlyCollection<Guid> evidenceEventIds,
+            DateTimeOffset now, CancellationToken ct = default)
+        {
+            var doomed = _signals.Where(s => s.UserId == userId && !s.EvidenceForgotten
+                && (messageIds.Contains(s.MessageId) || evidenceEventIds.Contains(s.EvidenceEventId))).ToList();
+            foreach (var s in doomed)
+            {
+                s.EvidenceForgotten = true;
+                s.ForgottenAt = now;
+                s.Evidence = null;
+                s.Topic = null;
+                s.FollowedUp = true;
+            }
+            return Task.FromResult(doomed.Count);
+        }
+
+        public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+            => Task.FromResult(_signals.RemoveAll(s => s.Timestamp < olderThan));
+
         public Task<int> MarkTopicFollowedUpAsync(string userId, string topic, CancellationToken ct = default)
         {
             var open = _signals.Where(s => s.UserId == userId && !s.FollowedUp

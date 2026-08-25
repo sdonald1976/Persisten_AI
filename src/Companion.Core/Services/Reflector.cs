@@ -817,7 +817,7 @@ public sealed class Reflector : IReflector
             foreach (var s in signals.OrderBy(s => s.Timestamp))
             {
                 var about = s.Topic is null ? "" : $" about {s.Topic}";
-                sb.AppendLine($"- [{RelativeTime.Describe(now - s.Timestamp)} ago] {s.Label ?? s.Sentiment.ToString().ToLowerInvariant()}{about}");
+                sb.AppendLine($"- [{RelativeTime.Describe(now - s.Timestamp)} ago] {s.Label ?? s.Sentiment?.ToString().ToLowerInvariant() ?? "unspecified"}{about}");
             }
             sb.AppendLine();
         }

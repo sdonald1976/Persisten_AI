@@ -196,6 +196,23 @@ public sealed class CompanionOptions
     /// </summary>
     public bool CapturePromptText { get; set; }
 
+    /// <summary>
+    /// Source 3: hosting register DEFAULTS (dimension -> closed-set value, e.g.
+    /// "profanity" -> "avoid"). A SEPARATE authority from user preferences: it votes under
+    /// hosting-config.* with a configuration-path evidence reference and can never
+    /// masquerade as something the user asked for.
+    ///
+    /// These are OVERRIDABLE, not enforceable (spec §5.5): the frozen precedence in §5.4
+    /// ranks user-preference above hosting-config, so an explicit user statement on the
+    /// same dimension wins and both are recorded. This is the register the deployment
+    /// prefers absent a user statement — it is NOT a mechanism for an operator
+    /// requirement that must hold regardless of what the user asks. No such mechanism
+    /// exists in the contract today.
+    ///
+    /// Empty by default — nothing is defaulted unless an operator configures it.
+    /// </summary>
+    public Dictionary<string, string> HostingRegisterRestrictions { get; set; } = [];
+
     /// <summary>Hard ceiling on tool executions in one turn (identical repeats stop earlier).</summary>
     public int MaxToolCallsPerTurn { get; set; } = 3;
 
@@ -264,6 +281,16 @@ public sealed class RendererShadowOptions
     /// model every turn, which costs far more. Ignored by serve_tuned/serve_cpu.
     /// </summary>
     public int? NumGpu { get; set; }
+
+    /// <summary>
+    /// Deployment secret (base64) for the keyed correlation tag on protected V3 shadow
+    /// rows (spec rev-2.1). Absent = protected rows carry no content-derived identifier
+    /// at all. Rotate by changing the key AND incrementing CorrelationKeyVersion.
+    /// </summary>
+    public string? CorrelationKeyBase64 { get; set; }
+
+    /// <summary>Version stamped into correlation tags; increment on key rotation.</summary>
+    public int CorrelationKeyVersion { get; set; } = 1;
 
     /// <summary>
     /// Ceiling for the in-turn canary render, separate from the shadow queue's generous one:

@@ -1,3 +1,12 @@
+"""SUPERSEDED for Run-2 by select_combination_v4.py.
+
+This selector detects primitives by substring-matching plan/2 PROSE. CompactV4 has no
+such prose — its primitives are typed — so against plan/4 rows this finds nothing and
+would select a combination that means something else. Kept because it is the mechanism
+run-1a/1b/1c's held-out families were actually chosen by, and that record has to stay
+readable.
+"""
+
 """Gate 7: pick the unseen family's primitive combination mechanically.
 
 The design requires the post-training family to be authored without reference to the

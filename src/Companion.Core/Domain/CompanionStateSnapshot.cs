@@ -19,6 +19,17 @@ public sealed record CompanionStateSnapshot
     /// <summary>She recently had a quiet stretch to think (a reflection pass ran).</summary>
     public bool Rested { get; init; }
 
+    /// <summary>
+    /// Source 4b: the id of the mood TRANSITION this reading came from — durably resolvable
+    /// in <c>CompanionMoodTransitions</c> forever. Null when her mood has never moved, which
+    /// is also when it has nothing to say. A register vote cites this; it is deliberately not
+    /// a hash of the current value, because a hash identifies nothing and survives nothing.
+    /// </summary>
+    public Guid? StateRef { get; init; }
+
+    /// <summary>Monotonic version of the transition <see cref="StateRef"/> names. 0 = never moved.</summary>
+    public int Version { get; init; }
+
     private string Tone => Spirits >= 0.3 ? "bright" : Spirits <= -0.3 ? "low" : "even";
     private string Pace => Energy >= 0.7 ? "energetic" : Energy <= 0.4 ? "quiet" : "steady";
 

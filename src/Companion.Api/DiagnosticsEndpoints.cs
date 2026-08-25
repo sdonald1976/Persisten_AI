@@ -148,6 +148,7 @@ internal static class DiagnosticsEndpoints
             var rows = agreement.FirstOrDefault(a => a.Subject == "renderer.plan2");
             var rs = options.Value.RendererShadow;
             var canary = renderer.IsCanaryFor(user.UserId);
+            var counters = renderer.Counters;
             return Results.Ok(new
             {
                 observing = renderer.IsObserving,
@@ -155,7 +156,11 @@ internal static class DiagnosticsEndpoints
                 canaryUser = canary ? user.UserId : null,
                 adapterSha256 = rs.AdapterSha256,
                 modelVersion = rs.ModelVersion,
-                queue = renderer.Counters,
+                queue = counters,
+                // P3: translated_v2 V3 shadow lifecycle (produced/valid/invalid/compatible/
+                // protected/redacted/failed/dropped). These rows test translation,
+                // serialization, privacy, and infrastructure — never corpus material.
+                v3Shadow = counters.V3,
                 collected = rows?.Comparisons ?? 0,
                 flagged = rows?.Disagreements ?? 0,
                 averageLatencyMs = rows?.AverageDurationMs ?? 0,

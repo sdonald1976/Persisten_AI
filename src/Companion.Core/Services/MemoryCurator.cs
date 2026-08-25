@@ -16,13 +16,21 @@ public sealed class MemoryCurator : IMemoryCurator
     private readonly TimeProvider _clock;
     private readonly ILogger<MemoryCurator> _logger;
     private readonly IShadowRecorder? _shadow;
+    private readonly IUserPreferenceStore? _userPreferences;
+    private readonly IEmotionStore? _emotions;
+    private readonly ICompanionMoodLog? _moodLog;
+    private readonly ICompanionStateTracker? _innerState;
 
     public MemoryCurator(
         IMemoryStore memories,
         IEmbeddingModel embeddings,
         TimeProvider clock,
         ILogger<MemoryCurator> logger,
-        IShadowRecorder? shadow = null)
+        IShadowRecorder? shadow = null,
+        IUserPreferenceStore? userPreferences = null,
+        IEmotionStore? emotions = null,
+        ICompanionMoodLog? moodLog = null,
+        ICompanionStateTracker? innerState = null)
     {
         _memories = memories;
         _embeddings = embeddings;
@@ -32,6 +40,10 @@ public sealed class MemoryCurator : IMemoryCurator
         // Optional, like every other measurement seam here: the curator's job is the memory, and a
         // telemetry table that is not switched on must not be something it has to have.
         _shadow = shadow;
+        _userPreferences = userPreferences;
+        _emotions = emotions;
+        _moodLog = moodLog;
+        _innerState = innerState;
     }
 
     public async Task SupersedeSemanticAsync(
@@ -106,11 +118,13 @@ public sealed class MemoryCurator : IMemoryCurator
     {
         // The excerpts are read BEFORE the status changes, because they are the only handle on the
         // sentences this memory came from and nothing guarantees they stay reachable afterwards.
-        List<string> excerpts = [];
+        // Read unconditionally now: preference invalidation (Source 3) needs the same handles
+        // whether or not the shadow recorder is on.
+        var evidence = await _memories.GetEvidenceAsync(userId, memoryId, ct);
+        var evidenceMessageIds = evidence.Select(e => e.MessageId).Distinct().ToList();
+        List<string> excerpts = evidence.Select(e => e.Excerpt).ToList();
         if (_shadow is { IsRecording: true })
         {
-            excerpts = (await _memories.GetEvidenceAsync(userId, memoryId, ct))
-                .Select(e => e.Excerpt).ToList();
 
             // The id too: pair-capture rows (memory.supersession.pair) reference the stored memory
             // by id rather than by its evidence — the excerpts in a pair row are the user's words
@@ -134,6 +148,66 @@ public sealed class MemoryCurator : IMemoryCurator
             if (removed > 0)
                 _logger.LogInformation(
                     "Forgetting {MemoryId} also removed {Count} captured sentences.", memoryId, removed);
+        }
+
+        // Source 3: a preference whose authority depended on THIS evidence loses it now —
+        // deactivated (EvidenceForgotten) and its statement purged.
+        //
+        // Linkage is by exact identity: the evidence message ids above, or a forgotten
+        // excerpt that EQUALS an instruction verbatim. Never containment — an unrelated
+        // memory that merely shares a phrase with a standing instruction must not be able
+        // to revoke it. Where a statement matches more than one active preference the
+        // association is ambiguous, and ambiguity revokes nothing: picking one of two
+        // identical instructions would be a guess, and a guess that silently drops a
+        // user's standing rule is the worst kind.
+        if (forgotten && _userPreferences is not null)
+        {
+            var result = await _userPreferences.InvalidateByForgottenEvidenceAsync(
+                userId, excerpts, evidenceMessageIds, _clock.GetUtcNow(), ct);
+            if (result.Invalidated > 0)
+                _logger.LogInformation(
+                    "Forgetting {MemoryId} also invalidated {Count} user preferences.",
+                    memoryId, result.Invalidated);
+            if (result.Ambiguous > 0)
+                _logger.LogWarning(
+                    "Forgetting {MemoryId} matched {Count} ambiguous preference association(s); "
+                    + "none were revoked. Revoke the instruction explicitly to clear it.",
+                    memoryId, result.Ambiguous);
+        }
+
+        // Phase 0: the emotional readings taken from those same messages lose their evidence
+        // too. Matched by EXACT id only — a signal is never redacted because forgotten text
+        // resembled its cue phrase. The row survives as metadata; the user's words do not.
+        if (forgotten && _emotions is not null && evidenceMessageIds.Count > 0)
+        {
+            // Read the affected signals FIRST: their evidence event ids are the handle the
+            // mood log needs, and redaction is about to remove everything else.
+            var affected = (await _emotions.GetRecentSignalsAsync(userId, int.MaxValue, ct))
+                .Where(s => evidenceMessageIds.Contains(s.MessageId))
+                .Select(s => s.EvidenceEventId)
+                .ToList();
+
+            var redacted = await _emotions.ForgetByEvidenceAsync(
+                userId, evidenceMessageIds, [], _clock.GetUtcNow(), ct);
+            if (redacted > 0)
+                _logger.LogInformation(
+                    "Forgetting {MemoryId} also redacted {Count} emotional signal(s).", memoryId, redacted);
+
+            // And her mood log is COMPACTED past those moments. Not rewound — she was
+            // affected, and forgetting the record of it does not undo that — but every row
+            // from which the forgotten valence could be recomputed is replaced by one opaque
+            // baseline carrying where she actually stands.
+            if (_moodLog is not null && _innerState is not null && affected.Count > 0)
+            {
+                var spirits = (await _innerState.BuildAsync(userId, ct)).Spirits;
+                var compaction = await _moodLog.CompactForgottenAsync(
+                    userId, affected, spirits, _clock.GetUtcNow(), ct);
+                if (compaction.Compacted)
+                    _logger.LogInformation(
+                        "Forgetting {MemoryId} compacted {Count} mood transition(s) behind a "
+                        + "baseline at version {Version}; replay before it is unavailable by design.",
+                        memoryId, compaction.RowsRemoved, compaction.BaselineVersion);
+            }
         }
 
         return forgotten;

@@ -17,5 +17,6 @@ public interface ICompanionStateTracker
     /// ([-1, 1]). Called when a turn carried a real emotional reading — shared joy lifts her,
     /// heavy stretches weigh on her. Honest emotional contagion, one small step at a time.
     /// </summary>
-    Task NudgeAsync(string userId, double valence, CancellationToken ct = default);
+    Task NudgeAsync(string userId, double valence, Guid? sourceEvidenceEventId = null,
+        CancellationToken ct = default);
 }

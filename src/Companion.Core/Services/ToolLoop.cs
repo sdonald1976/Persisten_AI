@@ -61,10 +61,19 @@ public sealed class ToolLoop
         IReadOnlyList<ToolCallTrace> Calls,
         string? ResultsSection,
         IReadOnlyList<string> Decisions,
-        int PlanningRounds);
+        int PlanningRounds)
+    {
+        /// <summary>
+        /// TYPED execution outcomes captured before prose conversion (Source 2). Shadow
+        /// consumers read these; nothing parses <see cref="ResultsSection"/>. Additive —
+        /// production reads none of it and behaves identically with it empty.
+        /// </summary>
+        public IReadOnlyList<ToolExecutionOutcome> TypedOutcomes { get; init; } = [];
+    }
 
     public async Task<Outcome> RunAsync(
-        string userId, string planningContext, string userMessage, CancellationToken ct = default)
+        string userId, string planningContext, string userMessage, Guid traceId = default,
+        CancellationToken ct = default)
     {
         var available = _tools.Where(t => t.Available).ToList();
         var advertised = available.Select(t => t.Name).ToList();
@@ -72,6 +81,7 @@ public sealed class ToolLoop
             return new Outcome(advertised, Array.Empty<ToolCallTrace>(), null, Array.Empty<string>(), 0);
 
         var traces = new List<ToolCallTrace>();
+        var typedOutcomes = new List<ToolExecutionOutcome>();
         var resultBlocks = new List<string>();
         var decisions = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -92,7 +102,13 @@ public sealed class ToolLoop
                 decisions.Add($"(rule nudge) {nudged.Name} {nudge.ArgumentsJson}");
                 using var args = JsonDocument.Parse(nudge.ArgumentsJson);
                 await ExecuteAndRecordAsync(
-                    nudged, args.RootElement, nudge.ArgumentsJson, userId, traces, resultBlocks, ct);
+                    nudged, args.RootElement, nudge.ArgumentsJson, userId, traces, typedOutcomes,
+                    resultBlocks, traceId,
+                    // The nudge tier fired because the USER's phrasing asked the question this
+                    // lookup answers — a deterministic rule, not model judgment and not the
+                    // tool's own say-so. That is the one place a tool result is required in
+                    // the reply, so it is the one place the disposition rises above background.
+                    ToolPlannerDisposition.MustExpress, "deterministic-nudge", ct);
                 executed++;
             }
         }
@@ -150,6 +166,20 @@ public sealed class ToolLoop
                         Tool = call.Tool, Arguments = call.ArgumentsJson,
                         Ok = false, Code = "unavailable",
                     });
+                    typedOutcomes.Add(new ToolExecutionOutcome
+                    {
+                        ToolCallId = Guid.NewGuid().ToString("n"),
+                        Tool = call.Tool,
+                        RequestingTraceId = traceId,
+                        Requested = true,
+                        Authorized = false,
+                        RefusalReason = "unavailable",
+                        Executed = false,
+                        Status = ToolExecutionStatus.NotExecuted,
+                        DisclosurePermitted = false,
+                        SafeFailureSummary = "That capability is not available here.",
+                        PlannerDisposition = ToolPlannerDisposition.Withheld,
+                    });
                     await _diagnostics.RecordToolCallAsync(new ToolCallRecord
                     {
                         Id = Guid.NewGuid(), UserId = userId, Tool = call.Tool,
@@ -163,7 +193,12 @@ public sealed class ToolLoop
                     continue;
 
                 await ExecuteAndRecordAsync(
-                    tool, call.Arguments, call.ArgumentsJson, userId, traces, resultBlocks, ct);
+                    tool, call.Arguments, call.ArgumentsJson, userId, traces, typedOutcomes,
+                    resultBlocks, traceId,
+                    // Planner-selected lookups are PROCESSING CONTEXT. The tool planner is an
+                    // untrusted model role; it may decide what to look up, never that Ava must
+                    // recite what came back.
+                    ToolPlannerDisposition.BackgroundOnly, "tool-planner", ct);
                 executed++;
                 executedThisRound++;
             }
@@ -174,13 +209,18 @@ public sealed class ToolLoop
         }
 
         var section = resultBlocks.Count == 0 ? null : Clip(string.Join("\n", resultBlocks), MaxSectionChars);
-        return new Outcome(advertised, traces, section, decisions, rounds);
+        return new Outcome(advertised, traces, section, decisions, rounds)
+        {
+            TypedOutcomes = typedOutcomes,
+        };
     }
 
     /// <summary>One mediated tool execution: timeout, trace, durable record, result block.</summary>
     private async Task ExecuteAndRecordAsync(
         ICompanionTool tool, JsonElement arguments, string argumentsJson, string userId,
-        List<ToolCallTrace> traces, List<string> resultBlocks, CancellationToken ct)
+        List<ToolCallTrace> traces, List<ToolExecutionOutcome> typedOutcomes,
+        List<string> resultBlocks, Guid traceId, ToolPlannerDisposition disposition,
+        string requestingIntent, CancellationToken ct)
     {
         var stopwatch = Stopwatch.StartNew();
         ToolResult result;
@@ -214,6 +254,27 @@ public sealed class ToolLoop
             Code = result.Code,
             DurationMs = stopwatch.ElapsedMilliseconds,
             ResultSummary = resultJson,
+        });
+        typedOutcomes.Add(new ToolExecutionOutcome
+        {
+            ToolCallId = Guid.NewGuid().ToString("n"),
+            Tool = tool.Name,
+            RequestingTraceId = traceId,
+            RequestingIntent = requestingIntent,
+            Requested = true,
+            Authorized = true,
+            Executed = true,
+            Status = result.Ok ? ToolExecutionStatus.Succeeded
+                : result.Code == "timeout" ? ToolExecutionStatus.TimedOut
+                : ToolExecutionStatus.Failed,
+            StructuredResult = result.Ok ? result.Data : null,
+            // Content-safe: the failure CODE and a fixed phrase, never provider text.
+            SafeFailureSummary = result.Ok ? null : $"The {tool.Name} lookup did not succeed ({result.Code}).",
+            // The tool layer discloses successful results; EXPRESSION is cognition's call,
+            // and the default disposition is background until a planner says otherwise.
+            DisclosurePermitted = result.Ok,
+            PlannerDisposition = disposition,
+            DurationMs = stopwatch.ElapsedMilliseconds,
         });
         resultBlocks.Add($"[{tool.Name}] {resultJson}");
 

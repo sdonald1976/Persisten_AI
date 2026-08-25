@@ -6,6 +6,7 @@ using System.Threading.Channels;
 using Companion.Core;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.PlanV3;
 using Companion.RendererBench;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -40,7 +41,12 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
     private const int QueueCapacity = 16;
 
     private readonly TimeSpan _drainWindow;
-    private readonly Channel<RendererShadowObservation> _queue;
+
+    /// <summary>Queue entries: a full shadow render, or a P3 v3-envelope-only recording
+    /// (used for canary turns whose plan2 row was written synchronously).</summary>
+    private readonly record struct QueueEntry(RendererShadowObservation Obs, bool V3Only);
+
+    private readonly Channel<QueueEntry> _queue;
     private readonly Task _consumer;
     private readonly CancellationTokenSource _stopping = new();
     private readonly IShadowRecorder _recorder;
@@ -56,6 +62,21 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
 
     private long _canaryDisplayed;
     private long _canaryFallback;
+
+    private long _v3Produced;
+    private long _v3Valid;
+    private long _v3Invalid;
+    private long _v3Compatible;
+    private long _v3Protected;
+    private long _v3Redacted;
+    private long _v3Failed;
+    private long _v3Dropped;
+    private long _v3PlanOnly;
+    private long _v3NativeBuilt;
+    private long _v3NativeBuildFailed;
+    private long _v3NativeLintRejects;
+    private long _v3NativeParityMatch;
+    private long _v3NativeParityDiffers;
 
     public RendererShadowService(
         IShadowRecorder recorder,
@@ -78,7 +99,7 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         _recorder = recorder;
         _options = options.Value.RendererShadow;
         _logger = logger;
-        _queue = Channel.CreateBounded<RendererShadowObservation>(new BoundedChannelOptions(QueueCapacity)
+        _queue = Channel.CreateBounded<QueueEntry>(new BoundedChannelOptions(QueueCapacity)
         {
             SingleReader = true,
             SingleWriter = false,
@@ -98,7 +119,22 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         Interlocked.Read(ref _dropped),
         _queue.Reader.Count,
         Interlocked.Read(ref _canaryDisplayed),
-        Interlocked.Read(ref _canaryFallback));
+        Interlocked.Read(ref _canaryFallback),
+        new RendererV3Counters(
+            Interlocked.Read(ref _v3Produced),
+            Interlocked.Read(ref _v3Valid),
+            Interlocked.Read(ref _v3Invalid),
+            Interlocked.Read(ref _v3Compatible),
+            Interlocked.Read(ref _v3Protected),
+            Interlocked.Read(ref _v3Redacted),
+            Interlocked.Read(ref _v3Failed),
+            Interlocked.Read(ref _v3Dropped),
+            Interlocked.Read(ref _v3NativeBuilt),
+            Interlocked.Read(ref _v3NativeBuildFailed),
+            Interlocked.Read(ref _v3NativeLintRejects),
+            Interlocked.Read(ref _v3NativeParityMatch),
+            Interlocked.Read(ref _v3NativeParityDiffers),
+            Interlocked.Read(ref _v3PlanOnly)));
 
     public bool IsCanaryFor(string userId)
         => _options.Enabled
@@ -149,9 +185,29 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
             var productionViolations = RendererShadowChecks.Score(obs.Plan, obs.ProductionResponse);
             await RecordComparisonAsync(obs, core, shadowViolations, productionViolations,
                 applied: critical ? "legacy" : "model", CancellationToken.None);
+
+            // P3: v3 envelope for canary turns rides the bounded queue — TryWrite only,
+            // so the displayed reply's latency is untouched; a full queue counts a drop.
+            if (!_queue.Writer.TryWrite(new QueueEntry(obs, V3Only: true)))
+                Interlocked.Increment(ref _v3Dropped);
         }
 
         return new RendererCanaryResult(core.Reply, shadowViolations, core.LatencyMs, critical);
+    }
+
+    /// <summary>
+    /// Source 2: structural evidence only. The renderer is never invoked, so no comparison
+    /// row and no renderer counter moves — only the V3 row is written.
+    /// </summary>
+    public void ObservePlanOnly(RendererShadowObservation observation)
+    {
+        if (!IsObserving)
+            return;
+
+        if (_queue.Writer.TryWrite(new QueueEntry(observation, V3Only: true)))
+            Interlocked.Increment(ref _v3PlanOnly);
+        else
+            Interlocked.Increment(ref _v3Dropped);
     }
 
     public void Observe(RendererShadowObservation observation)
@@ -159,7 +215,7 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         if (!IsObserving)
             return;
 
-        if (_queue.Writer.TryWrite(observation))
+        if (_queue.Writer.TryWrite(new QueueEntry(observation, V3Only: false)))
         {
             Interlocked.Increment(ref _queued);
         }
@@ -174,21 +230,38 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
 
     private async Task ConsumeAsync()
     {
-        await foreach (var observation in _queue.Reader.ReadAllAsync(CancellationToken.None))
+        await foreach (var entry in _queue.Reader.ReadAllAsync(CancellationToken.None))
         {
+            var observation = entry.Obs;
+            if (!entry.V3Only)
+            {
+                try
+                {
+                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+                    cts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(_options.TimeoutSeconds, 5, 300)));
+                    await RenderAndRecordAsync(observation, cts.Token);
+                    Interlocked.Increment(ref _completed);
+                }
+                catch (Exception ex)
+                {
+                    // A dead endpoint, a timeout, a serialization bug: a counted data point and a
+                    // log line. The whole point of a shadow is that being wrong here is cheap.
+                    Interlocked.Increment(ref _failed);
+                    _logger.LogDebug(ex, "Renderer shadow observation failed for {TraceId}.", observation.TraceId);
+                }
+            }
+
+            // P3: the V3 envelope row, recorded beside the plan2 row. Never model-facing,
+            // never latency-facing (this consumer is off the turn path), privacy-applied
+            // before anything persists.
             try
             {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
-                cts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(_options.TimeoutSeconds, 5, 300)));
-                await RenderAndRecordAsync(observation, cts.Token);
-                Interlocked.Increment(ref _completed);
+                await RecordV3RowAsync(observation, CancellationToken.None);
             }
             catch (Exception ex)
             {
-                // A dead endpoint, a timeout, a serialization bug: a counted data point and a
-                // log line. The whole point of a shadow is that being wrong here is cheap.
-                Interlocked.Increment(ref _failed);
-                _logger.LogDebug(ex, "Renderer shadow observation failed for {TraceId}.", observation.TraceId);
+                Interlocked.Increment(ref _v3Failed);
+                _logger.LogDebug(ex, "V3 shadow row failed for {TraceId}.", observation.TraceId);
             }
         }
     }
@@ -235,7 +308,7 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
 
     private async Task<RenderCore> RenderCoreAsync(RendererShadowObservation obs, CancellationToken ct)
     {
-        var plan2 = PlanSerialization.CompactV2(obs.Plan);
+        var plan2 = SerializeViaV3Hop(obs.Plan);
         var planHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(plan2)))
             .ToLowerInvariant();
         var userPrompt = PlanSerialization.BuildUserPrompt(
@@ -326,8 +399,117 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         }, ct);
     }
 
+    /// <summary>
+    /// P2 (docs/RESPONSE_PLAN_V3_SPEC.md §9): the plan takes the v3 producer hop —
+    /// FromV2 → guarded TranslateToV2 — before the frozen serializer. Byte-identity is
+    /// proven corpus-wide by golden tests (804/804); this guard makes the property
+    /// load-bearing at runtime too: any divergence or hop failure falls back to the
+    /// direct serialization, logged, so run-1c behavior cannot change. V3 stays
+    /// non-authoritative: its output is only ever the identical bytes.
+    /// </summary>
+    private string SerializeViaV3Hop(ResponsePlan plan)
+    {
+        var direct = PlanSerialization.CompactV2(plan);
+        try
+        {
+            var v3 = Companion.PlanV3.V2Translation.FromV2(plan);
+            var hop = PlanSerialization.CompactV2(Companion.PlanV3.V2Translation.TranslateToV2(v3));
+            if (string.Equals(hop, direct, StringComparison.Ordinal))
+                return hop;
+            _logger.LogWarning("V3 hop diverged from direct CompactV2 for {TraceId}; using direct.", plan.TraceId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "V3 hop failed for {TraceId}; using direct CompactV2.", plan.TraceId);
+        }
+        return direct;
+    }
+
+    /// <summary>
+    /// P3 (docs/RESPONSE_PLAN_V3_SPEC.md §14): records the translated_v2 V3 envelope
+    /// beside the plan2 row. CompactV3 is never sent to a model; protected text never
+    /// enters the row (the builder applies the complete disclosure/retention rules);
+    /// unknown extensions and invalid plans record names/reasons only.
+    /// </summary>
+    private async Task RecordV3RowAsync(RendererShadowObservation obs, CancellationToken ct)
+    {
+        if (!_recorder.IsRecording)
+            return;
+
+        Interlocked.Increment(ref _v3Produced);
+        var v3 = V2Translation.FromV2(obs.Plan);
+
+        byte[]? key = null;
+        if (!string.IsNullOrEmpty(_options.CorrelationKeyBase64))
+        {
+            try { key = Convert.FromBase64String(_options.CorrelationKeyBase64); }
+            catch (FormatException) { _logger.LogWarning("CorrelationKeyBase64 is not valid base64; tags disabled."); }
+        }
+
+        var userIds = v3.Participants
+            .Where(pt => pt.Role == ParticipantRole.user)
+            .Select(pt => pt.Id)
+            .ToList();
+        var trust = new RendererTrustContext(RendererTransport.local_loopback);
+        var envelope = V3ShadowEnvelopeBuilder.Build(
+            obs.Plan, v3, key, _options.CorrelationKeyVersion, userIds, trust);
+
+        // P4: the native_v3 sibling and its semantic parity, recorded in the same row.
+        envelope = V3ShadowEnvelopeBuilder.WithNative(
+            envelope, v3, obs.NativeV3, obs.NativeBuildError, obs.NativeLintRejections,
+            key, _options.CorrelationKeyVersion, userIds, trust);
+        if (obs.NativeV3 is not null)
+        {
+            Interlocked.Increment(ref _v3NativeBuilt);
+            if (envelope.Parity.All(pc => pc.Status is "match" or "incomparable-prose"))
+                Interlocked.Increment(ref _v3NativeParityMatch);
+            else
+                Interlocked.Increment(ref _v3NativeParityDiffers);
+        }
+        else
+        {
+            Interlocked.Increment(ref _v3NativeBuildFailed);
+        }
+        if (obs.NativeLintRejections.Count > 0)
+            Interlocked.Add(ref _v3NativeLintRejects, obs.NativeLintRejections.Count);
+
+        // P5/Source 2: the contribution-boundary diagnostics for whatever was folded into
+        // the native plan. Content-safe by construction — ids, decisions, reasons, counts.
+        if (obs.NativeAssembly is { } assembly)
+            envelope = V3ShadowEnvelopeBuilder.WithAssembly(envelope, assembly);
+
+        // plan/4 evidence: a transition token and a size. No plan/4 text is stored or sent.
+        if (obs.NativeFrameTransition is not null || obs.NativeCompactV4Chars is not null)
+            envelope = envelope with
+            {
+                FrameTransition = obs.NativeFrameTransition,
+                CompactV4Chars = obs.NativeCompactV4Chars,
+            };
+
+        Interlocked.Increment(ref envelope.Valid ? ref _v3Valid : ref _v3Invalid);
+        if (envelope.V2Compatible) Interlocked.Increment(ref _v3Compatible);
+        if (envelope.ContainsProtected) Interlocked.Increment(ref _v3Protected);
+        if (envelope.RedactedItemCount > 0) Interlocked.Increment(ref _v3Redacted);
+
+        await _recorder.RecordAsync(new ShadowComparison
+        {
+            Id = Guid.NewGuid(),
+            Subject = RendererV3Subject,
+            Legacy = null,
+            Model = null,
+            Confidence = 0,
+            Agreed = envelope.Valid,
+            Applied = "none",
+            DurationMs = 0,
+            Input = JsonSerializer.Serialize(envelope),
+        }, ct);
+    }
+
     /// <summary>Subject key for renderer rows; the forget path and the report tooling both key on it.</summary>
     public const string RendererShadowSubject = "renderer.plan2";
+
+    /// <summary>P3 v3-envelope rows; swept by the same renderer.* forget clause.</summary>
+    public const string RendererV3Subject = "renderer.plan3";
 }
 
 /// <summary>The structured half of a renderer shadow row, stored as JSON in the Input column.</summary>

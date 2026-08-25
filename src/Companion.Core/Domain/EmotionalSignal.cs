@@ -12,18 +12,50 @@ public sealed class EmotionalSignal
     public Guid Id { get; set; }
     public string UserId { get; set; } = default!;
 
-    /// <summary>The user message this reading was taken from (soft reference for explainability).</summary>
+    /// <summary>The user message this reading was taken from. Since Phase 0 this is an
+    /// EXACT forgetting handle, not merely an explainability hint: /forget matches on it
+    /// by identity and never by text.</summary>
     public Guid MessageId { get; set; }
+
+    /// <summary>
+    /// The durable identity of the evidence EVENT behind this reading, assigned at capture.
+    /// Exists so a signal can be forgotten by an exact handle even when no Message row backs
+    /// it (the same reason `UserPreferenceRecord.EvidenceEventId` exists). Never text.
+    /// </summary>
+    public Guid EvidenceEventId { get; set; }
+
+    /// <summary>What kind of thing <see cref="EvidenceEventId"/> identifies. "user-message"
+    /// is the only producer today.</summary>
+    public string EvidenceKind { get; set; } = "user-message";
+
+    /// <summary>
+    /// True once the evidence behind this reading was forgotten. What survives is a minimum
+    /// TOMBSTONE — identifiers, this flag, and operational timestamps — kept only for audit
+    /// and idempotency. Everything else goes: the user's words
+    /// (<see cref="Evidence"/>, <see cref="Topic"/>) and every semantic derivative of them
+    /// (<see cref="Sentiment"/>, <see cref="Valence"/>, <see cref="Label"/>). A tombstone
+    /// contributes to nothing: authority dies with its evidence, and so does the reading.
+    /// </summary>
+    public bool EvidenceForgotten { get; set; }
+
+    public DateTimeOffset? ForgottenAt { get; set; }
 
     public DateTimeOffset Timestamp { get; set; }
 
-    /// <summary>The coarse valence bucket.</summary>
-    public Sentiment Sentiment { get; set; }
+    /// <summary>
+    /// The coarse valence bucket. NULL on a forgotten row: a sentiment reading is a semantic
+    /// DERIVATIVE of the words that produced it, not neutral metadata, so it is purged with
+    /// them.
+    /// </summary>
+    public Sentiment? Sentiment { get; set; }
 
-    /// <summary>Signed intensity in [-1, 1]: negative = distressed, positive = upbeat, 0 = neutral.</summary>
-    public double Valence { get; set; }
+    /// <summary>Signed intensity in [-1, 1]. Null on a forgotten row, for the same reason as
+    /// <see cref="Sentiment"/>.</summary>
+    public double? Valence { get; set; }
 
-    /// <summary>Dominant emotion word, e.g. "stressed" or "excited"; null when only overall valence is known.</summary>
+    /// <summary>Dominant emotion word, e.g. "stressed" or "excited". Null when only overall
+    /// valence is known — and null on a forgotten row: a lexicon token is still a reading OF
+    /// something the user said.</summary>
     public string? Label { get; set; }
 
     /// <summary>The cue phrase that triggered the reading, kept so a reading can explain itself.</summary>

@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://persisten-ai/response-plan-v3.schema.json",
+  "title": "ResponsePlan v3 wire contract (revision 2)",
+  "description": "Wire casing: closed enums are snake_case; open-set strings are kebab-case; CompactV3 model-facing labels are kebab-case. Envelope/item field sets are FIXED within a major version (additionalProperties:false is accurate): ALL additive minor-version data enters through `extensions` (semantically preserved — canonical re-serialization, NOT raw bytes — never model-facing). Unknown values in any CLOSED enum invalidate the WHOLE plan and trigger a diagnosed fallback. Display names are labels; only participant ids and scheme-prefixed principal refs authorize.",
+  "type": "object",
+  "required": ["protocol", "minorVersion", "traceId", "participants", "act", "question", "items", "register"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol": { "const": "plan/3" },
+    "minorVersion": { "type": "integer", "minimum": 0 },
+    "traceId": { "type": "string", "format": "uuid" },
+    "participants": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "role", "display"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "STABLE authorization identifier; uniqueness app-validated" },
+          "role": { "enum": ["user", "companion", "other"] },
+          "display": { "type": "string", "description": "presentation label ONLY — never used for authorization" }
+        }
+      }
+    },
+    "act": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "question": {
+      "type": "object",
+      "required": ["policy"],
+      "additionalProperties": false,
+      "properties": {
+        "policy": { "enum": ["ask_required", "may_ask", "question_forbidden"],
+          "description": "the SOLE authority over question prohibition (no item-level duplicate exists)" },
+        "itemId": { "type": "string" }
+      },
+      "allOf": [
+        { "if": { "properties": { "policy": { "const": "ask_required" } } },
+          "then": { "required": ["itemId"] } },
+        { "if": { "properties": { "policy": { "const": "question_forbidden" } } },
+          "then": { "not": { "required": ["itemId"] } } }
+      ]
+    },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/planItem" } },
+    "register": { "$ref": "#/$defs/register" },
+    "registerRestrictions": {
+      "type": "array",
+      "description": "Every restrictive register value must be owned here. dimension is CLOSED (the nine register dimensions) and value must be legal for it (app-validated). reasonCode families: user-preference.*, privacy-audience.*, tool-authorization.*, epistemic-integrity.*, hosting-config.*. user-preference.* and hosting-config.* REQUIRE provenance.evidenceRef — authority cannot merely be claimed.",
+      "items": {
+        "type": "object",
+        "required": ["dimension", "value", "owner", "reasonCode"],
+        "additionalProperties": false,
+        "properties": {
+          "dimension": { "enum": ["warmth", "bluntness", "playfulness", "teasing", "skepticism",
+                                   "intensity", "verbosity", "profanity", "mirror"] },
+          "value": { "type": "string" },
+          "owner": { "type": "string" },
+          "reasonCode": { "$ref": "#/$defs/reasonCode" },
+          "provenance": { "$ref": "#/$defs/provenance" }
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxItems": { "type": "integer", "minimum": 1 },
+        "dropOrder": {
+          "type": "array",
+          "items": { "enum": ["background_only", "may_express", "style_detail"] },
+          "description": "CLOSED; obligations are absent by construction. A budget below the undroppable obligations is a DIAGNOSED invalid plan, never a license to drop."
+        }
+      }
+    },
+    "extensions": { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "reasonCode": {
+      "type": "string",
+      "pattern": "^(user-preference|privacy-audience|tool-authorization|epistemic-integrity|hosting-config)\\.[a-z0-9-]+$"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin": { "type": "string" },
+        "at": { "type": "string", "format": "date-time" },
+        "evidenceRef": { "type": "string" }
+      }
+    },
+    "planItem": {
+      "type": "object",
+      "required": ["id", "type", "policy", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+        "type": { "type": "string", "description": "OPEN semantic type — diagnostics/attribution only, NEVER model-facing", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "category": {
+          "enum": ["claim", "memory", "shared_memory", "knowledge", "correction", "agreement",
+                   "teaching", "answer", "clarify", "curiosity", "boundary", "superseded",
+                   "state", "observation", "note"],
+          "description": "CLOSED model-facing label (rendered kebab-case in CompactV3); absent = derived from policy"
+        },
+        "policy": {
+          "enum": ["must_express", "may_express", "background_only", "must_not_express",
+                   "admit_unknown", "ask_required"],
+          "description": "CLOSED, SIX values — question prohibition lives in question.policy and style in register, with no item-level duplicates. Unknown value ⇒ WHOLE plan invalid."
+        },
+        "text": { "type": "string" },
+        "quoted": { "type": "boolean", "default": false },
+        "value": { "description": "structured value when text is lossy" },
+        "source": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "classification": { "enum": ["public", "personal", "private", "intimate"], "default": "personal" },
+        "disclosure": { "enum": ["unrestricted", "participants", "restricted"], "default": "participants",
+          "description": "restricted REQUIRES an explicit audience (app-validated)" },
+        "owner": { "type": "string",
+          "description": "whose information this is: an in-plan participant id or a scheme-prefixed principal ref (principal:…). Information about a third party is not owned by its supplier." },
+        "audience": { "type": "array", "items": { "type": "string" },
+          "description": "authorized audience: in-plan participant ids or scheme-prefixed principal refs; display names never authorize" },
+        "retention": { "enum": ["full", "no_training", "no_telemetry_text", "volatile_turn_only"], "default": "full",
+          "description": "independent of expression; see spec §2.6 for the volatile_turn_only surface matrix" },
+        "reasonCode": { "$ref": "#/$defs/reasonCode" },
+        "validity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "from": { "type": "string", "format": "date-time" },
+            "until": { "type": "string", "format": "date-time" }
+          }
+        },
+        "supersedes": { "type": "array", "items": { "type": "string" } },
+        "supersededBy": { "type": "string" },
+        "priority": { "type": "integer" },
+        "checkTokens": { "type": "array", "items": { "type": "string" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "policy": { "const": "must_not_express" } } },
+          "then": { "required": ["reasonCode"] } },
+        { "if": { "properties": { "disclosure": { "const": "restricted" } } },
+          "then": { "required": ["audience"] } }
+      ]
+    },
+    "register": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "warmth": { "enum": ["cold", "cool", "plain", "warm", "tender"] },
+        "bluntness": { "enum": ["soft", "plain", "blunt"] },
+        "playfulness": { "enum": ["off", "light", "full"] },
+        "teasing": { "enum": ["off", "allowed", "invited"] },
+        "skepticism": { "enum": ["off", "open", "on"] },
+        "intensity": { "enum": ["flat", "even", "raised"] },
+        "verbosity": { "enum": ["terse", "short", "conversational", "expansive"] },
+        "profanity": { "enum": ["unrestricted", "mirror-only", "encouraged", "neutral", "avoid", "forbidden"] },
+        "mirror": { "type": "boolean" },
+        "legacyStyle": { "type": "string",
+          "description": "MIGRATION METADATA ONLY: v2 tone prose for lossless round-trips; never enters CompactV3 (tested)" }
+      }
+    }
+  }
+}
