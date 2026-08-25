@@ -1,217 +1,235 @@
 # Source 5 — inspection: world, vision, embodiment
 
 Read-only audit, 2026-08-25. No contributor was built, nothing was changed.
-Reported separately per source, because two of the three do not exist as
-subsystems and a combined verdict would hide that.
+Revised the same day after review: **these are observation sources, not register
+sources.** The first draft asked which register dimension a place implies. That
+was the wrong question and the answer it produced ("none, therefore stop") was
+the wrong conclusion for the wrong reason. A perception source contributes
+*typed observations* at `background_only`, with expression reachable only
+through a recorded planner promotion. It has no business touching register at
+all, so having no register mapping is the expected shape, not a defect.
 
-**Verdicts up front.**
+Reported separately per source, because they are in three genuinely different
+states.
 
-| source | subsystem exists | typed state | reaches prompt/plan | verdict |
-|---|---|---|---|---|
-| world | **yes** | yes, transient | **no** | **STOP — no honest register mapping** |
-| vision | adapter only | none | no | **STOP — nothing to integrate** |
-| embodiment | **no** | none | no | **STOP — the source does not exist** |
+| source | classification | verdict |
+|---|---|---|
+| world | observation source | **implementable — blocked on ownership** |
+| vision | observation source | **blocked — no caller, no typed producer** |
+| embodiment | — | **absent — not integration work at all** |
 
-A note on authority shape before the detail: unlike Source 4, these three
-**do** hold item grants in the registry — `observation` at `background_only`,
-`observation` at `may_express` with planner promotion (world and vision), and
-`state` at `background_only` (world and embodiment). So they are not
-votes-only sources; they can place content in a plan. That raises the bar on
-what counts as a real typed signal, and none of the three currently clears it.
+**Authority shape, for all three.** The registry gives them
+`observation → background_only`, `observation → may_express` (promotable, world
+and vision), and `state → background_only` (world and embodiment). So an
+observation contributor could place a background fact in a plan, and could reach
+expression **only** when a planner promotes it — which the assembler records.
+None of them holds restriction authority or `MayProposeRegisterRestrictions`, so
+none can create a restriction, a mandatory claim, consent, a preference, or
+epistemic authority. None appears in the §5.4 register precedence list, which is
+consistent with their not being register sources.
 
 ---
 
 # Source 5a — World
 
-**Verdict: STOP.** Not for want of a subsystem — this one is real, careful, and
-better designed than most of what Source 4 inspected. It stops because *no
-honest register or item mapping exists*, and inventing one would be exactly the
-move the whole V3 design exists to prevent.
+**Verdict: implementable as typed `background_only` observations with
+planner-controlled promotion — and blocked until ownership is fixed. No world
+contribution may ship before that.**
 
-**1. Typed state vs prose.** Genuinely typed records:
-`WorldPlace(Id, Name, Description)`, `WorldConcern(ThingId, PlaceId, Name,
-Condition, Text)`, `WorldPerception(At, Kind, Body, Place, Text)`, plus
-`Connected`, `Configured`, `CurrentPlace`.
+## The read surfaces, as they actually are
 
-But every one of them carries a `Text` or `Description` field that is **the
-world's own prose**, written by an external system. `WorldConcern.Text` is
-explicitly documented as "the world's own words for it". `Kind` is an open set
-in "the source's own vocabulary" — `arrived`, `presence`, `refusal` today, and
-nothing constrains tomorrow's.
+`WebSocketWorldLink` exposes exactly five things, and the shape of each matters:
 
-**2. Ownership.** The **world's** — neither Ava's nor the user's. The design
-states its central rule outright: *the companion may hold a connection, but
-never a model.* There is no place table, no occupancy, no layout.
+| surface | type | how it updates |
+|---|---|---|
+| `Places` | `volatile IReadOnlyList<WorldPlace>` | **replaced wholesale** on each world snapshot |
+| `Concerns` | `volatile IReadOnlyList<WorldConcern>` | replaced wholesale, derived from `things[].needsAttention` |
+| `CurrentPlace` | `string?` | set from the snapshot's `place` field |
+| `Connected` | `bool` | socket open **and** `Places.Count > 0` |
+| `Perceived` | `event Action<WorldPerception>` | raised per world message |
 
-**3. Lifetime.** `Places`, `Concerns` and `CurrentPlace` are **transient and
-connection-scoped**, empty when disconnected — deliberately, because "a
-remembered menu is the first step toward keeping a model of somewhere else."
-Unplug the world and the database contains nothing referring to it.
+`WorldPlace(Id, Name, Description)` and
+`WorldConcern(ThingId, PlaceId, Name, Condition, Text)` carry the world's own
+identifiers — genuinely stable *within a connection* — alongside the world's own
+prose in `Description` and `Text`. `WorldPerception(At, Kind, Body, Place, Text)`
+is the only surface with a timestamp, and its `Kind` is an open set in "the
+source's own vocabulary".
 
-The one durable residue is `Experience` rows written from `WorldPerception`:
-timestamped sentences about her own life, pruned at 30 days by `SleepCycle`.
-Privacy stakes are low here — an `Experience` is about Ava, not the user, and
-the type documents that nothing in it reaches the fact store.
+**Nothing carries a user.** Not one of these five surfaces mentions who the
+observation belongs to. `WorldWorker` stamps `IUserContext.UserId` when it writes
+an `Experience`, and that is the *only* place ownership is applied.
 
-**4. Identity / provenance / confidence / expiry / correction.**
-- Identity: `PlaceId` / `ThingId` are stable within a connection, but they are
-  the *world's* identifiers. Nothing on Ava's side resolves them, and after a
-  disconnect they resolve to nothing at all.
-- Provenance: `Experience.Source = "world"` and a timestamp. No event id, no
-  link back to the perception that caused it.
-- Confidence: **none.**
-- Expiry / validity: none on the perception; the 30-day `Experience` prune is
-  the only lifecycle.
-- Correction: **none.**
+## The six questions
 
-**5. Production use.** World state **never reaches the prompt or the
-ResponsePlan.** `ContextPacket` has no world, place, or perception field at all
-— verified. Its two real effects are: driving `RoamingPolicy` (where she goes),
-and writing `Experience` rows that `Reflector` may read into an inner monologue.
-So today the world affects *what she does*, and reaches speech only through
-model-generated reflection prose — never as typed state.
+1. **Typed state vs prose.** Real typed records with world-assigned ids —
+   better than most of what Source 4 inspected. Every one also carries a prose
+   field written by an external system, which must be treated as quoted data if
+   it ever travels, exactly as tool results are in Source 2.
+2. **Ownership.** The *world's*. The design rule is stated in the interface:
+   *the companion may hold a connection, but never a model.*
+3. **Lifetime.** Transient and connection-scoped — `Places`, `Concerns` and
+   `CurrentPlace` are emptied on disconnect deliberately, "because a remembered
+   menu is the first step toward keeping a model of somewhere else." The only
+   durable residue is `Experience` rows written from perceptions, pruned at 30
+   days by `SleepCycle`.
+4. **Identity / provenance / confidence / expiry / correction.** Identity is the
+   world's and resolves to nothing after a disconnect. Provenance is
+   `Source = "world"` plus a timestamp — no snapshot id, no link back to the
+   perception that produced an `Experience`. **No confidence. No explicit
+   validity or expiry** (the wholesale replacement is an implicit one). No
+   correction path.
+5. **Production use.** World state reaches neither the prompt nor the
+   ResponsePlan — `ContextPacket` has no world, place or perception field,
+   verified. Its two real effects are driving `RoamingPolicy`, and writing
+   `Experience` rows that `Reflector` may read into an inner monologue. So today
+   the world affects *what she does*, and reaches speech only via
+   model-generated reflection prose.
+6. **Isolation.** **This is the blocker.** `IWorldLink` is registered as a
+   process-wide **singleton**; `WorldOptions` configures exactly one world URL;
+   `WorldWorker` is a single hosted service attributing every perception to the
+   ambient `IUserContext.UserId`, which is a `FixedUserContext` today. There is
+   no per-user or per-conversation partition anywhere in the path. A second user
+   would silently inherit the first user's world, and a world observation
+   entering a plan would be a cross-user leak by construction.
 
-**6. Isolation.** `IWorldLink` is a process-wide **singleton**, and `WorldWorker`
-attributes every perception to the ambient `IUserContext.UserId`, which is a
-`FixedUserContext` for the single-user deployment. **There is no multi-user
-isolation here at all** — a second user would silently inherit the first user's
-world. This is fine for the current single-user deployment and a real blocker
-for anything else; it is stated now rather than discovered later.
+## Blocker 1 — ownership, which must be solved first
 
-**7. Why it stops.** Ask the honest question — *which register dimension does a
-place imply?* — and there is no answer. "She is in the greenhouse" says nothing
-about warmth, bluntness, verbosity, playfulness or intensity. Neither does
-`Connected`. Neither does a concern: the design deliberately keeps concerns
-*above* the policy seam ("a need is not a preference"), and the recorded reason
-is a real incident — feeding concerns in as ordinary preoccupations let a stove
-go cold while she read in the study.
+No world contribution ships until an observation can name whose it is. The
+smallest change that achieves it:
 
-The available *item* path is worse rather than better: an observation item's
-content would be `WorldPerception.Text`, i.e. an external system's prose
-entering the plan. That is possible to do safely — Source 2 does exactly this
-with tool results, quoted as data — but it needs the same apparatus tools got:
-typed capture at the boundary, an evidence id, disclosure and retention, and a
-planner disposition. None of that exists for world today.
+- **Bind a world to a subject.** Either a per-user link registry
+  (`IWorldLinkRegistry.For(userId)`) or an explicit `WorldOptions.OwnerUserId`
+  making the single-world deployment's ownership declared rather than ambient.
+- **Remove `IUserContext` from `WorldWorker`.** Perceptions must carry their
+  owner from the link that produced them, not from whoever the process happens
+  to think is logged in.
+- **Conversation scope is a separate decision.** A world observation is not
+  obviously per-conversation — she is in one place regardless of which
+  conversation is open — so `ConversationId` should be *nullable and recorded*,
+  not invented. Where it is null, the observation is user-scoped and must be
+  excluded from any conversation-scoped disclosure check rather than defaulted
+  into one.
 
-**Smallest missing layer, if this is ever wanted:** a typed
-`WorldObservation` captured at the perception boundary with a durable
-`EvidenceEventId`, a closed `Kind` set (or an explicit "unknown kind
-contributes nothing" rule), and a planner disposition — the Source 2 shape,
-applied to perception. That is a producer layer, not a contributor, and it
-should not be built until there is a concrete use for it. **Voting nothing is
-the correct current state, not a gap.**
+## The proposed typed snapshot
+
+`WorldObservation` — captured at the link boundary, before anything is prose:
+
+| field | purpose |
+|---|---|
+| `ObservationId` (Guid) | stable identity; what a contribution cites as `evidenceRef` |
+| `UserId` | ownership — **required**, from the link, never ambient |
+| `ConversationId` (Guid?) | recorded when one applies; never invented |
+| `Subject` (typed ref) | `place:{id}` / `thing:{id}` / `body:{id}` — the world's id, namespaced so it cannot collide with anything of ours |
+| `Kind` (closed set) | `location`, `arrival`, `presence`, `departure`. **An unrecognised kind contributes nothing** — the world's vocabulary is open, so ours must not be |
+| `Value` (closed-set token) | the observation's typed value; never the world's prose |
+| `Confidence` (double) | asserted-by-world = high; degraded as the snapshot ages |
+| `ObservedAt` | from `WorldPerception.At`, or snapshot receipt time |
+| `ValidUntil` | snapshot TTL. **On disconnect every observation expires immediately** — which is already the link's behaviour, made explicit rather than implicit |
+| `Provenance` | world endpoint identity + snapshot sequence, so an observation resolves to the message that produced it |
+| `Text` (optional) | the world's own prose, carried as **quoted data** only, never as authority |
+
+**Contribution rules, if it is ever built:**
+
+- `background_only` by default; expression only through a recorded planner
+  promotion, exactly as the registry already permits and no further.
+- **Expired, ambiguous, cross-user or low-confidence observations contribute
+  nothing** — silence, not a hedged observation.
+- Never a register vote. Never a mandatory claim. Never speech on its own
+  authority.
+
+## Blocker 2 — concerns stay above the policy seam
+
+`WorldConcern` must **not** become an ordinary background observation, and the
+proposed snapshot deliberately has no place for it. The reason is recorded in
+`RoamingObservation`'s own documentation and it is a real incident: feeding
+concerns in as ordinary preoccupations scored a stove going cold at 0.5 against
+the study's 0.4 — a gap under the move threshold — so she sat and read while the
+fire went out. *A need is not a preference.* Code decides that something needing
+doing outranks where she would like to be; models judge only the latter.
+
+If concerns are ever wanted in a plan, they need their own typed channel with
+that precedence intact, not a demotion into the observation stream.
 
 ---
 
 # Source 5b — Vision
 
-**Verdict: STOP. There is no vision subsystem to integrate — only an unused
-model adapter.**
+**Verdict: blocked. No caller, no typed producer.**
 
-**1. Typed state vs prose.** The entire surface is:
+The entire surface is
+`Task<string> DescribeAsync(string prompt, IReadOnlyList<ImageInput> images, ct)`
+— bytes in, **model-generated prose out**. No domain type, no record, no
+persistence, no identity, provenance, confidence, timestamp, or expiry.
 
-```csharp
-Task<string> DescribeAsync(string prompt, IReadOnlyList<ImageInput> images, ct);
-```
+`IVisionModel` is registered only when a vision endpoint is configured, and
+**nothing in `src/` or `tests/` calls `DescribeAsync`** — verified. No endpoint
+accepts an image; nothing constructs an `ImageInput`. The capability is
+advertised by `/capabilities` and is unreachable.
 
-Input is bytes plus a media type. Output is **a string of model-generated
-prose**. There is no domain type, no observation record, no structured result —
-nothing typed anywhere in it.
+**`DescribeAsync` prose must not be parsed**, and no contributor is specified
+here. What is specified is only the minimum future boundary, so that whoever
+builds the producer knows the shape it has to land in:
 
-**2. Ownership.** Would be Ava's perception, if it ran.
+`VisualObservation` — captured where an image is *ingested*, not where prose is
+returned:
 
-**3. Lifetime.** No persistence of any kind. Nothing is stored.
+| field | purpose |
+|---|---|
+| `ObservationId` | stable identity |
+| `UserId`, `ConversationId?` | ownership, from the ingestion path |
+| `SourceImageRef` | identity of the image, so the observation resolves to it |
+| `Kind` (closed set) | what sort of visual claim this is; unrecognised → nothing |
+| `Value` (closed-set token) | the typed assertion; never the description text |
+| `Confidence` | the model's, if it reports one; absent means the observation cannot be promoted |
+| `ObservedAt`, `ValidUntil` | an image describes a moment, so validity is bounded |
+| `Provenance` | model identity and version |
+| `Text` | the description, quoted data only, never parsed into any of the above |
 
-**4. Identity / provenance / confidence / expiry / correction.** **None of the
-six.** There is no record to carry them.
-
-**5. Production use. None.** `IVisionModel` is registered only when a vision
-endpoint is configured, and **nothing in the codebase calls `DescribeAsync`** —
-verified across `src/` and `tests/`. There is no image ingestion path: no
-endpoint accepts an image, no turn constructs an `ImageInput`. The capability
-is advertised (`/capabilities` reports the configured vision model) but is
-unreachable.
-
-**6. Isolation.** Not applicable — nothing runs.
-
-**7. Why it stops.** A vision contributor would have exactly one possible
-input: a prose paragraph a model wrote about a picture. Turning that into
-register votes or plan items means parsing model prose into structure, which is
-the banned move, stated in the builder's own comment. And it would be a
-contributor with no producer — the same shape as an `EvidenceRef` field with
-nothing to reference, which the Source 3 stop already established as
-unacceptable.
-
-**Smallest missing layer:** an image ingestion path first (an endpoint, a
-message attachment, *something* that produces `ImageInput`), then a typed
-`VisualObservation` with an evidence id and a confidence, and only then a
-contributor. That is a feature, not an integration, and it is out of scope here.
+The ordering matters: **image ingestion first, then a typed producer, then a
+contributor.** A contributor built before the producer would be an
+`evidenceRef` with nothing to reference — the shape Source 3 already stopped on.
 
 ---
 
 # Source 5c — Embodiment
 
-**Verdict: STOP. The source does not exist.**
+**Verdict: absent. This is not blocked integration work; there is nothing to
+integrate.**
 
-Every occurrence of "embodiment" in the entire source tree:
+Every occurrence of "embodiment" in the source tree:
 
 - `Contributors.cs` — the `Cap("embodiment", …)` registry entry and its two
   grant descriptions;
 - `V3ShadowEnvelope.cs` — the string `"embodiment"` in a list of perception
-  source names used to count contributions.
+  source names used for counting.
 
-That is all of it. There is no domain type, no interface, no store, no service,
-no producer, no consumer, no configuration, and no test. The capability entry
-describes authority for a subsystem that was never built.
+No domain type, no interface, no store, no service, no producer, no consumer, no
+configuration, no test.
 
-Nothing can be inspected against the six questions, because there is nothing to
-inspect: no typed state, no owner, no lifetime, no identity, no production use,
-no isolation story.
+**No contributor is defined here, and none should be.** Writing one against an
+empty registry entry would be fiction: a component with no input, tested against
+fabricated data, claiming an integration that does not exist.
 
-**Recommendation:** leave the capability entry in place — it is harmless, it
-costs nothing, and pre-registering authority for a planned organ is the pattern
-the contribution boundary was designed around. But **it should not be mistaken
-for a subsystem awaiting integration.** If embodiment is ever wanted, it starts
-with deciding what signal it produces, not with writing a contributor against
-an empty registry entry.
+**The capability stays dormant.** Leaving it registered is correct —
+pre-declaring authority for a planned organ is the pattern the contribution
+boundary was designed around, and a dormant entry grants nothing to nobody. It
+should simply not be mistaken for a subsystem awaiting connection. If embodiment
+is ever wanted, it starts with deciding what signal it produces.
 
 ---
 
-# Cross-cutting
-
-**No prose parsing, and none proposed.** All three sources' only substantial
-content is prose — the world's, a vision model's, or nothing. Every proposal
-above sources from a typed boundary that would have to be *built*, never from
-parsing the prose that exists.
-
-**No regex inference proposed anywhere.**
-
-**The registry is already correct and already stricter than the producers.**
-World, vision and embodiment hold item grants capped at `background_only`, with
-`may_express` reachable only through a recorded planner promotion, and none of
-them holds restriction authority or `MayProposeRegisterRestrictions`. So even
-if a contributor existed, it could not create a restriction, a mandatory claim,
-consent, a preference, or epistemic authority. §5.4 does not rank any of these
-three families at all, which means their votes would fall to `int.MaxValue`
-precedence — last, behind everything. That is the right default and worth
-knowing before anyone adds one.
-
-**Isolation is the one live risk.** The world link is a process-wide singleton
-bound to a single ambient user. Nothing else in this inspection is exposed to
-multi-user concerns because nothing else runs.
-
 # Recommendation
 
-1. **World** — no contributor. Its typed state is real but has no honest
-   register mapping, and its item path needs a Source-2-shaped producer layer
-   that should wait for a concrete use.
-2. **Vision** — no contributor. Build an image ingestion path and a typed
-   observation first; a contributor over model prose would be the banned move.
-3. **Embodiment** — no contributor. There is nothing there.
+1. **World** — implementable, and blocked on ownership. Fix the process-wide
+   ambient-user singleton first; then build `WorldObservation` at the link
+   boundary; then a contributor at `background_only` with planner-controlled
+   promotion. Concerns stay above the policy seam throughout.
+2. **Vision** — blocked. Build image ingestion and a typed producer before any
+   contributor. Do not parse `DescribeAsync` prose.
+3. **Embodiment** — dormant. Define nothing.
 
-Source 5 therefore has **no implementable phase today**. That is a finding, not
-a delay: three sources were audited, and the honest result is that the ones with
-authority entries do not yet have producers worth connecting them to.
+Source 5 therefore has **no implementable phase today**, with world being a
+genuine candidate the moment ownership is resolved.
 
 Nothing in this inspection changed any code. V2, Run-1c, routing and displayed
 output are untouched.
