@@ -103,7 +103,6 @@ public class FrameIsolationTests
             Subject = subject,
             StatedAt = Now,
             EvidenceMessageId = evidenceMessageId,
-            EvidenceStatement = "no third-person narration in this scene",
         };
 
     [Fact]
@@ -116,8 +115,9 @@ public class FrameIsolationTests
 
         Assert.Equal(FrameBoundaryStatus.FrameEnded, mine.Status);
         Assert.Equal(Now, mine.DeactivatedAt);
-        // The audit evidence survives: "she ignored my boundary" stays answerable.
-        Assert.Equal("no third-person narration in this scene", mine.EvidenceStatement);
+        // The audit evidence survives: "she ignored my boundary" stays answerable, because
+        // the structured subject and the evidence identity both outlive the scene.
+        Assert.Equal("no third-person narration", mine.Subject);
         Assert.Equal(FrameBoundaryStatus.Active, other.Status);
     }
 
@@ -132,7 +132,7 @@ public class FrameIsolationTests
     }
 
     [Fact]
-    public void ForgettingEvidence_InvalidatesByExactIdentityAndPurgesTheStatement()
+    public void ForgettingEvidence_InvalidatesByExactIdentity()
     {
         var forgotten = Guid.NewGuid();
         var mine = Boundary("scene-1", forgotten);
@@ -142,9 +142,9 @@ public class FrameIsolationTests
         Assert.Equal(1, FrameIsolation.ForgetByEvidence([mine, kept], [forgotten], Now));
 
         Assert.Equal(FrameBoundaryStatus.EvidenceForgotten, mine.Status);
-        Assert.Null(mine.EvidenceStatement);
         Assert.Equal(FrameBoundaryStatus.Active, kept.Status);
-        Assert.Equal("no third-person narration in this scene", kept.EvidenceStatement);
+        // The neighbour keeps its own evidence: forgetting is per-event, not per-scene.
+        Assert.NotNull(kept.EvidenceMessageId);
     }
 
     [Fact]

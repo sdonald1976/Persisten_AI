@@ -20,6 +20,7 @@ public sealed class MemoryCurator : IMemoryCurator
     private readonly IEmotionStore? _emotions;
     private readonly ICompanionMoodLog? _moodLog;
     private readonly ICompanionStateTracker? _innerState;
+    private readonly IFrameSessionStore? _frames;
 
     public MemoryCurator(
         IMemoryStore memories,
@@ -30,7 +31,8 @@ public sealed class MemoryCurator : IMemoryCurator
         IUserPreferenceStore? userPreferences = null,
         IEmotionStore? emotions = null,
         ICompanionMoodLog? moodLog = null,
-        ICompanionStateTracker? innerState = null)
+        ICompanionStateTracker? innerState = null,
+        IFrameSessionStore? frames = null)
     {
         _memories = memories;
         _embeddings = embeddings;
@@ -44,6 +46,7 @@ public sealed class MemoryCurator : IMemoryCurator
         _emotions = emotions;
         _moodLog = moodLog;
         _innerState = innerState;
+        _frames = frames;
     }
 
     public async Task SupersedeSemanticAsync(
@@ -208,6 +211,20 @@ public sealed class MemoryCurator : IMemoryCurator
                         + "baseline at version {Version}; replay before it is unavailable by design.",
                         memoryId, compaction.RowsRemoved, compaction.BaselineVersion);
             }
+        }
+
+        // R-01: and the frame record. A frame transition names the turn that caused it, and
+        // a scene-scoped boundary names the turn that stated it. Both are exact message ids,
+        // so both are severable by the same identity rule the rest of this method uses — and
+        // both were unreachable from here until now, which meant /forget was quietly partial.
+        if (forgotten && _frames is not null && evidenceMessageIds.Count > 0)
+        {
+            var severed = await _frames.ForgetByEvidenceAsync(
+                userId, evidenceMessageIds, _clock.GetUtcNow(), ct);
+            if (severed > 0)
+                _logger.LogInformation(
+                    "Forgetting {MemoryId} also severed {Count} frame evidence link(s).",
+                    memoryId, severed);
         }
 
         return forgotten;

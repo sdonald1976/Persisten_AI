@@ -171,7 +171,6 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.SceneRef).HasMaxLength(64);
             e.Property(x => x.Subject).HasMaxLength(200);
             e.Property(x => x.EvidenceKind).HasMaxLength(30);
-            e.Property(x => x.EvidenceStatement).HasMaxLength(500);
             e.HasIndex(x => new { x.UserId, x.ConversationId, x.SceneRef, x.Status });
         });
 

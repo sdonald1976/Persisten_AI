@@ -78,7 +78,7 @@ internal sealed class FrameSessionStore(IServiceScopeFactory scopes) : IFrameSes
                 AppliedKeysJson = JsonSerializer.Serialize(new[] { idempotencyKey }),
                 TransitionLogJson = JsonSerializer.Serialize(new[]
                 {
-                    new FrameTransitionEntry("enter", request.At, request.Cause, Clip(request.Evidence)),
+                    new FrameTransitionEntry("enter", request.At, request.Cause, request.EvidenceMessageId),
                 }),
             };
             db.FrameSessions.Add(entered);
@@ -171,6 +171,26 @@ internal sealed class FrameSessionStore(IServiceScopeFactory scopes) : IFrameSes
             .ToListAsync(ct);
 
         var count = FrameIsolation.ForgetByEvidence(doomed, messageIds, now);
+
+        // And the transition logs. A boundary is not the only place a message id is
+        // recorded: every enter/continue/switch/exit entry names the turn that caused it,
+        // and a severed link has to be severed everywhere or /forget is only partly true.
+        // User-scoped by the query, so one user's forgetting can never touch another's.
+        var sessions = await db.FrameSessions
+            .Where(s => s.UserId == userId)
+            .ToListAsync(ct);
+        foreach (var session in sessions)
+        {
+            var log = JsonSerializer.Deserialize<List<FrameTransitionEntry>>(
+                session.TransitionLogJson) ?? [];
+            var severed = FrameIsolation.SeverTransitionEvidence(log, ids);
+            if (severed == 0)
+                continue;
+
+            session.TransitionLogJson = JsonSerializer.Serialize(log);
+            count += severed;
+        }
+
         if (count > 0)
             await db.SaveChangesAsync(ct);
         return count;
@@ -203,7 +223,7 @@ internal sealed class FrameSessionStore(IServiceScopeFactory scopes) : IFrameSes
     {
         var log = JsonSerializer.Deserialize<List<FrameTransitionEntry>>(session.TransitionLogJson) ?? [];
         log.Add(new FrameTransitionEntry(
-            request.Transition, request.At, request.Cause, Clip(request.Evidence)));
+            request.Transition, request.At, request.Cause, request.EvidenceMessageId));
         session.TransitionLogJson = JsonSerializer.Serialize(log);
 
         var keys = Keys(session);
@@ -230,10 +250,6 @@ internal sealed class FrameSessionStore(IServiceScopeFactory scopes) : IFrameSes
 
     private static List<string> Keys(FrameSession session)
         => JsonSerializer.Deserialize<List<string>>(session.AppliedKeysJson) ?? [];
-
-    /// <summary>Evidence is bounded: a transition log is not a second transcript.</summary>
-    private static string? Clip(string? evidence)
-        => evidence is null ? null : evidence.Length <= 200 ? evidence : evidence[..200];
 
     private static async Task SaveAsync(
         CompanionDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx,

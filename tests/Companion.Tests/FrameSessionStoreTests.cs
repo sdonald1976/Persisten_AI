@@ -46,7 +46,6 @@ public class FrameSessionStoreTests
             Subject = subject,
             StatedAt = Now,
             EvidenceMessageId = evidenceMessageId,
-            EvidenceStatement = "no third-person narration in this scene",
         };
 
     // ---- lifecycle ------------------------------------------------------------------------
@@ -84,16 +83,18 @@ public class FrameSessionStoreTests
     }
 
     [Fact]
-    public async Task TheTransitionLog_RecordsEveryStepWithItsEvidence()
+    public async Task TheTransitionLog_RecordsEveryStepWithTheEventThatCausedIt()
     {
         await using var host = new TestHost(Now);
         var store = host.Services.GetRequiredService<IFrameSessionStore>();
         var conv = Guid.NewGuid();
 
-        await store.ApplyAsync(Request("enter", conv) with { Evidence = "let's roleplay" }, "t1");
+        var enterMsg = Guid.NewGuid();
+        var exitMsg = Guid.NewGuid();
+        await store.ApplyAsync(Request("enter", conv) with { EvidenceMessageId = enterMsg }, "t1");
         await store.ApplyAsync(Request("continue", conv), "t2");
         var final = await store.ApplyAsync(
-            Request("exit", conv, cause: "explicit-exit") with { Evidence = "ok, stop" }, "t3");
+            Request("exit", conv, cause: "explicit-exit") with { EvidenceMessageId = exitMsg }, "t3");
 
         var log = JsonSerializer.Deserialize<List<FrameTransitionEntry>>(
             final.Session!.TransitionLogJson)!;
@@ -101,8 +102,8 @@ public class FrameSessionStoreTests
         // "never entered" and "stayed in after I said stop" are separable afterwards, which
         // is the whole reason this log exists.
         Assert.Equal(["enter", "continue", "exit"], log.Select(e => e.Transition));
-        Assert.Equal("let's roleplay", log[0].Evidence);
-        Assert.Equal("ok, stop", log[2].Evidence);
+        Assert.Equal(enterMsg, log[0].EvidenceMessageId);
+        Assert.Equal(exitMsg, log[2].EvidenceMessageId);
         Assert.Equal("explicit-exit", log[2].Cause);
     }
 
@@ -201,7 +202,7 @@ public class FrameSessionStoreTests
             .GetRequiredService<Infrastructure.Persistence.CompanionDbContext>()
             .FrameBoundaries.AsNoTracking().SingleAsync(b => b.Id == mine.Id);
         Assert.Equal(FrameBoundaryStatus.FrameEnded, row.Status);
-        Assert.Equal("no third-person narration in this scene", row.EvidenceStatement);
+        Assert.Equal("no third-person narration", row.Subject);
         Assert.NotNull(row.DeactivatedAt);
         _ = elsewhere;
     }
@@ -209,7 +210,7 @@ public class FrameSessionStoreTests
     // ---- /forget by exact identity ---------------------------------------------------------------
 
     [Fact]
-    public async Task ForgettingEvidence_RedactsByIdentityAndPurgesTheStatement()
+    public async Task ForgettingEvidence_RedactsByIdentity()
     {
         await using var host = new TestHost(Now);
         var store = host.Services.GetRequiredService<IFrameSessionStore>();
@@ -227,11 +228,10 @@ public class FrameSessionStoreTests
         var db = scope.ServiceProvider.GetRequiredService<Infrastructure.Persistence.CompanionDbContext>();
         var gone = await db.FrameBoundaries.AsNoTracking().SingleAsync(b => b.Id == doomed.Id);
         Assert.Equal(FrameBoundaryStatus.EvidenceForgotten, gone.Status);
-        Assert.Null(gone.EvidenceStatement);
 
         var survivor = await db.FrameBoundaries.AsNoTracking().SingleAsync(b => b.Id == kept.Id);
         Assert.Equal(FrameBoundaryStatus.Active, survivor.Status);
-        Assert.Equal("no third-person narration in this scene", survivor.EvidenceStatement);
+        Assert.NotNull(survivor.EvidenceMessageId);
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public class FrameSessionStoreTests
             .GetRequiredService<Infrastructure.Persistence.CompanionDbContext>()
             .FrameBoundaries.AsNoTracking().SingleAsync(b => b.Id == theirs.Id);
         Assert.Equal(FrameBoundaryStatus.Active, row.Status);
-        Assert.NotNull(row.EvidenceStatement);
+        Assert.NotNull(row.EvidenceMessageId);
 
         // ...and exiting one user's frame leaves the other's active.
         await store.ApplyAsync(Request("exit", conv, at: Now.AddMinutes(1)), "t2");

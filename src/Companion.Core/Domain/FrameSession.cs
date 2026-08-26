@@ -49,7 +49,7 @@ public sealed class FrameSession
     /// A retried turn returns the existing session instead of transitioning twice.</summary>
     public string AppliedKeysJson { get; set; } = "[]";
 
-    /// <summary>Append-only transition log: kind, when, and the evidence that caused it.
+    /// <summary>Append-only transition log: kind, when, and the EVENT that caused it.
     /// This is what makes "she never entered" and "she stayed in after I said stop"
     /// separable after the fact.</summary>
     public string TransitionLogJson { get; set; } = "[]";
@@ -57,9 +57,23 @@ public sealed class FrameSession
 
 public enum FrameSessionStatus { Active, Ended }
 
-/// <summary>One recorded transition. Evidence is the user's own words, bounded.</summary>
+/// <summary>
+/// One recorded transition.
+///
+/// <para><see cref="EvidenceMessageId"/> is an EXACT DURABLE IDENTITY, never the user's
+/// words. The log needs to answer "which turn moved the frame", and a message id answers
+/// that precisely; an excerpt answers it approximately while also becoming a second
+/// transcript that <c>/forget</c> could not reach. The transition kind, the timestamp and
+/// the content-safe <c>Cause</c> token are the operational state, and they survive
+/// forgetting — only the link to the message is severed.</para>
+///
+/// <para>Null means either that no message caused this transition, or that the causing
+/// message was forgotten. Those are deliberately indistinguishable here: preserving the
+/// difference would preserve the fact that something was forgotten, which is itself a
+/// residue of the forgotten turn.</para>
+/// </summary>
 public sealed record FrameTransitionEntry(
-    string Transition, DateTimeOffset At, string Cause, string? Evidence);
+    string Transition, DateTimeOffset At, string Cause, Guid? EvidenceMessageId);
 
 /// <summary>
 /// A user boundary stated inside a frame — scene-scoped, never global.
@@ -78,15 +92,24 @@ public sealed class FrameBoundaryRecord
     /// <summary>The exact frame this applies inside.</summary>
     public string SceneRef { get; set; } = default!;
 
-    /// <summary>What the user asked for, as stated.</summary>
+    /// <summary>
+    /// The STRUCTURED subject of the boundary — what it governs, in the vocabulary
+    /// enforcement uses ("no third-person narration"), not the sentence the user typed.
+    /// This is the value enforcement reads, so it is retained; it is a classification
+    /// rather than a quotation.
+    /// </summary>
     public string Subject { get; set; } = default!;
 
     public DateTimeOffset StatedAt { get; set; }
     public string EvidenceKind { get; set; } = "direct-instruction";
-    public Guid? EvidenceMessageId { get; set; }
 
-    /// <summary>The verbatim statement. Purged when its evidence is forgotten.</summary>
-    public string? EvidenceStatement { get; set; }
+    /// <summary>
+    /// Exact durable identity of the message that stated the boundary. This is the whole
+    /// of the evidence: the wording itself is deliberately not stored, because a verbatim
+    /// statement kept "as evidence" is a copy of the user's words living outside the
+    /// transcript, and the transcript is the thing <c>/forget</c> is defined against.
+    /// </summary>
+    public Guid? EvidenceMessageId { get; set; }
 
     public FrameBoundaryStatus Status { get; set; } = FrameBoundaryStatus.Active;
     public DateTimeOffset? DeactivatedAt { get; set; }
@@ -102,6 +125,7 @@ public enum FrameBoundaryStatus
 
     Revoked,
 
-    /// <summary>The evidence behind it was forgotten; the statement is purged.</summary>
+    /// <summary>The evidence behind it was forgotten; the link to the message is severed
+    /// and the boundary stops applying.</summary>
     EvidenceForgotten,
 }

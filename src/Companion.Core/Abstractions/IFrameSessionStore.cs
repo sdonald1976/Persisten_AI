@@ -68,8 +68,12 @@ public sealed record FrameTransitionRequest
     public string? ViewpointCharacterId { get; init; }
     public string? Person { get; init; }
 
-    /// <summary>Bounded verbatim evidence for the transition log.</summary>
-    public string? Evidence { get; init; }
+    /// <summary>
+    /// Exact durable identity of the message that caused this transition. Never the text:
+    /// the log records WHICH turn moved the frame, not what was said in it. Null on a
+    /// privacy-sensitive turn, and null once the causing message has been forgotten.
+    /// </summary>
+    public Guid? EvidenceMessageId { get; init; }
 }
 
 /// <param name="Session">The session after the write, or null when nothing applied.</param>

@@ -1,4 +1,4 @@
-﻿using Companion.Core.Abstractions;
+using Companion.Core.Abstractions;
 using Companion.Core.Domain;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -746,7 +746,13 @@ public sealed class Companion : ICompanion
                             Cause = decision.Cause,
                             At = now,
                             SceneRef = active?.SceneRef,
-                            Evidence = promptText,
+                            // R-01: the EVENT, never the words — and not even the event on a
+                            // privacy-sensitive turn. The frame still advances (the lifecycle
+                            // is not privacy-conditional); what it declines to record is any
+                            // handle back to what was said. Ava can still tell you she is in
+                            // a scene and when it started; she cannot reproduce the sentence
+                            // that started it, and neither can a training export.
+                            EvidenceMessageId = sensitive ? null : extractionSource.Id,
                         }, traceId.ToString(), ct);
 
                         var session = write.Session ?? active;

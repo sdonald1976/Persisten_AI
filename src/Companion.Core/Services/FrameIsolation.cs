@@ -88,8 +88,9 @@ public static class FrameIsolation
 
     /// <summary>
     /// Invalidates boundaries whose evidence was forgotten — by EXACT identity, never by text
-    /// resemblance, and purging the statement so the forgotten words do not linger here
-    /// either. The same discipline the preference and emotional-signal stores already use.
+    /// resemblance. There is no statement to purge: the boundary stores the message id and
+    /// its structured subject, never the sentence. The same discipline the preference and
+    /// emotional-signal stores already use.
     /// </summary>
     public static int ForgetByEvidence(
         IEnumerable<FrameBoundaryRecord> boundaries,
@@ -104,9 +105,35 @@ public static class FrameIsolation
         {
             b.Status = FrameBoundaryStatus.EvidenceForgotten;
             b.DeactivatedAt = now;
-            b.EvidenceStatement = null;
             invalidated++;
         }
         return invalidated;
+    }
+
+    /// <summary>
+    /// Severs the link from transition entries to forgotten messages, in place, and returns
+    /// how many were severed.
+    ///
+    /// EXACT identity only. There is no text here to match against and that is the point:
+    /// a transition log records which turn moved the frame, so forgetting that turn means
+    /// the entry keeps its kind, its timestamp and its content-safe cause, and loses only
+    /// the pointer. An already-severed entry is not counted again, which is what makes
+    /// repeated forgetting idempotent.
+    /// </summary>
+    public static int SeverTransitionEvidence(
+        IList<FrameTransitionEntry> log, IReadOnlyCollection<Guid> forgottenMessageIds)
+    {
+        if (log.Count == 0 || forgottenMessageIds.Count == 0)
+            return 0;
+
+        var severed = 0;
+        for (var i = 0; i < log.Count; i++)
+        {
+            if (log[i].EvidenceMessageId is not { } id || !forgottenMessageIds.Contains(id))
+                continue;
+            log[i] = log[i] with { EvidenceMessageId = null };
+            severed++;
+        }
+        return severed;
     }
 }
