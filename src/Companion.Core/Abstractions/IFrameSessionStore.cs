@@ -41,7 +41,18 @@ public interface IFrameSessionStore
 
     /// <summary>Declared retention: removes ended sessions and their boundaries past the
     /// window, across all users. Returns rows removed.</summary>
-    Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default);
+    /// <summary>
+    /// Age-based cleanup. Two windows, because an exited scene and an abandoned one are
+    /// different risks: <paramref name="endedBefore"/> reaps terminal sessions,
+    /// <paramref name="abandonedBefore"/> reaps active ones nothing has touched. An active
+    /// frame inside its window is never pruned, so a resumable scene survives.
+    ///
+    /// Separate from forgetting: this knows nothing about evidence, and privacy forgetting
+    /// reaches sessions this has not yet aged out.
+    /// </summary>
+    Task<int> PruneAsync(
+        DateTimeOffset endedBefore, DateTimeOffset abandonedBefore,
+        CancellationToken ct = default);
 }
 
 /// <summary>One requested transition, with everything the session needs to record it.</summary>

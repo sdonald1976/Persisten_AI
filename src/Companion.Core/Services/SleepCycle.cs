@@ -47,6 +47,20 @@ public sealed class SleepCycle : ISleepCycle
     /// </summary>
     public static readonly TimeSpan ShadowComparisonRetention = TimeSpan.FromDays(30);
 
+    /// <summary>
+    /// A4. How long an EXITED scene's operational record is kept. It holds no content after
+    /// R-01 -- transition kinds, timestamps and content-safe causes -- so this is about
+    /// bounding growth rather than about privacy, which forgetting handles separately.
+    /// </summary>
+    public static readonly TimeSpan EndedFrameRetention = TimeSpan.FromDays(90);
+
+    /// <summary>
+    /// A4. How long an ACTIVE scene may sit untouched before it counts as abandoned.
+    /// Deliberately much longer than the ended window: an active frame is resumable, and
+    /// reaping a scene somebody meant to come back to is the worse error of the two.
+    /// </summary>
+    public static readonly TimeSpan AbandonedFrameAge = TimeSpan.FromDays(180);
+
     private readonly IReflector _reflector;
     private readonly IMemoryConsolidator _consolidator;
     private readonly IReflectionStore _reflections;
@@ -58,6 +72,7 @@ public sealed class SleepCycle : ISleepCycle
     private readonly IGapStore? _gaps;
     private readonly IEmotionStore? _emotions;
     private readonly IShadowRecorder? _shadow;
+    private readonly IFrameSessionStore? _frames;
 
     /// <summary>How long an unpursued knowledge gap is held before aging to Expired.
     /// Diagnostics-grade retention: a gap is working epistemic state, never biography.</summary>
@@ -74,11 +89,13 @@ public sealed class SleepCycle : ISleepCycle
         ILogger<SleepCycle> logger,
         IGapStore? gaps = null,
         IEmotionStore? emotions = null,
-        IShadowRecorder? shadow = null)
+        IShadowRecorder? shadow = null,
+        IFrameSessionStore? frames = null)
     {
         _gaps = gaps;
         _emotions = emotions;
         _shadow = shadow;
+        _frames = frames;
         _reflector = reflector;
         _consolidator = consolidator;
         _reflections = reflections;
@@ -112,6 +129,10 @@ public sealed class SleepCycle : ISleepCycle
         await _diagnostics.PruneAsync(_clock.GetUtcNow() - DiagnosticsRetention, ct);
         if (_shadow is not null)
             await _shadow.PruneAsync(_clock.GetUtcNow() - ShadowComparisonRetention, ct);
+        if (_frames is not null)
+            await _frames.PruneAsync(
+                _clock.GetUtcNow() - EndedFrameRetention,
+                _clock.GetUtcNow() - AbandonedFrameAge, ct);
         await _experiences.PruneAsync(_clock.GetUtcNow() - ExperienceRetention, ct);
         if (_emotions is not null)
             await _emotions.PruneAsync(_clock.GetUtcNow() - EmotionalSignalRetention, ct);

@@ -294,7 +294,8 @@ public class FrameSessionStoreTests
         await store.ApplyAsync(Request("enter", liveConv, scene: "scene-live"), "l1");
         await store.AddBoundaryAsync(Boundary(liveConv, "scene-live"));
 
-        var removed = await store.PruneAsync(Now.AddDays(-180));
+        // Two windows now: ended sessions age out first, abandoned active ones much later.
+        var removed = await store.PruneAsync(Now.AddDays(-180), Now.AddDays(-365));
 
         Assert.Equal(2, removed);                                  // the session and its boundary
         Assert.NotNull(await store.GetActiveAsync(User, liveConv));

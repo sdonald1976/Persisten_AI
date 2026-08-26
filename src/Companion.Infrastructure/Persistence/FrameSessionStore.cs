@@ -196,25 +196,52 @@ internal sealed class FrameSessionStore(IServiceScopeFactory scopes) : IFrameSes
         return count;
     }
 
-    public async Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+    public async Task<int> PruneAsync(
+        DateTimeOffset endedBefore, DateTimeOffset abandonedBefore, CancellationToken ct = default)
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
 
+        // Two ways a frame stops mattering, and only two.
+        //
+        // ENDED: the user exited. Terminal, and safe to reap once it is old enough.
+        //
+        // ABANDONED: still Active, but nothing has touched it since abandonedBefore. This is
+        // the case the old sweep had no answer for, so an unexited scene lived forever. The
+        // window is deliberately much longer than the ended one, because an active frame is
+        // resumable and reaping a scene somebody meant to continue is the worse error.
+        //
+        // An active frame within its window is NEVER pruned, whatever its age.
         var sessions = await db.FrameSessions
-            .Where(s => s.Status == FrameSessionStatus.Ended && s.EndedAt < olderThan)
+            .Where(s => (s.Status == FrameSessionStatus.Ended && s.EndedAt < endedBefore)
+                        || (s.Status == FrameSessionStatus.Active
+                            && s.LastTransitionAt < abandonedBefore))
             .ToListAsync(ct);
         if (sessions.Count == 0)
             return 0;
 
-        var scenes = sessions.Select(s => s.SceneRef).ToList();
-        var boundaries = await db.FrameBoundaries
-            .Where(b => scenes.Contains(b.SceneRef))
-            .ToListAsync(ct);
+        // Boundaries are matched by scene AND user. Matching on SceneRef alone -- which is
+        // what this did -- could reach another user's boundary whenever two scene refs
+        // collided, and a scene ref is a short generated token rather than a globally unique
+        // one. Cross-user deletion has to be impossible by construction, not by luck.
+        var keys = sessions.Select(s => (s.UserId, s.SceneRef)).ToHashSet();
+        var users = sessions.Select(s => s.UserId).Distinct().ToList();
+        var scenes = sessions.Select(s => s.SceneRef).Distinct().ToList();
 
+        var candidates = await db.FrameBoundaries
+            .Where(b => users.Contains(b.UserId) && scenes.Contains(b.SceneRef))
+            .ToListAsync(ct);
+        var boundaries = candidates
+            .Where(b => keys.Contains((b.UserId, b.SceneRef)))
+            .ToList();
+
+        // Removed together in one transaction, so a boundary can never outlive the scene it
+        // was scoped to and become an orphan nothing can interpret.
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
         db.FrameSessions.RemoveRange(sessions);
         db.FrameBoundaries.RemoveRange(boundaries);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return sessions.Count + boundaries.Count;
     }
 
