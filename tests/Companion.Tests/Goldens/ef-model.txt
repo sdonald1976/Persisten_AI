@@ -99,6 +99,8 @@
   prop Confidence : Double notnull col=REAL
   prop CreatedAt : DateTimeOffset notnull col=INTEGER
   prop Embedding : Single[] null col=BLOB
+  prop EvidenceForgotten : Boolean notnull col=INTEGER
+  prop EvidenceMessageIdsJson : String notnull col=TEXT
   prop Id : Guid notnull col=TEXT generated=OnAdd
   prop Observations : Int32 notnull col=INTEGER
   prop Reason : String null col=TEXT max=400
@@ -228,6 +230,8 @@
 
 ===== Companion.Core.Domain.Experience  table=Experiences =====
   prop At : DateTimeOffset notnull col=INTEGER
+  prop EvidenceForgotten : Boolean notnull col=INTEGER
+  prop EvidenceMessageId : Nullable`1 null col=TEXT
   prop Id : Guid notnull col=TEXT generated=OnAdd
   prop Kind : String notnull col=TEXT max=50
   prop Source : String notnull col=TEXT max=50
@@ -288,6 +292,7 @@
 
 ===== Companion.Core.Domain.KnowledgeGap  table=KnowledgeGaps =====
   prop CuriosityId : Nullable`1 null col=TEXT
+  prop EvidenceMessageIdsJson : String notnull col=TEXT
   prop FirstSeen : DateTimeOffset notnull col=INTEGER
   prop Id : Guid notnull col=TEXT generated=OnAdd
   prop Kind : GapKind notnull col=INTEGER
@@ -507,9 +512,11 @@
   prop CoveredThrough : DateTimeOffset notnull col=INTEGER
   prop CreatedAt : DateTimeOffset notnull col=INTEGER
   prop Embedding : Single[] null col=BLOB
+  prop EvidenceForgotten : Boolean notnull col=INTEGER
   prop Id : Guid notnull col=TEXT generated=OnAdd
   prop MessagesReflected : Int32 notnull col=INTEGER
   prop Musing : String null col=TEXT max=2000
+  prop SourceMessageIdsJson : String notnull col=TEXT
   prop ThreadId : Guid notnull col=TEXT
   prop ThreadSettled : Boolean notnull col=INTEGER
   prop UserId : String notnull col=TEXT max=200
@@ -597,6 +604,7 @@
   prop ResolvedReference : String null col=TEXT max=200
   prop RetrievalQuery : String null col=TEXT max=500
   prop Retrieved : String null col=TEXT max=2000
+  prop SourceMessageId : Nullable`1 null col=TEXT
   prop Timestamp : DateTimeOffset notnull col=INTEGER
   prop UserId : String notnull col=TEXT max=200
   prop UserPreview : String null col=TEXT max=300

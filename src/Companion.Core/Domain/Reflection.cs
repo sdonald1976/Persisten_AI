@@ -23,6 +23,18 @@ public sealed class Reflection
     /// <summary>The diary entry itself, in the companion's voice. Null on a quiet day.</summary>
     public string? Musing { get; set; }
 
+    /// <summary>
+    /// Every message id this reflection was drawn from, serialized. A reflection has MANY
+    /// evidence parents, which is exactly why it cannot be forgotten by matching its prose:
+    /// the prose is Ava's, the evidence is the user's.
+    /// </summary>
+    public string SourceMessageIdsJson { get; set; } = "[]";
+
+    /// <summary>Any parent was forgotten, so the musing is gone and it contributes nothing.
+    /// Redacted rather than deleted: the thread structure it anchors is content-free and
+    /// still load-bearing for later reflections.</summary>
+    public bool EvidenceForgotten { get; set; }
+
     /// <summary>Timestamp of the newest message this pass covered — the next pass starts after it.</summary>
     public DateTimeOffset CoveredThrough { get; set; }
 

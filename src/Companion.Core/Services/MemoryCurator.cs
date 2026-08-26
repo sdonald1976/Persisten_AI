@@ -21,6 +21,13 @@ public sealed class MemoryCurator : IMemoryCurator
     private readonly ICompanionMoodLog? _moodLog;
     private readonly ICompanionStateTracker? _innerState;
     private readonly IFrameSessionStore? _frames;
+    private readonly IExperienceStore? _experiences;
+    private readonly IReflectionStore? _reflections;
+    private readonly IAttentionStore? _attention;
+    private readonly IPreferenceStore? _companionPreferences;
+    private readonly ISharedPerspectiveStore? _perspectives;
+    private readonly IGapStore? _gaps;
+    private readonly IDiagnosticsStore? _diagnostics;
 
     public MemoryCurator(
         IMemoryStore memories,
@@ -32,7 +39,14 @@ public sealed class MemoryCurator : IMemoryCurator
         IEmotionStore? emotions = null,
         ICompanionMoodLog? moodLog = null,
         ICompanionStateTracker? innerState = null,
-        IFrameSessionStore? frames = null)
+        IFrameSessionStore? frames = null,
+        IExperienceStore? experiences = null,
+        IReflectionStore? reflections = null,
+        IAttentionStore? attention = null,
+        IPreferenceStore? companionPreferences = null,
+        ISharedPerspectiveStore? perspectives = null,
+        IGapStore? gaps = null,
+        IDiagnosticsStore? diagnostics = null)
     {
         _memories = memories;
         _embeddings = embeddings;
@@ -47,6 +61,13 @@ public sealed class MemoryCurator : IMemoryCurator
         _moodLog = moodLog;
         _innerState = innerState;
         _frames = frames;
+        _experiences = experiences;
+        _reflections = reflections;
+        _attention = attention;
+        _companionPreferences = companionPreferences;
+        _perspectives = perspectives;
+        _gaps = gaps;
+        _diagnostics = diagnostics;
     }
 
     public async Task SupersedeSemanticAsync(
@@ -225,6 +246,44 @@ public sealed class MemoryCurator : IMemoryCurator
                 _logger.LogInformation(
                     "Forgetting {MemoryId} also severed {Count} frame evidence link(s).",
                     memoryId, severed);
+        }
+
+        // A1: the derived record types. Each carries its own documented outcome -- redact,
+        // delete, or sever-and-recompute -- stated on EvidenceForgetting rather than decided
+        // here, so the policy lives with the rule instead of at the call site.
+        //
+        // Order is load-bearing in exactly one place: a shared perspective follows the
+        // experience it comments on, so it must be resolved BEFORE that experience is
+        // redacted and its lineage stops being readable.
+        if (forgotten && evidenceMessageIds.Count > 0)
+        {
+            var at = _clock.GetUtcNow();
+            await SweepAsync("shared perspectives",
+                _perspectives is null ? null : (u, m, n, c) => _perspectives.ForgetByEvidenceAsync(u, m, n, c));
+            await SweepAsync("experiences",
+                _experiences is null ? null : (u, m, n, c) => _experiences.ForgetByEvidenceAsync(u, m, n, c));
+            await SweepAsync("reflections and curiosities",
+                _reflections is null ? null : (u, m, n, c) => _reflections.ForgetByEvidenceAsync(u, m, n, c));
+            await SweepAsync("attention items",
+                _attention is null ? null : (u, m, n, c) => _attention.ForgetByEvidenceAsync(u, m, n, c));
+            await SweepAsync("companion preferences",
+                _companionPreferences is null ? null : (u, m, n, c) => _companionPreferences.ForgetByEvidenceAsync(u, m, n, c));
+            await SweepAsync("knowledge gaps",
+                _gaps is null ? null : (u, m, n, c) => _gaps.ForgetByEvidenceAsync(u, m, n, c));
+            await SweepAsync("turn diagnostics",
+                _diagnostics is null ? null : (u, m, n, c) => _diagnostics.ForgetByEvidenceAsync(u, m, n, c));
+
+            async Task SweepAsync(
+                string what,
+                Func<string, IReadOnlyCollection<Guid>, DateTimeOffset, CancellationToken, Task<int>>? sweep)
+            {
+                if (sweep is null)
+                    return;
+                var affected = await sweep(userId, evidenceMessageIds, at, ct);
+                if (affected > 0)
+                    _logger.LogInformation(
+                        "Forgetting {MemoryId} also cleared {Count} {Kind}.", memoryId, affected, what);
+            }
         }
 
         return forgotten;

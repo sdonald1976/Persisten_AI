@@ -1,5 +1,6 @@
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.Core.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Companion.Infrastructure.Persistence;
@@ -12,7 +13,7 @@ public sealed class GapStore : IGapStore
 
     public async Task<(KnowledgeGap Gap, bool Created)> ObserveAsync(
         string userId, GapKind kind, string subject, GapSource source, Guid? sourceRef,
-        DateTimeOffset now, CancellationToken ct = default)
+        DateTimeOffset now, Guid? evidenceMessageId = null, CancellationToken ct = default)
     {
         var existing = await _db.KnowledgeGaps.FirstOrDefaultAsync(
             g => g.UserId == userId && g.Kind == kind && g.Subject == subject
@@ -21,6 +22,17 @@ public sealed class GapStore : IGapStore
         {
             existing.Occurrences++;
             existing.LastSeen = now;
+            // A gap accumulates evidence: every turn that showed it adds a parent, and
+            // Occurrences is the count of them. Forgetting one leaves the rest standing.
+            if (evidenceMessageId is { } add)
+            {
+                var ids = EvidenceForgetting.ReadIds(existing.EvidenceMessageIdsJson);
+                if (!ids.Contains(add))
+                {
+                    ids.Add(add);
+                    existing.EvidenceMessageIdsJson = EvidenceForgetting.WriteIds(ids);
+                }
+            }
             await _db.SaveChangesAsync(ct);
             return (existing, false);
         }
@@ -35,6 +47,9 @@ public sealed class GapStore : IGapStore
             SourceRef = sourceRef,
             FirstSeen = now,
             LastSeen = now,
+            EvidenceMessageIdsJson = evidenceMessageId is { } first
+                ? EvidenceForgetting.WriteIds([first])
+                : "[]",
         };
         _db.KnowledgeGaps.Add(gap);
         await _db.SaveChangesAsync(ct);
@@ -107,5 +122,21 @@ public sealed class GapStore : IGapStore
         if (stale.Count > 0)
             await _db.SaveChangesAsync(ct);
         return stale.Count;
+    }
+
+    public async Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        CancellationToken ct = default)
+    {
+        if (messageIds.Count == 0) return 0;
+        var ids = messageIds.ToHashSet();
+
+        var rows = await _db.KnowledgeGaps
+            .Where(g => g.UserId == userId && g.Status != GapStatus.EvidenceForgotten)
+            .ToListAsync(ct);
+
+        var n = EvidenceForgetting.ForgetKnowledgeGaps(rows, ids);
+        if (n > 0) await _db.SaveChangesAsync(ct);
+        return n;
     }
 }

@@ -50,4 +50,11 @@ public enum CuriosityStatus
 
     /// <summary>The conversation answered it (noticed by reflection) — closed with satisfaction.</summary>
     Satisfied,
+
+    /// <summary>
+    /// The evidence behind it was forgotten. Distinct from Dismissed and Satisfied, which
+    /// are statements about the question; this one says the question can no longer be asked
+    /// because what prompted it is gone. Never voiced, never selected.
+    /// </summary>
+    EvidenceForgotten,
 }

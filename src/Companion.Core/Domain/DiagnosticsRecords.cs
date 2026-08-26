@@ -80,6 +80,10 @@ public class TurnRecord
     public string UserId { get; set; } = default!;
     public DateTimeOffset Timestamp { get; set; }
 
+    /// <summary>The user message this turn answered. The diagnostic previews below are
+    /// derived from it, so forgetting it must reach them.</summary>
+    public Guid? SourceMessageId { get; set; }
+
     /// <summary>Bounded user-message preview; null on private/sensitive/in-character turns.</summary>
     public string? UserPreview { get; set; }
 

@@ -1,5 +1,6 @@
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.Core.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Companion.Infrastructure.Persistence;
@@ -47,5 +48,30 @@ public sealed class AttentionStore : IAttentionStore
         foreach (var item in expired)
             item.Status = AttentionStatus.Expired;
         await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        CancellationToken ct = default)
+    {
+        if (messageIds.Count == 0) return 0;
+
+        // SourceId is the message id as text for conversation-sourced items. Compared as
+        // strings against the id form, never against content.
+        var wanted = messageIds.Select(m => m.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var doomed = await _db.AttentionItems
+            .Where(a => a.UserId == userId
+                        && a.SourceType == AttentionSourceType.Conversation
+                        && a.SourceId != null)
+            .ToListAsync(ct);
+        doomed = doomed.Where(a => wanted.Contains(a.SourceId!)).ToList();
+        if (doomed.Count == 0) return 0;
+
+        // Deleted rather than redacted: a salience marker is transient by construction, has
+        // no audit value, and nothing holds a reference to it.
+        _db.AttentionItems.RemoveRange(doomed);
+        await _db.SaveChangesAsync(ct);
+        return doomed.Count;
     }
 }

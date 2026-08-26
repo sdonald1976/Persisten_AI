@@ -169,6 +169,10 @@ public sealed class Reflector : IReflector
             // without being spoken to is exactly the case this step exists to make reflectable.
             CoveredThrough = Latest(messages, experiences, now),
             MessagesReflected = messages.Count,
+            // A1 lineage: the exact turns this musing was drawn from. Forgetting any one of
+            // them redacts the musing, because prose distilled from five turns cannot be
+            // recomputed without the one that is gone.
+            SourceMessageIdsJson = EvidenceForgetting.WriteIds(messages.Select(m => m.Id)),
         };
 
         var musing = Normalize(dto.Musing, MaxMusingChars);
@@ -346,7 +350,9 @@ public sealed class Reflector : IReflector
                 reason is null ? subject : $"{subject} — {reason}", ct);
 
             applied.Add(await _preferences.ApplySignalAsync(
-                userId, subject, target, reason, embedding, now, ct));
+                userId, subject, target, reason, embedding, now,
+                // The same turns the reflection drew on evidenced this preference.
+                messages.Select(m => m.Id).ToList(), ct));
         }
 
         return applied;

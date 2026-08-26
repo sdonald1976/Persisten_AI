@@ -1,0 +1,4 @@
+# Provenance for the goldens in this directory. Written by tools/Companion.Goldens.
+# Recorded here rather than inside the golden files, whose bytes must not depend
+# on which commit produced them.
+ef-model protocol=ef-core-9 commit=2d7ec93-dirty sha256=942ce1e6b77cd9f5b89176821d5bf9e01c8981513594535466f3696ebaa478c4 lines=651

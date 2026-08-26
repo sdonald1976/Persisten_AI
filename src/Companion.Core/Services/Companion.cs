@@ -1121,7 +1121,10 @@ public sealed class Companion : ICompanion
                 {
                     async Task ObserveGapAsync(GapKind kind, string subject, GapSource source)
                     {
-                        var (gap, _) = await _gaps.ObserveAsync(userId, kind, subject, source, traceId, now, ct);
+                        // sourceRef stays the trace id (diagnostic provenance); the message
+                        // id is what /forget matches on, and a gap accumulates many of them.
+                        var (gap, _) = await _gaps.ObserveAsync(
+                            userId, kind, subject, source, traceId, now, extractionSource.Id, ct);
                         decisions.Add(new DecisionRecord
                         {
                             Stage = "gap.observed", Decider = "rule",
@@ -1328,6 +1331,9 @@ public sealed class Companion : ICompanion
                 Id = traceId,
                 UserId = userId,
                 Timestamp = now,
+                // A1 lineage: every preview below is derived from this message, so forgetting
+                // it must reach them.
+                SourceMessageId = extractionSource.Id,
                 UserPreview = Bounded(promptText, 300),
                 AssistantPreview = Bounded(response, 300),
                 Move = working.Move.ToKebab(),

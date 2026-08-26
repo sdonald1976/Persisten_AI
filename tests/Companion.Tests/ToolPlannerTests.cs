@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Companion.Core;
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
@@ -44,6 +44,10 @@ public class ToolPlannerTests
 
     private sealed class NoopDiagnostics : IDiagnosticsStore
     {
+        public Task<int> ForgetByEvidenceAsync(
+            string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+            CancellationToken ct = default) => Task.FromResult(0);
+
         public Task RecordModelCallAsync(ModelCallRecord record, CancellationToken ct = default) => Task.CompletedTask;
         public Task RecordToolCallAsync(ToolCallRecord record, CancellationToken ct = default) => Task.CompletedTask;
         public Task<IReadOnlyList<ToolCallRecord>> GetRecentToolCallsAsync(string userId, int count, CancellationToken ct = default)

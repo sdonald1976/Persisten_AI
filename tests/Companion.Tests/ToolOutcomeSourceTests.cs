@@ -93,6 +93,10 @@ public class ToolOutcomeSourceTests
 
     private sealed class NoDiagnostics : IDiagnosticsStore
     {
+        public Task<int> ForgetByEvidenceAsync(
+            string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+            CancellationToken ct = default) => Task.FromResult(0);
+
         public Task RecordModelCallAsync(ModelCallRecord r, CancellationToken ct = default) => Task.CompletedTask;
         public Task RecordToolCallAsync(ToolCallRecord r, CancellationToken ct = default) => Task.CompletedTask;
         public Task<IReadOnlyList<ToolCallRecord>> GetRecentToolCallsAsync(string u, int c, CancellationToken ct = default)

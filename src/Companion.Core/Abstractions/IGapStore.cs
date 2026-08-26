@@ -14,7 +14,7 @@ public interface IGapStore
     /// — a settled question does not quietly reopen.</summary>
     Task<(KnowledgeGap Gap, bool Created)> ObserveAsync(
         string userId, GapKind kind, string subject, GapSource source, Guid? sourceRef,
-        DateTimeOffset now, CancellationToken ct = default);
+        DateTimeOffset now, Guid? evidenceMessageId = null, CancellationToken ct = default);
 
     /// <summary>Open gaps, strongest first (occurrences desc, then oldest first — the
     /// longest-standing gap wins a tie, deterministically).</summary>
@@ -35,4 +35,13 @@ public interface IGapStore
 
     /// <summary>Ages out Open/Pursuing gaps untouched since the cutoff. Returns the count.</summary>
     Task<int> ExpireStaleAsync(string userId, DateTimeOffset olderThan, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes what the forgotten messages produced here. EXACT message identity only, and
+    /// user-scoped by the query so cross-user deletion is structurally impossible. Returns
+    /// how many rows changed; forgetting twice returns zero.
+    /// </summary>
+    Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        CancellationToken ct = default);
 }

@@ -1,5 +1,6 @@
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.Core.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Companion.Infrastructure.Persistence;
@@ -50,4 +51,22 @@ public sealed class ExperienceStore : IExperienceStore
 
     public async Task<int> PruneAsync(DateTimeOffset before, CancellationToken ct = default)
         => await _db.Experiences.Where(e => e.At < before).ExecuteDeleteAsync(ct);
+
+    public async Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        CancellationToken ct = default)
+    {
+        if (messageIds.Count == 0) return 0;
+        var ids = messageIds.ToHashSet();
+
+        // User-scoped in the QUERY: another user's rows are never loaded, so the rule below
+        // cannot reach them however it is called.
+        var rows = await _db.Experiences
+            .Where(e => e.UserId == userId && !e.EvidenceForgotten && e.EvidenceMessageId != null)
+            .ToListAsync(ct);
+
+        var n = EvidenceForgetting.ForgetExperiences(rows, ids);
+        if (n > 0) await _db.SaveChangesAsync(ct);
+        return n;
+    }
 }

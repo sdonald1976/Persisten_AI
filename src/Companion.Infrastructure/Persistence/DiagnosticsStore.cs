@@ -1,5 +1,6 @@
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -125,5 +126,27 @@ public sealed class DiagnosticsStore : IDiagnosticsStore
         var tools = await db.ToolCalls.Where(t => t.Timestamp < olderThan).ExecuteDeleteAsync(ct);
         var turnRows = await db.TurnRecords.Where(t => t.Timestamp < olderThan).ExecuteDeleteAsync(ct);
         return models + tools + turnRows;
+    }
+
+    public async Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        CancellationToken ct = default)
+    {
+        if (messageIds.Count == 0) return 0;
+        var ids = messageIds.ToHashSet();
+
+        // Unlike every other write here, this one is NOT allowed to swallow its failure: a
+        // silently-failed telemetry write costs a data point, a silently-failed forget costs
+        // the promise.
+        using var scope = _scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
+
+        var rows = await db.TurnRecords
+            .Where(t => t.UserId == userId && t.SourceMessageId != null)
+            .ToListAsync(ct);
+
+        var n = EvidenceForgetting.ForgetTurnRecords(rows, ids);
+        if (n > 0) await db.SaveChangesAsync(ct);
+        return n;
     }
 }

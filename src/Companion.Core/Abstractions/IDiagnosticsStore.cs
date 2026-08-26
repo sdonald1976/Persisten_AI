@@ -31,4 +31,13 @@ public interface IDiagnosticsStore
 
     /// <summary>Deletes records older than the cutoff; returns how many went.</summary>
     Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes what the forgotten messages produced here. EXACT message identity only, and
+    /// user-scoped by the query so cross-user deletion is structurally impossible. Returns
+    /// how many rows changed; forgetting twice returns zero.
+    /// </summary>
+    Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        CancellationToken ct = default);
 }

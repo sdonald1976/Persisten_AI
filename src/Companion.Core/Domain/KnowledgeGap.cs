@@ -53,6 +53,12 @@ public enum GapStatus
 
     /// <summary>Aged out unpursued by the sleep-cycle sweep.</summary>
     Expired,
+
+    /// <summary>
+    /// Every message that evidenced it was forgotten. Not Expired — nothing aged out — and
+    /// not Declined, which would be an epistemic judgement this never made.
+    /// </summary>
+    EvidenceForgotten,
 }
 
 /// <summary>How the gap would be pursued if pursued. Only AskUser is live in v1;
@@ -99,4 +105,11 @@ public class KnowledgeGap
 
     /// <summary>How it closed ("learned from teaching", "aged out").</summary>
     public string? ResolutionNote { get; set; }
+
+    /// <summary>
+    /// Every message id that evidenced this gap, serialized. A gap ACCUMULATES occurrences
+    /// across turns, so it genuinely has many parents: forgetting one severs that parent and
+    /// leaves the rest standing, and only an empty list retires the gap.
+    /// </summary>
+    public string EvidenceMessageIdsJson { get; set; } = "[]";
 }

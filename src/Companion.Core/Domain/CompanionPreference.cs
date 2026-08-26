@@ -24,6 +24,13 @@ public sealed class CompanionPreference
     /// <summary>Why she currently feels this way (latest reasoning, from her own reflection).</summary>
     public string? Reason { get; set; }
 
+    /// <summary>Every emotional-signal message id that contributed an observation.</summary>
+    public string EvidenceMessageIdsJson { get; set; } = "[]";
+
+    /// <summary>Evidence forgotten: subject and reason are gone and it is never returned
+    /// to the prompt.</summary>
+    public bool EvidenceForgotten { get; set; }
+
     /// <summary>How many separate experiences have shaped this preference.</summary>
     public int Observations { get; set; }
 

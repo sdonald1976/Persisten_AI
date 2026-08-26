@@ -28,5 +28,16 @@ public sealed class Experience
     public required string Kind { get; init; }
 
     /// <summary>A plain sentence: "You went to the greenhouse." Written by whoever reported it.</summary>
-    public required string Text { get; init; }
+    public required string Text { get; set; }
+
+    /// <summary>
+    /// The message this experience was recorded from, when one exists. World perceptions
+    /// have no message and leave it null — which is why forgetting matches on the id and
+    /// never on the absence of one.
+    /// </summary>
+    public Guid? EvidenceMessageId { get; set; }
+
+    /// <summary>Its evidence was forgotten; <see cref="Text"/> is gone and it contributes
+    /// nothing. The row survives so age-based pruning still has something to sweep.</summary>
+    public bool EvidenceForgotten { get; set; }
 }

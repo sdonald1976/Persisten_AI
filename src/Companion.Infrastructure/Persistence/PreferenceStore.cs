@@ -21,7 +21,9 @@ public sealed class PreferenceStore : IPreferenceStore
 
     public async Task<CompanionPreference> ApplySignalAsync(
         string userId, string subject, double targetAffinity, string? reason,
-        float[]? embedding, DateTimeOffset now, CancellationToken ct = default)
+        float[]? embedding, DateTimeOffset now,
+        IReadOnlyCollection<Guid>? evidenceMessageIds = null,
+        CancellationToken ct = default)
     {
         var normalized = subject.Trim();
         var existing = await _db.CompanionPreferences.FirstOrDefaultAsync(
@@ -42,6 +44,8 @@ public sealed class PreferenceStore : IPreferenceStore
                 CreatedAt = now,
                 UpdatedAt = now,
                 Embedding = embedding,
+                EvidenceMessageIdsJson = EvidenceForgetting.WriteIds(
+                    evidenceMessageIds ?? []),
             };
             _db.CompanionPreferences.Add(fresh);
             await _db.SaveChangesAsync(ct);
@@ -58,7 +62,37 @@ public sealed class PreferenceStore : IPreferenceStore
         if (embedding is not null)
             existing.Embedding = embedding;
 
+        // Affinity accumulates across observations, so the evidence does too: each new
+        // signal adds the turns that produced it.
+        if (evidenceMessageIds is { Count: > 0 })
+        {
+            var ids = EvidenceForgetting.ReadIds(existing.EvidenceMessageIdsJson);
+            ids.AddRange(evidenceMessageIds);
+            existing.EvidenceMessageIdsJson = EvidenceForgetting.WriteIds(ids);
+        }
+
         await _db.SaveChangesAsync(ct);
         return existing;
+    }
+
+    public async Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        CancellationToken ct = default)
+    {
+        if (messageIds.Count == 0) return 0;
+        var ids = messageIds.ToHashSet();
+
+        var rows = await _db.CompanionPreferences
+            .Where(p => p.UserId == userId && !p.EvidenceForgotten)
+            .ToListAsync(ct);
+
+        var n = EvidenceForgetting.ForgetCompanionPreferences(rows, ids);
+        if (n > 0)
+        {
+            foreach (var p in rows.Where(p => p.EvidenceForgotten))
+                p.UpdatedAt = now;
+            await _db.SaveChangesAsync(ct);
+        }
+        return n;
     }
 }

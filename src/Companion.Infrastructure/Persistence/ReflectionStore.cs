@@ -1,5 +1,6 @@
 using Companion.Core.Abstractions;
 using Companion.Core.Domain;
+using Companion.Core.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Companion.Infrastructure.Persistence;
@@ -154,5 +155,32 @@ public sealed class ReflectionStore : IReflectionStore
             await _db.SaveChangesAsync(ct);
 
         return stale.Count;
+    }
+
+    public async Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        CancellationToken ct = default)
+    {
+        if (messageIds.Count == 0) return 0;
+        var ids = messageIds.ToHashSet();
+
+        var reflections = await _db.Reflections
+            .Where(r => r.UserId == userId && !r.EvidenceForgotten)
+            .ToListAsync(ct);
+
+        var n = EvidenceForgetting.ForgetReflections(reflections, ids, out var redacted);
+
+        // Curiosities inherit their reflection's evidence: a question drawn from a musing
+        // that is now gone has nothing left to stand on, and it must never be voiced.
+        if (redacted.Count > 0)
+        {
+            var curiosities = await _db.Curiosities
+                .Where(c => c.UserId == userId && c.Status != CuriosityStatus.EvidenceForgotten)
+                .ToListAsync(ct);
+            n += EvidenceForgetting.ForgetCuriosities(curiosities, redacted);
+        }
+
+        if (n > 0) await _db.SaveChangesAsync(ct);
+        return n;
     }
 }
