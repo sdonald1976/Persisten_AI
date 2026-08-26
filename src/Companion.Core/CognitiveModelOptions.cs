@@ -103,6 +103,20 @@ public sealed class CognitiveModelEntry
     /// </summary>
     public bool Required { get; set; }
 
+    /// <summary>
+    /// SHA-256 of the file at <see cref="Path"/>, when it is pinned. Bootstrap verifies against
+    /// this; its ABSENCE is reported rather than treated as verified, because "no pinned hash"
+    /// and "hash matched" are different states and only one of them is evidence.
+    /// </summary>
+    public string? Sha256 { get; set; }
+
+    /// <summary>
+    /// Where the file comes from, stated explicitly. A repository is never inferred from a
+    /// filename: "classifier.onnx" names no repository, and guessing one is how a bootstrap
+    /// downloads the wrong weights and calls it success.
+    /// </summary>
+    public ArtifactSource? Source { get; set; }
+
     /// <summary>Longest input in tokens; anything beyond is truncated before inference.</summary>
     public int MaxTokens { get; set; } = 256;
 }

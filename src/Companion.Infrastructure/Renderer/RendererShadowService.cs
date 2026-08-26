@@ -319,7 +319,8 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
             : new { temperature = 0.6, num_predict = 220 };
         var payload = new
         {
-            model = "renderer-shadow",
+            // Same name as always; read from options so bootstrap and this call cannot drift.
+            model = _options.OllamaModel,
             stream = false,
             options,
             messages = new object[]

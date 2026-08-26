@@ -79,23 +79,12 @@ public sealed class ModelPreflight
         if (!_models.UsesRealModel)
             return ModelPreflightReport.NotRun;
 
-        // Role → endpoint. Only the roles served by the language-model provider: the audio
-        // endpoints are a separate, optional server whose absence is already reported honestly
-        // (their capabilities seed as Untested), and probing it would cry wolf when it's simply
-        // not running.
-        var roles = new (string Role, EndpointOptions Endpoint)[]
-        {
-            (ProviderHttpClients.Conversation, _models.Chat),
-            (ProviderHttpClients.Extraction, _models.ExtractionOrChat),
-            (ProviderHttpClients.Summarizer, _models.SummarizerOrChat),
-            (ProviderHttpClients.Reranker, _models.RerankerOrSummarizer),
-            (ProviderHttpClients.Safety, _models.SafetyOrExtraction),
-            (ProviderHttpClients.TaskAuditor, _models.TaskAuditorOrSummarizer),
-            (ProviderHttpClients.ToolPlanner, _models.ToolPlannerOrExtraction),
-            (ProviderHttpClients.Embeddings, _models.Embeddings),
-        };
-        if (_models.Vision is { } vision)
-            roles = [.. roles, (ProviderHttpClients.Vision, vision)];
+        // Role -> endpoint. Derived by ModelDependencies so the bootstrap and this probe read
+        // ONE list: a role added to the application is a role both of them see. Only the roles
+        // served by the language-model provider appear; the audio endpoints are a separate,
+        // optional server whose absence is already reported honestly (their capabilities seed as
+        // Untested), and probing it would cry wolf when it is simply not running.
+        var roles = ModelDependencies.ProviderRoles(_models);
 
         // One probe per distinct server, not per role — the roster usually shares a base URL.
         var catalogs = new Dictionary<string, IReadOnlySet<string>?>(StringComparer.OrdinalIgnoreCase);

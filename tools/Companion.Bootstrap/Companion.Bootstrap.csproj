@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Companion.Bootstrap</RootNamespace>
+    <AssemblyName>model-bootstrap</AssemblyName>
+    <IsTestProject>false</IsTestProject>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.18" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.18" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.18" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.18" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The application's own option classes and dependency derivation. This reference is the
+         reason there is no second, hand-maintained roster to drift: what the app binds is what
+         this tool reads. -->
+    <ProjectReference Include="..\..\src\Companion.Infrastructure\Companion.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

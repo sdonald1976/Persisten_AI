@@ -258,6 +258,44 @@ public sealed class RendererShadowOptions
     /// <summary>sha256 of the adapter's adapter_model.safetensors, recorded per row.</summary>
     public string AdapterSha256 { get; set; } = "";
 
+    // ---- acquisition metadata (bootstrap only; none of this changes model selection) ---------
+
+    /// <summary>
+    /// The adapter weights <see cref="AdapterSha256"/> pins, relative to the repository root.
+    /// Tracked by Git LFS, so on a fresh clone without LFS this path exists and contains a
+    /// pointer rather than weights — which is why bootstrap checks content, not existence.
+    /// </summary>
+    public string AdapterPath { get; set; } =
+        "training/renderer/runs/run-1c/adapter-final/adapter_model.safetensors";
+
+    /// <summary>Files that must sit beside the adapter for it to load at all.</summary>
+    public string[] AdapterFiles { get; set; } =
+    [
+        "adapter_config.json", "tokenizer.json", "tokenizer_config.json",
+        "special_tokens_map.json", "added_tokens.json", "vocab.json", "merges.txt",
+    ];
+
+    /// <summary>
+    /// The base the adapter was trained against, pinned to the exact revision. Needed only to
+    /// rebuild or serve the adapter — the Ollama model below is already merged — but recorded
+    /// here so a second machine reproduces the base this adapter was measured against.
+    /// </summary>
+    public ArtifactSource? BaseModel { get; set; } = new()
+    {
+        Repository = "Qwen/Qwen2.5-3B-Instruct",
+        Revision = "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    };
+
+    /// <summary>Where <see cref="BaseModel"/> is expected locally, relative to the repository root.</summary>
+    public string BaseModelPath { get; set; } = "training/renderer/models/Qwen2.5-3B-Instruct";
+
+    /// <summary>
+    /// The Ollama model name the merged renderer is served under. Default matches the name the
+    /// service has always used; it is stated here so bootstrap can name the dependency without
+    /// a second hardcoded literal that could drift from the one the service calls.
+    /// </summary>
+    public string OllamaModel { get; set; } = "renderer-shadow";
+
     /// <summary>Human-readable model identity ("run-1c on Qwen2.5-3B-Instruct aa8e7253"), recorded per row.</summary>
     public string ModelVersion { get; set; } = "";
 

@@ -41,6 +41,12 @@ prompts/
 models/
 *.onnx
 
+# ...but `models/` above matches ANY directory of that name, including the C# SOURCE directory
+# src/Companion.Infrastructure/Models. New files added there were silently untracked - a commit
+# would simply not contain them, with nothing to say so. Re-include the source tree explicitly.
+!src/Companion.Infrastructure/Models/
+!src/Companion.Infrastructure/Models/**
+
 # Python virtualenv for training/ (torch is ~2.5 GB; never committed)
 .venv/
 
