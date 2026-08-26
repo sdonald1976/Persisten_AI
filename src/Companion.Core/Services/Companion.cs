@@ -22,7 +22,6 @@ public sealed class Companion : ICompanion
     private readonly IProjectContextService _projectContext;
     private readonly IPendingClarificationStore _pending;
     private readonly IProfileStore _profiles;
-    private readonly IRetriever _retriever;
     private readonly IContextAssembler _assembler;
     private readonly IReplyGenerator _replyGenerator;
 
@@ -49,31 +48,25 @@ public sealed class Companion : ICompanion
     private readonly IProjectUpdater _projectUpdater;
     private readonly IProjectStore _projects;
     private readonly IEmotionStore _emotions;
-    private readonly IRelationshipTracker _relationship;
     private readonly IReflectionStore _reflections;
     private readonly IAnticipationStore _anticipations;
     private readonly ICompanionStateTracker _innerState;
-    private readonly IFamiliarityTracker _familiarity;
-    private readonly IPreferenceStore _preferences;
     private readonly IPrivacyClassifier _privacy;
     private readonly IAttentionService _attention;
-    private readonly IAssociativeRecallService _associativeRecall;
     private readonly IProcedureStore _procedures;
-    private readonly ICapabilityRegistry _capabilities;
-    private readonly ISharedPerspectiveStore _sharedPerspectives;
     private readonly ToolLoop _toolLoop;
     private readonly ITurnTraceLog _turnLog;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
     private readonly Turns.Admission.TurnAdmission _admission;
+    private readonly Turns.Context.TurnContext _context;
 
     public Companion(
         IConversationStore conversations,
         IProjectContextService projectContext,
         IPendingClarificationStore pending,
         IProfileStore profiles,
-        IRetriever retriever,
         IContextAssembler assembler,
         IReplyGenerator replyGenerator,
         IPersonalityService personality,
@@ -81,24 +74,19 @@ public sealed class Companion : ICompanion
         IProjectUpdater projectUpdater,
         IProjectStore projects,
         IEmotionStore emotions,
-        IRelationshipTracker relationship,
         IReflectionStore reflections,
         IAnticipationStore anticipations,
         ICompanionStateTracker innerState,
-        IFamiliarityTracker familiarity,
-        IPreferenceStore preferences,
         IPrivacyClassifier privacy,
         IAttentionService attention,
-        IAssociativeRecallService associativeRecall,
         IProcedureStore procedures,
-        ICapabilityRegistry capabilities,
-        ISharedPerspectiveStore sharedPerspectives,
         ToolLoop toolLoop,
         ITurnTraceLog turnLog,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger,
         Turns.Admission.TurnAdmission admission,
+        Turns.Context.TurnContext context,
         IReplyGate? gate = null,
         IOptions<SafetyOptions>? safety = null,
         IShadowRecorder? shadow = null,
@@ -126,7 +114,6 @@ public sealed class Companion : ICompanion
         _projectContext = projectContext;
         _pending = pending;
         _profiles = profiles;
-        _retriever = retriever;
         _assembler = assembler;
         _replyGenerator = replyGenerator;
         _personality = personality;
@@ -134,24 +121,19 @@ public sealed class Companion : ICompanion
         _projectUpdater = projectUpdater;
         _projects = projects;
         _emotions = emotions;
-        _relationship = relationship;
         _reflections = reflections;
         _anticipations = anticipations;
         _innerState = innerState;
-        _familiarity = familiarity;
-        _preferences = preferences;
         _privacy = privacy;
         _attention = attention;
-        _associativeRecall = associativeRecall;
         _procedures = procedures;
-        _capabilities = capabilities;
-        _sharedPerspectives = sharedPerspectives;
         _toolLoop = toolLoop;
         _turnLog = turnLog;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
         _admission = admission;
+        _context = context;
     }
 
     public async Task<TurnTrace> RespondAsync(
@@ -339,10 +321,8 @@ public sealed class Companion : ICompanion
 
         // Recent prior turns (exclude the extraction source we just handled). Fetched BEFORE
         // retrieval since the working-context read below shapes the retrieval query.
-        var recent = (await _conversations.GetRecentMessagesAsync(
-                conversationId, userId, _options.RecentMessageCount + 1, ct))
-            .Where(m => m.Id != extractionSource.Id)
-            .ToList();
+        var recent = await _context.LoadHistoryAsync(
+            conversationId, userId, extractionSource.Id, ct);
 
         // 3c. Understanding (Turns/Understanding/TurnUnderstanding): the system's explicit
         // read of the conversation — open questions, topic, salient entities, what the user's
@@ -363,10 +343,10 @@ public sealed class Companion : ICompanion
 
         // 4. Retrieve relevant memories, boosted by the resolved project â€” searching what the
         // message MEANS (question + answer, reference + referent), not just what it says.
-        var outcome = await _retriever.RetrieveAsync(userId, retrievalQuery, projectContext.ResolvedProjectName, ct);
-        var associative = await _associativeRecall.ExpandAsync(
-            userId, retrievalQuery, outcome.Selected, _options.MaxAssociativeMemories, ct);
-        var selectedMemories = outcome.Selected.Concat(associative).ToList();
+        var retrieved = await _context.RetrieveAsync(
+            userId, retrievalQuery, projectContext.ResolvedProjectName, ct);
+        var outcome = retrieved.Outcome;
+        var selectedMemories = retrieved.Selected;
 
         // 4a. Turn intent, in SHADOW. Part of understanding, and it runs here rather than
         // above because the classification counts what retrieval selected — an existing data
@@ -389,9 +369,9 @@ public sealed class Companion : ICompanion
         // lookup and its verdict are always recorded; the authoritative packet line rides
         // behind its own promotion flag, same discipline as clarify.
         ConceptLookupResult? knowledge = null;
-        if (_concepts is not null && KnowledgeQuestionDetector.Detect(promptText) is { } askedTerm)
+        if (await _context.LookupKnowledgeAsync(userId, promptText, ct) is var (looked, askedTerm))
         {
-            knowledge = await _concepts.LookupAsync(userId, askedTerm, ct);
+            knowledge = looked;
             decisions.Add(new DecisionRecord
             {
                 Stage = "knowledge.lookup", Decider = "rule",
@@ -435,11 +415,8 @@ public sealed class Companion : ICompanion
         IReadOnlyList<string> rawQueryRetrieved = Array.Empty<string>();
         if (retrievalQuery != working.RawQuery && _shadow.IsRecording)
         {
-            var rawOutcome = await _retriever.RetrieveAsync(
+            rawQueryRetrieved = await _context.RetrieveWithRawQueryAsync(
                 userId, working.RawQuery, projectContext.ResolvedProjectName, ct);
-            rawQueryRetrieved = rawOutcome.Selected.Take(5)
-                .Select(r => (r.Memory.Content.Length <= 120 ? r.Memory.Content : r.Memory.Content[..120])
-                    + $" (score {r.Score:F2})").ToList();
         }
 
         // 4b. Relational/emotional layer: read this message's tone and append it to the signal log
@@ -453,43 +430,36 @@ public sealed class Companion : ICompanion
             // encouragement on the day, a follow-up after â€” the caring-at-the-right-moment layer.
             await CaptureAnticipationAsync(userId, extractionSource, ct);
         }
-        var relationship = await _relationship.BuildAsync(userId, ct);
+        // 4c-4e. The remaining contextual ingredients (Turns/Context/TurnContext): the
+        // relationship snapshot, a musing that colors this turn, at most one held curiosity,
+        // her own state and familiarity, and the relevant tastes, attention items, procedures,
+        // capabilities and shared perspectives. Runs HERE, after the mood capture above, so
+        // her state reflects the signal this message just left.
+        var prepared = await _context.PrepareAsync(
+            userId, promptText, now, outcome.QueryEmbedding, selectedMemories,
+            identityProjection, ct);
+        decisions.AddRange(prepared.Decisions);
 
-        // 4c. The inner monologue reaches the turn here: a fresh private musing colors the reply's
-        // attention, and at most one held curiosity is offered for the model to raise IF it fits.
-        // Offering consumes it (marked voiced below), so a question is asked once, never nagged.
-        var musing = await RelevantMusingAsync(userId, outcome.QueryEmbedding, now, ct);
-        var curiosity = await _reflections.GetNextToVoiceAsync(
-            userId, now, TimeSpan.FromHours(_options.CuriosityCooldownHours), ct);
-        decisions.Add(new DecisionRecord
-        {
-            Stage = "curiosity", Decider = "rule",
-            Verdict = curiosity is null ? "none-offered" : "offered",
-            Reason = curiosity?.Question,
-        });
+        // These five are read by several later stages (the plan contributors, the trace, the
+        // curiosity mark-voiced); the rest are consumed once, by assembly, and are read
+        // straight off the result.
+        var relationship = prepared.Relationship;
+        var musing = prepared.Musing;
+        var curiosity = prepared.Curiosity;
+        var innerState = prepared.InnerState;
+        var familiarity = prepared.Familiarity;
 
-        // 4d. Her own inner state â€” spirits + energy â€” colors the reply's tone (and answers
-        // "how are you?" honestly). Read AFTER the mood capture above, so this turn's emotional
-        // signal has already rubbed off on her. Familiarity calibrates how casual she may be.
-        var innerState = await _innerState.BuildAsync(userId, ct);
-        var familiarity = await _familiarity.BuildAsync(userId, ct);
-
-        // 4e. Temporal grounding + her own relevant tastes for this turn (top few by similarity â€”
-        // never the whole preference table, and never raw numbers).
+        // Temporal grounding stays here: it is a pure clock read rather than anything
+        // gathered, and moving it would have meant moving a public helper the tests name.
         var temporal = TemporalNote(_clock.GetLocalNow(), now, lastSeenBefore);
-        var preferenceNotes = await RelevantPreferencesAsync(
-            userId, outcome.QueryEmbedding, identityProjection.CompanionRef, ct);
-        var attentionNotes = await _attention.SelectForContextAsync(userId, promptText, _options.MaxAttentionItems, ct);
-        var procedureNotes = await RelevantProceduresAsync(userId, promptText, identityProjection.UserRef, ct);
-        var capabilityNote = await _capabilities.RenderSummaryAsync(promptText, ct);
-        var perspectiveNotes = await SharedPerspectiveNotesAsync(userId, selectedMemories, identityProjection, ct);
 
         // 5. Assemble a bounded, labeled context packet (with the user's persona/style + tone read).
         var packet = _assembler.Assemble(
             promptText, recent, selectedMemories, projectContext, persona, relationship,
             musing, curiosity?.Question, innerState.Describe(), familiarity.Describe(),
-            temporal, preferenceNotes, identityProjection, attentionNotes, procedureNotes,
-            capabilityNote, perspectiveNotes, interpretationNote);
+            temporal, prepared.PreferenceNotes, identityProjection, prepared.AttentionNotes,
+            prepared.ProcedureNotes, prepared.CapabilityNote, prepared.PerspectiveNotes,
+            interpretationNote);
 
         // 5b. The bounded tool loop, driven by the executive planner. It gets a COMPACT planning
         // context â€” recent exchange, what retrieval already found, the detected project â€” never
@@ -1425,13 +1395,10 @@ public sealed class Companion : ICompanion
     // ---- helpers ----
 
     /// <summary>A musing is only current for so long â€” after this it stops shaping turns by default.</summary>
-    private static readonly TimeSpan MusingSurfaceWindow = TimeSpan.FromDays(7);
 
     /// <summary>How far back the diary is searched for a relevant past thought.</summary>
-    private const int MusingSearchLookback = 50;
 
     /// <summary>Minimum cosine for an old musing to resurface on relevance alone.</summary>
-    private const double MusingRelevanceFloor = 0.3;
 
     /// <summary>Below this age a musing reads as current; older ones get an age prefix.</summary>
     private static readonly TimeSpan MusingIsRecent = TimeSpan.FromHours(36);
@@ -1443,38 +1410,9 @@ public sealed class Companion : ICompanion
     /// side-effect free â€” a musing can accompany many turns; it is a mood the companion carries,
     /// unlike a curiosity, which is consumed the one time it is offered.
     /// </summary>
-    private async Task<string?> RelevantMusingAsync(
-        string userId, float[]? queryEmbedding, DateTimeOffset now, CancellationToken ct)
-    {
-        var musings = (await _reflections.GetRecentAsync(userId, MusingSearchLookback, ct))
-            .Where(r => r.HasMusing)
-            .ToList();
-        if (musings.Count == 0)
-            return null;
 
-        // Relevance first: "I remember thinking about this a while back" â€” and it's literally true.
-        if (queryEmbedding is not null)
-        {
-            var best = musings
-                .Where(r => r.Embedding is not null)
-                .Select(r => (Reflection: r, Score: ScoreMath.Cosine(queryEmbedding, r.Embedding!)))
-                .OrderByDescending(x => x.Score)
-                .FirstOrDefault();
-            if (best.Reflection is not null && best.Score >= MusingRelevanceFloor)
-                return WithAge(best.Reflection, now);
-        }
-
-        // Otherwise the freshest thought still colors the turn â€” but only while it's current.
-        var newest = musings[0];
-        return now - newest.CreatedAt <= MusingSurfaceWindow ? WithAge(newest, now) : null;
-    }
 
     /// <summary>An older thought carries its age, so "I'd been thinkingâ€¦" can be timed honestly.</summary>
-    private static string WithAge(Reflection reflection, DateTimeOffset now)
-        => now - reflection.CreatedAt <= MusingIsRecent
-            ? reflection.Musing!
-            : $"(a thought from {RelativeTime.Describe(now - reflection.CreatedAt)} ago) {reflection.Musing}";
-
     /// <summary>Gaps shorter than this are just an ongoing conversation, not an absence.</summary>
     private static readonly TimeSpan MinGapToMention = TimeSpan.FromMinutes(5);
 
@@ -1496,28 +1434,11 @@ public sealed class Companion : ICompanion
     }
 
     /// <summary>How many of her own tastes may accompany one turn.</summary>
-    private const int MaxPreferenceNotes = 2;
 
     /// <summary>Minimum similarity for a taste to be relevant to this turn at all.</summary>
-    private const double PreferenceRelevanceFloor = 0.25;
 
     /// <summary>Her tastes that are actually relevant to what's being discussed, in natural words.</summary>
-    private async Task<IReadOnlyList<string>> RelevantPreferencesAsync(
-        string userId, float[]? queryEmbedding, string companionName, CancellationToken ct)
-    {
-        if (queryEmbedding is null)
-            return Array.Empty<string>();
 
-        var all = await _preferences.GetAllAsync(userId, ct);
-        return all
-            .Where(p => p.Embedding is not null)
-            .Select(p => (Preference: p, Score: ScoreMath.Cosine(queryEmbedding, p.Embedding!)))
-            .Where(x => x.Score >= PreferenceRelevanceFloor)
-            .OrderByDescending(x => x.Score)
-            .Take(MaxPreferenceNotes)
-            .Select(x => x.Preference.Describe(companionName))
-            .ToList();
-    }
 
     /// <summary>
     /// Builds the plan/4 frame from the authoritative session. Reads only what the session
@@ -1551,37 +1472,9 @@ public sealed class Companion : ICompanion
         };
     }
 
-    private async Task<IReadOnlyList<string>> RelevantProceduresAsync(
-        string userId, string query, string userName, CancellationToken ct)
-    {
-        var procedures = await _procedures.SearchAsync(userId, query, _options.MaxProceduresInContext, ct);
-        return procedures.Select(p =>
-        {
-            var activeSteps = p.Steps.Where(s => s.IsActive).OrderBy(s => s.Order).Take(8).ToList();
-            var steps = string.Join(" ", activeSteps.Select(s => $"{s.Order}. {s.Instruction}"));
-            return $"{userName}'s {p.Name} ({p.Access}; authoritative user-taught workflow): {steps}";
-        }).ToList();
-    }
 
-    private async Task<IReadOnlyList<string>> SharedPerspectiveNotesAsync(
-        string userId, IReadOnlyList<RetrievalResult> selected, PromptIdentityContext identities, CancellationToken ct)
-    {
-        var sharedIds = selected
-            .Select(r => r.Memory)
-            .OfType<EpisodicMemory>()
-            .Where(m => m.Owner == MemoryOwner.Shared)
-            .Select(m => m.Id)
-            .ToList();
-        var perspectives = await _sharedPerspectives.GetForExperiencesAsync(userId, sharedIds, ct);
-        return perspectives
-            .Take(_options.MaxSharedPerspectivesInContext)
-            .Select(p =>
-            {
-                var owner = p.Owner == MemoryOwner.Companion ? identities.CompanionRef : identities.UserRef;
-                return $"{owner} perspective: {p.Summary} (interpretation; confidence {Math.Round(p.Confidence, 2)})";
-            })
-            .ToList();
-    }
+
+
 
     private async Task<Message> StoreMessageAsync(
         string userId, Guid conversationId, MessageRole role, string content, Guid? replyToId,
