@@ -23,12 +23,9 @@ public sealed class Companion : ICompanion
     private readonly IPendingClarificationStore _pending;
     private readonly IProfileStore _profiles;
     private readonly IContextAssembler _assembler;
-    private readonly IReplyGenerator _replyGenerator;
 
     // All three optional and defaulted, so every existing construction site â€” and every test â€”
     // keeps working with a gate that is simply not there.
-    private readonly IReplyGate _gate;
-    private readonly SafetyOptions _safety;
     private readonly IShadowRecorder _shadow;
     private readonly IRendererShadow _rendererShadow;
     private readonly IFrameSessionStore? _frames;
@@ -52,7 +49,6 @@ public sealed class Companion : ICompanion
     private readonly IPrivacyClassifier _privacy;
     private readonly IAttentionService _attention;
     private readonly IProcedureStore _procedures;
-    private readonly ToolLoop _toolLoop;
     private readonly ITurnTraceLog _turnLog;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
@@ -60,6 +56,7 @@ public sealed class Companion : ICompanion
     private readonly Turns.Admission.TurnAdmission _admission;
     private readonly Turns.Context.TurnContext _context;
     private readonly Turns.Planning.TurnPlanning _planning;
+    private readonly Turns.Execution.TurnExecution _execution;
 
     public Companion(
         IConversationStore conversations,
@@ -67,7 +64,6 @@ public sealed class Companion : ICompanion
         IPendingClarificationStore pending,
         IProfileStore profiles,
         IContextAssembler assembler,
-        IReplyGenerator replyGenerator,
         IPersonalityService personality,
         IMemoryPipeline pipeline,
         IProjectUpdater projectUpdater,
@@ -79,7 +75,6 @@ public sealed class Companion : ICompanion
         IPrivacyClassifier privacy,
         IAttentionService attention,
         IProcedureStore procedures,
-        ToolLoop toolLoop,
         ITurnTraceLog turnLog,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
@@ -87,8 +82,7 @@ public sealed class Companion : ICompanion
         Turns.Admission.TurnAdmission admission,
         Turns.Context.TurnContext context,
         Turns.Planning.TurnPlanning planning,
-        IReplyGate? gate = null,
-        IOptions<SafetyOptions>? safety = null,
+        Turns.Execution.TurnExecution execution,
         IShadowRecorder? shadow = null,
         ICognitiveCapture? capture = null,
         IDiagnosticsStore? diagnostics = null,
@@ -97,8 +91,6 @@ public sealed class Companion : ICompanion
         IRendererShadow? rendererShadow = null,
         IFrameSessionStore? frames = null)
     {
-        _gate = gate ?? new AlwaysOpenGate();
-        _safety = safety?.Value ?? new SafetyOptions();
         _shadow = shadow ?? new NoShadowRecorder();
         _rendererShadow = rendererShadow ?? new NullRendererShadow();
         _frames = frames;
@@ -111,7 +103,6 @@ public sealed class Companion : ICompanion
         _pending = pending;
         _profiles = profiles;
         _assembler = assembler;
-        _replyGenerator = replyGenerator;
         _personality = personality;
         _pipeline = pipeline;
         _projectUpdater = projectUpdater;
@@ -123,7 +114,6 @@ public sealed class Companion : ICompanion
         _privacy = privacy;
         _attention = attention;
         _procedures = procedures;
-        _toolLoop = toolLoop;
         _turnLog = turnLog;
         _options = options.Value;
         _clock = clock;
@@ -131,6 +121,7 @@ public sealed class Companion : ICompanion
         _admission = admission;
         _context = context;
         _planning = planning;
+        _execution = execution;
     }
 
     public async Task<TurnTrace> RespondAsync(
@@ -552,17 +543,12 @@ public sealed class Companion : ICompanion
             decisions.AddRange(native.Decisions);
         }
 
-        var planningContext = BuildPlanningContext(recent, selectedMemories, projectContext.ResolvedProjectName);
-        var toolOutcome = await _toolLoop.RunAsync(userId, planningContext, promptText, traceId, ct);
+        var (toolOutcome, toolDecision) = await _execution.RunToolsAsync(
+            userId, recent, selectedMemories, projectContext.ResolvedProjectName,
+            promptText, traceId, ct);
         if (toolOutcome.ResultsSection is not null)
             packet = packet with { ToolResults = toolOutcome.ResultsSection };
-        decisions.Add(new DecisionRecord
-        {
-            Stage = "tools",
-            Decider = toolOutcome.PlanningRounds > 0 ? "model" : "rule",
-            Verdict = toolOutcome.Calls.Count == 0
-                ? "none" : string.Join(",", toolOutcome.Calls.Select(c => c.Tool)),
-        });
+        decisions.Add(toolDecision);
 
         // plan/4 (docs/PLAN_V4_FICTION_FRAME.md): the fiction frame.
         //
@@ -690,124 +676,56 @@ public sealed class Companion : ICompanion
         // on production, which is the model proven to handle the request. This is the same
         // reasoning as skipping tool turns — route the request to the renderer that can serve
         // it — and it restricts no subject matter: the production model answers it in full.
-        var canaryTurn = _rendererShadow.IsCanaryFor(userId)
-            && toolOutcome.Calls.Count == 0
-            && !inCharacter;
-
-        // 6. Generate the response. The reply generator owns "when to keep going" â€” it continues a
-        // cut-off or self-truncated answer (feeding the text so far back so it resumes the SAME
-        // task), and streams to the sink across rounds when one is provided.
-        // The exact text the model receives. Rendered once, here, so what is shown in
-        // diagnostics is the same string that was sent rather than a second rendering that
-        // might differ.
-        var renderedPrompt = packet.Render();
-
-        var generated = await _replyGenerator.GenerateAsync(
-            renderedPrompt, promptText, canaryTurn ? null : tokenSink,
-            identityProjection?.CompanionName, ct);
-
-        // Her own transcript is in the prompt, and she sometimes continues it instead of replying â€”
-        // reproducing an entire earlier turn before getting to the new one. This is the only place
-        // that can catch it, because it needs the conversation to compare against, which the
-        // generator does not have.
-        var response = EchoedTurnFilter.Strip(generated.Text, recent);
-        if (!ReferenceEquals(response, generated.Text) && response.Length != generated.Text.Length)
+        // 6. Execution (Turns/Execution/TurnExecution): render the prompt, call production,
+        // run the canary if this turn is eligible, and apply the reply gate. It selects the
+        // displayed reply and persists nothing — every write below is still the turn's.
+        var executed = await _execution.ExecuteAsync(new Turns.Execution.TurnExecutionRequest
         {
-            _logger.LogWarning(
-                "Reply for {UserId} began by repeating an earlier turn verbatim ({Removed} chars removed).",
-                userId, generated.Text.Length - response.Length);
-        }
+            TraceId = traceId,
+            UserId = userId,
+            ConversationId = conversationId,
+            SourceMessageId = extractionSource.Id,
+            PromptText = promptText,
+            Packet = packet,
+            Recent = recent,
+            Plan = plan,
+            ToolOutcome = toolOutcome,
+            InCharacter = inCharacter,
+            Sensitive = sensitive,
+            CompanionName = identityProjection?.CompanionName,
+            NativeV3 = nativeV3,
+            NativeBuildError = nativeBuildError,
+            NativeLintRejections = nativeLintRejections,
+            NativeAssembly = nativeAssembly,
+            NativeCompactV4Chars = nativeCompactV4Chars,
+            NativeFrameTransition = nativeFrame is null ? null
+                : PlanV3.PlanV4Codec.Kebab(nativeFrame.Transition),
+            TokenSink = tokenSink,
+        }, ct);
+        decisions.AddRange(executed.Decisions);
 
-        // 6a'. The canary render, synchronous with its own timeout. On success the displayed
-        // reply is the renderer's — every later stage (reply gate, fidelity checks, storage,
-        // extraction, reflection) sees only that text. On unavailability or a critical
-        // fidelity failure, the production reply just generated is shown; the comparison row's
-        // Applied column names whichever the user actually got.
-        if (canaryTurn)
+        var canaryTurn = executed.CanaryTurn;
+        var renderedPrompt = executed.RenderedPrompt;
+        var generated = executed.Generation;
+        var response = executed.Displayed;
+
+        // The gate's comparison row is written HERE: execution decided, observability records.
+        if (executed.Refusal is { } refusal)
         {
-            var canaryResult = await _rendererShadow.RenderForDisplayAsync(new RendererShadowObservation
+            await _shadow.RecordAsync(new ShadowComparison
             {
-                TraceId = traceId,
+                Id = Guid.NewGuid(),
                 UserId = userId,
                 SourceMessageId = extractionSource.Id,
                 ConversationId = conversationId,
-                Plan = plan,
-                Transcript = recent
-                    .TakeLast(4)
-                    .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
-                    .ToList(),
-                UserMessage = promptText,
-                ProductionResponse = response,
-                NativeV3 = nativeV3,
-                NativeBuildError = nativeBuildError,
-                NativeLintRejections = nativeLintRejections,
-                NativeAssembly = nativeAssembly,
-                NativeCompactV4Chars = nativeCompactV4Chars,
-                NativeFrameTransition = nativeFrame is null ? null
-                    : global::Companion.PlanV3.PlanV4Codec.Kebab(nativeFrame.Transition),
-            }, record: !sensitive, ct);
-
-            var displayedRenderer = canaryResult is { CriticalFailure: false } ? "run-1c" : "production";
-            if (displayedRenderer == "run-1c")
-                response = canaryResult!.Reply;
-
-            decisions.Add(new DecisionRecord
-            {
-                Stage = "renderer.canary", Decider = "config",
-                Verdict = displayedRenderer == "run-1c" ? "displayed-run1c" : "fallback-production",
-                Reason = canaryResult is null ? "renderer unavailable or timed out"
-                    : canaryResult.CriticalFailure
-                        ? $"critical fidelity failure: {string.Join("; ", canaryResult.Violations)}"
-                        : $"latency {canaryResult.LatencyMs}ms",
-            });
-
-            // The sink was withheld from the generator; deliver the chosen reply once, whole.
-            tokenSink?.Report(response);
-        }
-
-        // 6b. The reply gate. Runs on what she is actually about to say, after the shape filters,
-        // because it judges meaning rather than form â€” and before storage, so a refused reply is
-        // never the thing the next turn reads back as context.
-        //
-        // In shadow mode the verdict is recorded and the reply goes out unchanged. That is the
-        // default even when the gate is switched on: a gate whose false-positive rate has never
-        // been measured should not be deciding what she may say, and the only way to measure it is
-        // to watch it be wrong without cost.
-        if (_gate.IsEnabled)
-        {
-            var verdict = await _gate.ReviewAsync(response, promptText, ct);
-            decisions.Add(new DecisionRecord
-            {
-                Stage = "reply.gate", Decider = "model",
-                Verdict = verdict.Allow ? "allow"
-                    : _safety.Mode == GateMode.Enforce ? "block-enforced" : "block-shadow",
-                Reason = verdict.Allow ? null : verdict.Reason,
-            });
-            if (!verdict.Allow)
-            {
-                var enforcing = _safety.Mode == GateMode.Enforce;
-                _logger.LogWarning(
-                    "Reply gate refused a reply for {UserId} ({Mode}): {Reason}",
-                    userId, enforcing ? "enforced" : "shadow only", verdict.Reason);
-
-                await _shadow.RecordAsync(new ShadowComparison
-                {
-                    Id = Guid.NewGuid(),
-                    UserId = userId,
-                    SourceMessageId = extractionSource.Id,
-                    ConversationId = conversationId,
-                    Subject = "safety.gate",
-                    Legacy = "allow",
-                    Model = "block",
-                    Confidence = 1.0,
-                    Agreed = false,
-                    Applied = enforcing ? "model" : "legacy",
-                    Input = verdict.Reason,
-                }, ct);
-
-                if (enforcing)
-                    response = _safety.Replacement;
-            }
+                Subject = "safety.gate",
+                Legacy = "allow",
+                Model = "block",
+                Confidence = 1.0,
+                Agreed = false,
+                Applied = refusal.Enforced ? "model" : "legacy",
+                Input = refusal.Reason,
+            }, ct);
         }
 
         // 6c. Plan fidelity, SHADOW: the deterministic checks of what the model actually
@@ -1245,33 +1163,6 @@ public sealed class Companion : ICompanion
     /// context already cover this?"), nothing more. Deliberately NOT the full packet â€” no
     /// persona, no mood, no relationship framing; the planner is an executive, not her.
     /// </summary>
-    private static string BuildPlanningContext(
-        IReadOnlyList<Message> recent, IReadOnlyList<RetrievalResult> selectedMemories, string? project)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Recent conversation (newest last):");
-        foreach (var message in recent.OrderBy(m => m.Timestamp).TakeLast(6))
-        {
-            var content = message.Content.Length <= 200 ? message.Content : message.Content[..200] + "â€¦";
-            sb.AppendLine($"- {(message.Role == MessageRole.User ? "user" : "assistant")}: {content}");
-        }
-        sb.AppendLine(project is null ? "Detected project: (none)" : $"Detected project: {project}");
-        if (selectedMemories.Count == 0)
-        {
-            sb.AppendLine("Automatic retrieval found nothing relevant for this message.");
-        }
-        else
-        {
-            sb.AppendLine($"Automatic retrieval already found {selectedMemories.Count} memories " +
-                "(judge whether these already cover the need):");
-            foreach (var retrieved in selectedMemories.Take(3))
-            {
-                var summary = retrieved.Memory.Content;
-                sb.AppendLine($"- {(summary.Length <= 150 ? summary : summary[..150] + "â€¦")}");
-            }
-        }
-        return sb.ToString();
-    }
 
     /// <summary>Which packet sections were actually present â€” diagnostics, not content.</summary>
     private static IReadOnlyList<string> PresentSections(ContextPacket packet)
@@ -1513,14 +1404,6 @@ public sealed class Companion : ICompanion
             ProjectUpdates = ProjectUpdateResult.Empty,
         };
 
-    /// <summary>The gate when none is injected: on for nobody, and honest about it.</summary>
-    private sealed class AlwaysOpenGate : IReplyGate
-    {
-        public bool IsEnabled => false;
-
-        public Task<GateVerdict> ReviewAsync(string reply, string userMessage, CancellationToken ct = default)
-            => Task.FromResult(GateVerdict.Allowed);
-    }
 
     /// <summary>Recording is optional here for the same reason the gate is: neither may be required.</summary>
     private sealed class NoShadowRecorder : IShadowRecorder
