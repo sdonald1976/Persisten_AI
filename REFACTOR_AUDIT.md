@@ -476,6 +476,20 @@ carrier; R-11's activity producer and character-roster cognition.
 **Until more runtime evidence:** R-05 exposure; whether the 23 transaction-less stores need
 transactions; whether `tools/Companion.Soak` and `tools/Companion.PlanV3.Prototype` are live.
 
+**Deferred debt — the cancellation token is threaded but not honoured end to end.**
+Recorded 2026-08-26, found during the Turn Execution extraction (`96201bf`). The token
+reaches every awaited call in the turn, and `TurnExecutionTests` asserts that structurally.
+What it does not do is *stop* the work: the test host's reply generator ignores it, so a
+cancelled turn runs to completion rather than throwing. That is pre-existing behaviour, not
+something an extraction introduced, and it was deliberately left alone — the phase's contract
+was to preserve cancellation behaviour exactly, and "fix it while I am here" would have been
+an unrequested behaviour change inside a move.
+
+Resolving it means deciding what a cancelled turn should DO, which is a real question rather
+than a defect to patch: whether a half-generated reply is discarded, whether post-turn effects
+run for a turn the user walked away from, and whether the stored message should exist at all.
+Not scheduled here.
+
 **Until hardware changes:** nothing. This refactor is entirely GPU-independent — which is
 what makes it the right work for this window.
 

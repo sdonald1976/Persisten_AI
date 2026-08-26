@@ -359,6 +359,7 @@ public static class DependencyInjection
         services.AddScoped<Core.Turns.Context.TurnContext>();
         services.AddScoped<Core.Turns.Planning.TurnPlanning>();
         services.AddScoped<Core.Turns.Execution.TurnExecution>();
+        services.AddScoped<Core.Turns.PostTurn.PostTurnEffects>();
         services.AddScoped<ICompanion, Core.Services.Companion>();
 
         // Session openers so the user never faces a blank prompt (the companion initiates). The

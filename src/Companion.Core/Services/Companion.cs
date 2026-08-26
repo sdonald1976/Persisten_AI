@@ -31,24 +31,16 @@ public sealed class Companion : ICompanion
     private readonly IFrameSessionStore? _frames;
     private readonly ICognitiveCapture _capture;
     private readonly IDiagnosticsStore? _diagnostics;
-    private readonly IConceptKnowledge? _concepts;
-    private readonly IGapStore? _gaps;
 
     /// <summary>The serialized-plan contract uses the same camelCase + kebab-enum shape as
     /// every other JSON boundary — this string IS the future renderer's input format.</summary>
     private static readonly System.Text.Json.JsonSerializerOptions PlanJson =
         new(System.Text.Json.JsonSerializerDefaults.Web);
     private readonly IPersonalityService _personality;
-    private readonly IMemoryPipeline _pipeline;
-    private readonly IProjectUpdater _projectUpdater;
-    private readonly IProjectStore _projects;
     private readonly IEmotionStore _emotions;
-    private readonly IReflectionStore _reflections;
     private readonly IAnticipationStore _anticipations;
     private readonly ICompanionStateTracker _innerState;
     private readonly IPrivacyClassifier _privacy;
-    private readonly IAttentionService _attention;
-    private readonly IProcedureStore _procedures;
     private readonly ITurnTraceLog _turnLog;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
@@ -57,6 +49,7 @@ public sealed class Companion : ICompanion
     private readonly Turns.Context.TurnContext _context;
     private readonly Turns.Planning.TurnPlanning _planning;
     private readonly Turns.Execution.TurnExecution _execution;
+    private readonly Turns.PostTurn.PostTurnEffects _postTurn;
 
     public Companion(
         IConversationStore conversations,
@@ -65,16 +58,10 @@ public sealed class Companion : ICompanion
         IProfileStore profiles,
         IContextAssembler assembler,
         IPersonalityService personality,
-        IMemoryPipeline pipeline,
-        IProjectUpdater projectUpdater,
-        IProjectStore projects,
         IEmotionStore emotions,
-        IReflectionStore reflections,
         IAnticipationStore anticipations,
         ICompanionStateTracker innerState,
         IPrivacyClassifier privacy,
-        IAttentionService attention,
-        IProcedureStore procedures,
         ITurnTraceLog turnLog,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
@@ -83,11 +70,10 @@ public sealed class Companion : ICompanion
         Turns.Context.TurnContext context,
         Turns.Planning.TurnPlanning planning,
         Turns.Execution.TurnExecution execution,
+        Turns.PostTurn.PostTurnEffects postTurn,
         IShadowRecorder? shadow = null,
         ICognitiveCapture? capture = null,
         IDiagnosticsStore? diagnostics = null,
-        IConceptKnowledge? concepts = null,
-        IGapStore? gaps = null,
         IRendererShadow? rendererShadow = null,
         IFrameSessionStore? frames = null)
     {
@@ -96,24 +82,16 @@ public sealed class Companion : ICompanion
         _frames = frames;
         _capture = capture ?? new NoCognitiveCapture();
         _diagnostics = diagnostics;
-        _concepts = concepts;
-        _gaps = gaps;
         _conversations = conversations;
         _projectContext = projectContext;
         _pending = pending;
         _profiles = profiles;
         _assembler = assembler;
         _personality = personality;
-        _pipeline = pipeline;
-        _projectUpdater = projectUpdater;
-        _projects = projects;
         _emotions = emotions;
-        _reflections = reflections;
         _anticipations = anticipations;
         _innerState = innerState;
         _privacy = privacy;
-        _attention = attention;
-        _procedures = procedures;
         _turnLog = turnLog;
         _options = options.Value;
         _clock = clock;
@@ -122,6 +100,7 @@ public sealed class Companion : ICompanion
         _context = context;
         _planning = planning;
         _execution = execution;
+        _postTurn = postTurn;
     }
 
     public async Task<TurnTrace> RespondAsync(
@@ -822,8 +801,8 @@ public sealed class Companion : ICompanion
 
         // 7. Store the response, with the generation metadata (why it stopped, rounds, tokens) so a
         // reply is answerable after the fact instead of a mystery.
-        var assistantMsg = await StoreMessageAsync(
-            userId, conversationId, MessageRole.Assistant, response, replyToId, _clock.GetUtcNow(), ct, generated);
+        var assistantMsg = await _postTurn.StoreReplyAsync(
+            userId, conversationId, response, replyToId, _clock.GetUtcNow(), generated, ct);
 
         // 8â€“10. Derived-state work: extraction, project/open-loop updates, attention, procedures,
         // commitments. The reply is already generated and STORED, so a failure here (extraction
@@ -840,110 +819,29 @@ public sealed class Companion : ICompanion
             // (Skipped for private AND in-character turns â€” fiction never reaches the fact store.)
             if (extractFacts)
             {
-                extraction = await _pipeline.ProcessAsync(userId, exchange, extractionResolution, ct);
-                updates = await _projectUpdater.ApplyAsync(userId, exchange, extraction, projectContext, ct);
-
-                // A commitment the companion just made ("I'll check in tomorrow") becomes a
-                // companion-owned open loop, so it can follow up next session instead of
-                // forgetting it said so. Deduped against existing open commitments.
-                await _attention.CaptureTurnAsync(userId, extractionSource, remember: true, ct);
-                await _procedures.ApplyRevisionAsync(userId, extractionSource, now, ct);
-                await _procedures.AddOrUpdateFromTeachingAsync(userId, conversationId, extractionSource, now, ct);
-                await CaptureCommitmentAsync(userId, response, assistantMsg.Id, now, ct);
-
-                // Explicit teaching becomes Ava-owned world knowledge — user message only,
-                // high-precision detector, evidence-bound (docs/CONCEPT_KNOWLEDGE.md). Inside
-                // this gate deliberately: a turn not allowed durable derived memory is not
-                // allowed durable knowledge either.
-                string? taught = null;
-                if (_concepts is not null)
+                // Post-turn effects (Turns/PostTurn/PostTurnEffects). It observes the
+                // DISPLAYED reply and nothing else — no production candidate, no rejected
+                // canary, no pre-gate text. It does not catch its own exceptions, so a
+                // failure still reaches the catch below and still skips the capture tail,
+                // exactly as before.
+                var effects = await _postTurn.ApplyAsync(new Turns.PostTurn.PostTurnRequest
                 {
-                    taught = await _concepts.LearnFromAsync(userId, extractionSource, lexicon, ct);
-                    if (taught is not null)
-                    {
-                        decisions.Add(new DecisionRecord
-                        {
-                            Stage = "knowledge.taught", Decider = "rule",
-                            Verdict = ConceptKnowledge.Canonical(taught),
-                        });
-                    }
-                    // Every loose-copular sentence the detector rejected is a labeled
-                    // negative for the future corpus — broadening happens on data, never
-                    // on intuition.
-                    if (TeachingDetector.LooseShape(extractionSource.Content))
-                    {
-                        await Shadow.CaptureAsync(
-                            _shadow, "knowledge.teaching", taught is not null,
-                            extractionSource.Content, ct,
-                            userId, extractionSource.Id, conversationId);
-                    }
-                }
-
-                // Knowledge gaps (Phase 4): observable epistemic events become typed,
-                // deduped, provenance-bearing gap rows. Recording is NOT a promise to ask —
-                // promotion is a separate, capped decision in the reflection cadence.
-                // Inside this gate deliberately: gaps are durable derived state.
-                if (_gaps is not null)
-                {
-                    async Task ObserveGapAsync(GapKind kind, string subject, GapSource source)
-                    {
-                        // sourceRef stays the trace id (diagnostic provenance); the message
-                        // id is what /forget matches on, and a gap accumulates many of them.
-                        var (gap, _) = await _gaps.ObserveAsync(
-                            userId, kind, subject, source, traceId, now, extractionSource.Id, ct);
-                        decisions.Add(new DecisionRecord
-                        {
-                            Stage = "gap.observed", Decider = "rule",
-                            Verdict = $"{kind.ToKebab()}:{subject}",
-                            Reason = $"seen {gap.Occurrences}x ({gap.Status.ToKebab()})",
-                        });
-                    }
-
-                    if (knowledge is not null)
-                    {
-                        var subject = ConceptKnowledge.Canonical(knowledge.Term);
-                        if (knowledge.Familiarity == ConceptFamiliarity.Unknown)
-                            await ObserveGapAsync(GapKind.UnknownConcept, subject, GapSource.KnowledgeLookup);
-                        else if (knowledge.Familiarity is ConceptFamiliarity.Learning or ConceptFamiliarity.Disputed)
-                            await ObserveGapAsync(GapKind.UncertainKnowledge, subject, GapSource.KnowledgeLookup);
-                    }
-
-                    // An unpinned reference: recorded, never promoted in v1 (it ages badly).
-                    if (working is { ReferenceMarkers.Count: > 0 }
-                        && (working.ResolvedReference is null
-                            || working.ResolutionConfidence == ResolutionConfidence.Guess))
-                    {
-                        await ObserveGapAsync(GapKind.UnresolvedReference,
-                            working.ReferenceMarkers[0].ToLowerInvariant(), GapSource.WorkingContext);
-                    }
-
-                    // Conflicting evidence the pipeline parked for review.
-                    foreach (var parked in extraction.Decisions
-                                 .Where(d => d.Outcome == MemoryDecisionKind.NeedsReview).Take(2))
-                    {
-                        await ObserveGapAsync(GapKind.ConflictingEvidence,
-                            $"{parked.Candidate.Subject}/{parked.Candidate.Predicate}".ToLowerInvariant(),
-                            GapSource.MemoryReview);
-                    }
-
-                    // Teaching satisfies: the loop closes with provenance, and the linked
-                    // curiosity closes with it.
-                    if (taught is not null)
-                    {
-                        var satisfied = await _gaps.SatisfyBySubjectAsync(
-                            userId, ConceptKnowledge.Canonical(taught),
-                            $"learned from teaching on {now:MMM d}", ct);
-                        if (satisfied > 0)
-                        {
-                            decisions.Add(new DecisionRecord
-                            {
-                                Stage = "gap.satisfied", Decider = "rule",
-                                Verdict = ConceptKnowledge.Canonical(taught),
-                                Reason = $"{satisfied} gap(s) closed by teaching",
-                            });
-                        }
-                    }
-                }
+                    TraceId = traceId,
+                    UserId = userId,
+                    ConversationId = conversationId,
+                    Now = now,
+                    ExtractionSource = extractionSource,
+                    AssistantMessage = assistantMsg,
+                    DisplayedReply = response,
+                    ProjectContext = projectContext,
+                    Working = working,
+                    ExtractionResolution = extractionResolution,
+                    Knowledge = knowledge,
+                    Lexicon = lexicon,
+                }, ct);
+                extraction = effects.Extraction;
+                updates = effects.Updates;
+                decisions.AddRange(effects.Decisions);
 
                 // Corpus capture, last and deliberately inside this gate: a turn that is not
                 // allowed to produce durable memory is not allowed to produce durable training
@@ -1026,7 +924,7 @@ public sealed class Companion : ICompanion
         // 10c. The offered curiosity is spent whether or not the model chose to raise it â€” asked
         // once (or passed over once) is the whole budget, so proactive wondering never nags.
         if (curiosity is not null)
-            await _reflections.MarkVoicedAsync(userId, curiosity.Id, now, ct);
+            await _postTurn.MarkCuriosityVoicedAsync(userId, curiosity.Id, now, ct);
 
         if (extractFacts)
         {
@@ -1247,7 +1145,7 @@ public sealed class Companion : ICompanion
 
     private async Task<Message> StoreMessageAsync(
         string userId, Guid conversationId, MessageRole role, string content, Guid? replyToId,
-        DateTimeOffset timestamp, CancellationToken ct, ChatCompletion? generation = null)
+        DateTimeOffset timestamp, CancellationToken ct)
     {
         var message = new Message
         {
@@ -1259,13 +1157,6 @@ public sealed class Companion : ICompanion
             ReplyToId = replyToId,
             TokenCount = ContextAssembler.EstimateTokens(content),
             Timestamp = timestamp,
-            // Generation metadata: only present for a model-produced reply.
-            FinishReason = generation?.FinishReason,
-            GenerationRounds = generation?.Rounds,
-            Truncated = generation is null ? null : generation.Truncated,
-            ModelUsed = generation?.Model,
-            PromptTokens = generation?.PromptTokens,
-            CompletionTokens = generation?.CompletionTokens,
         };
         await _conversations.AddMessageAsync(message, ct);
         return message;
@@ -1358,32 +1249,6 @@ public sealed class Companion : ICompanion
     /// can proactively follow up later. Deduped against existing open commitments; no-op when the
     /// reply contains no clear promise.
     /// </summary>
-    private async Task CaptureCommitmentAsync(
-        string userId, string reply, Guid sourceMessageId, DateTimeOffset now, CancellationToken ct)
-    {
-        var commitment = CommitmentDetector.Detect(reply);
-        if (commitment is null)
-            return;
-
-        var open = await _projects.GetOpenLoopsAsync(userId, onlyOpen: true, ct);
-        if (open.Any(l => string.Equals(l.Owner, "companion", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(l.Description, commitment, StringComparison.OrdinalIgnoreCase)))
-            return;
-
-        await _projects.AddOpenLoopAsync(new OpenLoop
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            ProjectId = null,
-            Owner = "companion",
-            Description = commitment,
-            Status = OpenLoopStatus.Open,
-            CreatedAt = now,
-            SourceMessageId = sourceMessageId,
-        }, ct);
-
-        _logger.LogInformation("Captured a companion commitment for {UserId}: \"{Commitment}\"", userId, commitment);
-    }
 
     /// <summary>A trace for a turn that paused (or cancelled) instead of answering â€” no retrieval/generation ran.</summary>
     private static TurnTrace ClarificationTrace(
