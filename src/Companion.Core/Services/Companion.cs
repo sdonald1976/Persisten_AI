@@ -344,49 +344,22 @@ public sealed class Companion : ICompanion
             .Where(m => m.Id != extractionSource.Id)
             .ToList();
 
-        // 3c. Working context (language-organ Phase 1): the system's explicit read of the
-        // conversation â€” open questions, topic, salient entities, what the user's references
-        // point at, and what kind of turn this is. Interpretation was the chat model's job by
-        // default, and it demonstrably bent short answers toward whatever else was in the
-        // prompt. Deterministic, ephemeral (recent dialogue stays dialogue â€” none of this is
-        // stored), and traced in full on the diagnostics ring.
-        var working = WorkingContext.Read(
+        // 3c. Understanding (Turns/Understanding/TurnUnderstanding): the system's explicit
+        // read of the conversation — open questions, topic, salient entities, what the user's
+        // references point at, and what kind of turn this is — plus the reference resolution
+        // extraction depends on. Deterministic, ephemeral, and traced in full.
+        //
+        // Its decisions are RETURNED and appended here, at the point the turn always added
+        // them, so the recorded decision sequence is byte-identical.
+        var understanding = Turns.Understanding.TurnUnderstanding.Read(
             recent, promptText, projectContext.ResolvedProjectName,
             identityProjection.UserName, identityProjection.CompanionName);
-        decisions.Add(new DecisionRecord
-        {
-            Stage = "interpretation", Decider = "rule",
-            Verdict = working.Move.ToKebab(),
-            Reason = working.BoundQuestion
-                ?? (working.ResolvedReference is null ? null
-                    : $"{working.ReferenceMarkers.FirstOrDefault()} -> {working.ResolvedReference}"),
-        });
-        var retrievalQuery = working.RetrievalQuery;
-        var interpretationNote = working.InterpretationNote;
+        decisions.AddRange(understanding.Decisions);
 
-        // The resolution as extraction needs to know it. Exact/unambiguous resolutions are
-        // consumed (the extractor is told, the fact cites both utterances); a guess is passed
-        // as a WARNING only â€” the extractor never sees it, and the pipeline uses it to refuse
-        // candidates that name a person the user did not name this turn. A guessed referent
-        // must not become an authoritative fact because retrieval found it useful â€” and
-        // neither must the chat model's own conversational guess.
-        ReferenceResolution? extractionResolution =
-            working is { ResolvedReference: { } refValue, ResolutionConfidence: { } refConfidence }
-                ? new ReferenceResolution(
-                    working.ReferenceMarkers.FirstOrDefault() ?? "", refValue,
-                    refConfidence, working.ReferentSourceMessageId,
-                    working.ReferentSourceExcerpt)
-                : null;
-        if (extractionResolution is not null)
-        {
-            decisions.Add(new DecisionRecord
-            {
-                Stage = "reference.extraction", Decider = "rule",
-                Verdict = extractionResolution.Consumable
-                    ? $"consumed-{extractionResolution.Confidence.ToKebab()}" : "withheld-guess",
-                Reason = $"{working.ReferenceMarkers.FirstOrDefault()} -> {working.ResolvedReference}",
-            });
-        }
+        var working = understanding.Working;
+        var retrievalQuery = understanding.RetrievalQuery;
+        var interpretationNote = understanding.InterpretationNote;
+        var extractionResolution = understanding.ExtractionResolution;
 
         // 4. Retrieve relevant memories, boosted by the resolved project â€” searching what the
         // message MEANS (question + answer, reference + referent), not just what it says.
@@ -395,19 +368,14 @@ public sealed class Companion : ICompanion
             userId, retrievalQuery, outcome.Selected, _options.MaxAssociativeMemories, ct);
         var selectedMemories = outcome.Selected.Concat(associative).ToList();
 
-        // 4a. Turn intent (language-organ Phase 2), in SHADOW: what should this turn DO â€”
-        // answer, acknowledge, clarify, admit ignorance? Deterministic over working context +
-        // retrieval, recorded and captured, and deliberately NOT given to the packet: it
-        // gains authority over generation only if the shadow data shows the classifications
-        // are useful. "unknown" means continue naturally and is preferred to a confident
-        // mistake.
-        var intent = TurnIntentClassifier.Classify(working, promptText, outcome.Selected.Count);
-        decisions.Add(new DecisionRecord
-        {
-            Stage = "intent", Decider = "rule",
-            Verdict = intent.Intent.ToKebab(),
-            Reason = intent.Reason,
-        });
+        // 4a. Turn intent, in SHADOW. Part of understanding, and it runs here rather than
+        // above because the classification counts what retrieval selected — an existing data
+        // dependency the extraction follows instead of hiding.
+        var (intent, intentDecision) = Turns.Understanding.TurnUnderstanding.ClassifyIntent(
+            working, promptText, outcome.Selected.Count);
+        decisions.Add(intentDecision);
+        understanding = understanding with { Intent = intent };
+
         var focal = RelevanceSignals.Focal(promptText, outcome.Selected);
 
         // The one controlled promotion (language-organ Phase 2): when the flag is on and the
