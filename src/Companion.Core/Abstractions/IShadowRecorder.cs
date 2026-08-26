@@ -69,7 +69,18 @@ public interface IShadowRecorder
     /// rather than wider. Excerpts are the user's own quoted words, and short ones are ignored so
     /// that forgetting a memory evidenced by "the roof" cannot sweep out unrelated sentences.
     /// </summary>
-    Task<int> ForgetCapturesAsync(IReadOnlyCollection<string> excerpts, CancellationToken ct = default);
+    /// <summary>
+    /// A3. Removes the shadow rows a forgotten turn produced. BOTH the user and the exact
+    /// message must match: a row without ownership never participates, and a row belonging
+    /// to somebody else is never loaded. Replaces the substring matching this used to do,
+    /// which deleted by resemblance across every user of the instance.
+    /// </summary>
+    /// <summary>Age-based retention, independent of forgetting.</summary>
+    Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default);
+
+    Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        Guid? memoryId = null, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -174,7 +185,10 @@ public static class Shadow
         string subject,
         bool legacy,
         string? input,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? userId = null,
+        Guid? sourceMessageId = null,
+        Guid? conversationId = null)
     {
         if (!recorder.IsRecording)
             return;
@@ -184,6 +198,9 @@ public static class Shadow
             Id = Guid.NewGuid(),
             Subject = subject,
             Legacy = legacy ? "true" : "false",
+            UserId = userId,
+            SourceMessageId = sourceMessageId,
+            ConversationId = conversationId,
 
             // Null is what makes this a capture rather than a comparison, and every reader keys off
             // it: agreement rates exclude these rows, because a model that was never asked cannot

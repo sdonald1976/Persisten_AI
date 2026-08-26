@@ -15,10 +15,14 @@ public interface ICognitiveCapture
     bool IsCapturing { get; }
 
     /// <summary>Records the classifier-shaped judgements made about one user message.</summary>
-    Task CaptureUserMessageAsync(string message, CancellationToken ct = default);
+    Task CaptureUserMessageAsync(
+        string message, CancellationToken ct = default,
+        string? userId = null, Guid? sourceMessageId = null, Guid? conversationId = null);
 
     /// <summary>Records the judgements made about the companion's own reply.</summary>
-    Task CaptureReplyAsync(string reply, CancellationToken ct = default);
+    Task CaptureReplyAsync(
+        string reply, CancellationToken ct = default,
+        string? userId = null, Guid? sourceMessageId = null, Guid? conversationId = null);
 
     /// <summary>
     /// Records one supersession pair at the moment the pipeline decided it — the input the
@@ -72,4 +76,6 @@ public sealed record SupersessionPairCapture(
     bool SameSlot,
     bool SingleValued,
     double Similarity,
-    string IncumbentOutcome);
+    string IncumbentOutcome,
+    /// <summary>Whose memory this is. Required for A3 ownership on the captured row.</summary>
+    string? UserId = null);

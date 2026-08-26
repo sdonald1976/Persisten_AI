@@ -102,6 +102,17 @@ public sealed record RendererShadowObservation
 
     public required string UserMessage { get; init; }
 
+    /// <summary>
+    /// A3 ownership. These rows quote the user's message and both replies verbatim, which
+    /// makes them the most sensitive thing the shadow table holds — and until now they had
+    /// no owner and no evidence identity, so they could only be forgotten by substring.
+    /// </summary>
+    public string? UserId { get; init; }
+
+    public Guid? SourceMessageId { get; init; }
+
+    public Guid? ConversationId { get; init; }
+
     /// <summary>The reply production actually sent, after all filters and gates.</summary>
     public required string ProductionResponse { get; init; }
 

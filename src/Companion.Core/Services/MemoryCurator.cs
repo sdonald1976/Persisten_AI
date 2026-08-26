@@ -166,12 +166,17 @@ public sealed class MemoryCurator : IMemoryCurator
         // in-character, off the record — which covers everything except changing your mind later,
         // and changing your mind later is what /forget IS. Without this the memory is deleted, its
         // embedding purged, and the sentence stays in the corpus table as training data.
-        if (forgotten && excerpts.Count > 0 && _shadow is not null)
+        // A3: shadow rows are forgotten by OWNERSHIP AND EXACT EVIDENCE, never by the
+        // excerpts. Matching text deleted by resemblance, across every user, and missed any
+        // paraphrase; a row that cannot name its turn is not attributed to one at all.
+        if (forgotten && _shadow is not null)
         {
-            var removed = await _shadow.ForgetCapturesAsync(excerpts, ct);
+            var removed = await _shadow.ForgetByEvidenceAsync(
+                userId, evidenceMessageIds, _clock.GetUtcNow(), memoryId, ct);
             if (removed > 0)
                 _logger.LogInformation(
-                    "Forgetting {MemoryId} also removed {Count} captured sentences.", memoryId, removed);
+                    "Forgetting {MemoryId} also removed {Count} shadow comparison(s).",
+                    memoryId, removed);
         }
 
         // Source 3: a preference whose authority depended on THIS evidence loses it now —

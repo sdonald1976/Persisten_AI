@@ -100,6 +100,12 @@ public class RendererV3ShadowTests
 
     private sealed class CollectingRecorder : IShadowRecorder
     {
+        public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+            => Task.FromResult(0);
+        public Task<int> ForgetByEvidenceAsync(
+            string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+            Guid? memoryId = null, CancellationToken ct = default) => Task.FromResult(0);
+
         public List<ShadowComparison> Rows { get; } = [];
         public bool IsRecording => true;
         public bool IsShadowing => true;
@@ -111,8 +117,6 @@ public class RendererV3ShadowTests
             => Task.FromResult<IReadOnlyList<ShadowComparison>>(Rows);
         public Task<IReadOnlyList<ShadowComparison>> GetCapturesAsync(string? s, int c, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ShadowComparison>>([]);
-        public Task<int> ForgetCapturesAsync(IReadOnlyCollection<string> e, CancellationToken ct = default)
-            => Task.FromResult(0);
     }
 
     private static RendererShadowService Service(CollectingRecorder recorder)
@@ -177,6 +181,7 @@ public class RendererV3ShadowTests
         });
         using var scope = host.CreateScope();
         var recorder = scope.ServiceProvider.GetRequiredService<IShadowRecorder>();
+        var doomed = Guid.NewGuid();
 
         await recorder.RecordAsync(new ShadowComparison
         {
@@ -185,9 +190,12 @@ public class RendererV3ShadowTests
             Model = null,
             Applied = "none",
             Input = "{\"Items\":[{\"Text\":\"the synthetic gnome census reached eleven\"}]}",
+            UserId = "usr-scott",
+            SourceMessageId = doomed,
         });
 
-        var removed = await recorder.ForgetCapturesAsync(["the synthetic gnome census"]);
+        // A3: swept by exact turn identity rather than by a phrase in the envelope.
+        var removed = await recorder.ForgetByEvidenceAsync("usr-scott", [doomed], Now);
         Assert.Equal(1, removed);
     }
 }

@@ -50,6 +50,35 @@ public class ShadowComparison
     public string? Input { get; set; }
 
     public DateTimeOffset Timestamp { get; set; }
+
+    /// <summary>
+    /// A3. Whose comparison this is. Shadow rows had no user column at all, so forgetting
+    /// matched globally across every user of the instance. Ownership is now required for a
+    /// row to participate in forgetting.
+    /// </summary>
+    public string? UserId { get; set; }
+
+    /// <summary>
+    /// The exact message this comparison was taken from. This is what replaced substring
+    /// matching: a row keyed to an id is forgotten because it came from that turn, not
+    /// because its text happens to contain a phrase.
+    /// </summary>
+    public Guid? SourceMessageId { get; set; }
+
+    /// <summary>
+    /// Which conversation it belonged to. Useful for reading diagnostics back; deliberately
+    /// NOT usable as evidence identity, because a conversation is not a turn and forgetting
+    /// one message must not take the rest of the conversation with it.
+    /// </summary>
+    public Guid? ConversationId { get; set; }
+
+    /// <summary>
+    /// The stored memory a supersession-pair row is about. Pair rows are keyed to a MEMORY
+    /// rather than a message: the excerpts belong to the incoming fact, not the stored one,
+    /// so a message id would never find them. This used to be smuggled through the excerpt
+    /// list as a guid formatted into a string and matched by substring.
+    /// </summary>
+    public Guid? SourceMemoryId { get; set; }
 }
 
 /// <summary>How often a model and the heuristic it shadows agreed, over a window (computed, not stored).</summary>

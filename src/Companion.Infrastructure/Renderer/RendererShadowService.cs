@@ -382,6 +382,9 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         {
             Id = Guid.NewGuid(),
             Subject = RendererShadowSubject,
+            UserId = obs.UserId,
+            SourceMessageId = obs.SourceMessageId,
+            ConversationId = obs.ConversationId,
             Legacy = obs.ProductionResponse,
             Model = core.Reply,
             Confidence = 0,
@@ -495,6 +498,9 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         {
             Id = Guid.NewGuid(),
             Subject = RendererV3Subject,
+            UserId = obs.UserId,
+            SourceMessageId = obs.SourceMessageId,
+            ConversationId = obs.ConversationId,
             Legacy = null,
             Model = null,
             Confidence = 0,

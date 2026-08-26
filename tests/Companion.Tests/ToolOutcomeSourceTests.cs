@@ -648,6 +648,10 @@ public class ToolOutcomeSourceTests
 
     private sealed class CollectingRecorder : IShadowRecorder
     {
+        public Task<int> ForgetByEvidenceAsync(
+            string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+            Guid? memoryId = null, CancellationToken ct = default) => Task.FromResult(0);
+
         public List<ShadowComparison> Rows { get; } = [];
         public bool IsRecording => true;
         public bool IsShadowing => true;

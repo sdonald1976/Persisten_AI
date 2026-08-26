@@ -443,7 +443,8 @@ public sealed class MemoryPipeline : IMemoryPipeline
             SameSlot: sameSlot,
             SingleValued: FactSupersession.IsSingleValued(candidate.Predicate),
             Similarity: similarity,
-            IncumbentOutcome: outcome), ct);
+            IncumbentOutcome: outcome,
+            UserId: existing.UserId), ct);
     }
 
     private static bool ReferencesResolvedName(MemoryCandidate candidate, string referent)

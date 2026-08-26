@@ -19,6 +19,8 @@ namespace Companion.Tests;
 /// </summary>
 public class CognitiveCaptureTests
 {
+    private const string User = "usr-scott";
+
     private static readonly DateTimeOffset Now = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
     private static TestHost Host(bool capture = true)
@@ -115,15 +117,19 @@ public class CognitiveCaptureTests
     }
 
     /// <summary>
-    /// Forgetting a memory takes the sentences it came from out of the capture table too.
+    /// Forgetting a memory takes the rows it produced out of the capture table too.
     ///
-    /// Capture's gate is evaluated at TURN time — private, in-character, "don't remember" — which
-    /// covers every way of saying no except the one people actually use, which is changing their
-    /// mind afterwards. Before this, /forget marked the memory deleted, purged its embedding, and
-    /// left the sentence sitting in the telemetry table as training data.
+    /// Capture's gate is evaluated at TURN time — private, in-character, "don't remember" —
+    /// which covers every way of saying no except the one people actually use, which is
+    /// changing their mind afterwards.
+    ///
+    /// A3 changed HOW those rows are found. It used to be a substring search over the stored
+    /// text, which deleted by resemblance and matched across every user of the instance. It
+    /// is now the message id the row was captured from, and both the user and the id must
+    /// match.
     /// </summary>
     [Fact]
-    public async Task ForgettingAMemory_RemovesTheSentencesItCameFrom()
+    public async Task ForgettingAMemory_RemovesTheRowsItProduced()
     {
         await using var host = Host();
         using var scope = host.CreateScope();
@@ -132,11 +138,15 @@ public class CognitiveCaptureTests
 
         const string forgotten = "I still need to finish the shed roof this weekend.";
         const string kept = "We have decided to use SQLite in the end.";
-        await capture.CaptureUserMessageAsync(forgotten);
-        await capture.CaptureUserMessageAsync(kept);
+        var forgottenMessage = Guid.NewGuid();
+        var keptMessage = Guid.NewGuid();
+
+        await capture.CaptureUserMessageAsync(forgotten, default, User, forgottenMessage);
+        await capture.CaptureUserMessageAsync(kept, default, User, keptMessage);
         Assert.Equal(6, (await recorder.GetCapturesAsync(null, 100)).Count);
 
-        var removed = await recorder.ForgetCapturesAsync([forgotten]);
+        var removed = await recorder.ForgetByEvidenceAsync(
+            User, [forgottenMessage], DateTimeOffset.UnixEpoch);
 
         Assert.Equal(3, removed);
         var left = await recorder.GetCapturesAsync(null, 100);
@@ -145,22 +155,67 @@ public class CognitiveCaptureTests
     }
 
     /// <summary>
-    /// And it does not sweep out sentences nobody asked about. Evidence excerpts are often short
-    /// noun phrases, and "the roof" appears in every sentence about a roof — deleting more than was
-    /// asked is the worse error here, because a wrongly removed row cannot be recovered and the
-    /// only cost of keeping one is that a human sees it again.
+    /// Identical wording captured from two different turns is two different rows, and
+    /// forgetting one leaves the other. Under the old substring rule both went, because the
+    /// text was the same — which is precisely the over-deletion A3 removes.
     /// </summary>
     [Fact]
-    public async Task ForgettingDoesNotMatchOnShortExcerpts()
+    public async Task IdenticalWordingFromADifferentTurn_Survives()
     {
         await using var host = Host();
         using var scope = host.CreateScope();
         var recorder = scope.ServiceProvider.GetRequiredService<IShadowRecorder>();
         var capture = scope.ServiceProvider.GetRequiredService<ICognitiveCapture>();
 
-        await capture.CaptureUserMessageAsync("I still need to finish the shed roof.");
+        const string sameWords = "I still need to finish the shed roof this weekend.";
+        var doomed = Guid.NewGuid();
+        var kept = Guid.NewGuid();
+        await capture.CaptureUserMessageAsync(sameWords, default, User, doomed);
+        await capture.CaptureUserMessageAsync(sameWords, default, User, kept);
 
-        Assert.Equal(0, await recorder.ForgetCapturesAsync(["the roof"]));
+        Assert.Equal(3, await recorder.ForgetByEvidenceAsync(
+            User, [doomed], DateTimeOffset.UnixEpoch));
+        Assert.Equal(3, (await recorder.GetCapturesAsync(null, 100)).Count);
+    }
+
+    /// <summary>
+    /// And one user's forgetting cannot reach another's rows, even when the message id
+    /// collides. Ownership is in the query, so the other user's rows are never loaded.
+    /// </summary>
+    [Fact]
+    public async Task AnotherUsersRows_AreUnreachable()
+    {
+        await using var host = Host();
+        using var scope = host.CreateScope();
+        var recorder = scope.ServiceProvider.GetRequiredService<IShadowRecorder>();
+        var capture = scope.ServiceProvider.GetRequiredService<ICognitiveCapture>();
+
+        var shared = Guid.NewGuid();
+        await capture.CaptureUserMessageAsync("something", default, User, shared);
+        await capture.CaptureUserMessageAsync("something", default, "usr-other", shared);
+
+        Assert.Equal(3, await recorder.ForgetByEvidenceAsync(
+            User, [shared], DateTimeOffset.UnixEpoch));
+        Assert.Equal(3, (await recorder.GetCapturesAsync(null, 100)).Count);
+    }
+
+    /// <summary>
+    /// A row with no ownership -- written before A3 -- is never attributed to a turn. Those
+    /// rows were purged by the migration; inventing an owner for them would delete somebody
+    /// else's diagnostics on the next /forget.
+    /// </summary>
+    [Fact]
+    public async Task RowsWithoutOwnership_AreNeverMatched()
+    {
+        await using var host = Host();
+        using var scope = host.CreateScope();
+        var recorder = scope.ServiceProvider.GetRequiredService<IShadowRecorder>();
+        var capture = scope.ServiceProvider.GetRequiredService<ICognitiveCapture>();
+
+        await capture.CaptureUserMessageAsync("legacy row, no owner");   // no ids passed
+
+        Assert.Equal(0, await recorder.ForgetByEvidenceAsync(
+            User, [Guid.NewGuid()], DateTimeOffset.UnixEpoch));
         Assert.Equal(3, (await recorder.GetCapturesAsync(null, 100)).Count);
     }
 

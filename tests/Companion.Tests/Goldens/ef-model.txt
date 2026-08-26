@@ -551,13 +551,17 @@
   prop Agreed : Boolean notnull col=INTEGER
   prop Applied : String notnull col=TEXT max=20
   prop Confidence : Double notnull col=REAL
+  prop ConversationId : Nullable`1 null col=TEXT
   prop DurationMs : Int64 notnull col=INTEGER
   prop Id : Guid notnull col=TEXT generated=OnAdd
   prop Input : String null col=TEXT max=2000
   prop Legacy : String null col=TEXT max=200
   prop Model : String null col=TEXT max=200
+  prop SourceMemoryId : Nullable`1 null col=TEXT
+  prop SourceMessageId : Nullable`1 null col=TEXT
   prop Subject : String notnull col=TEXT max=80
   prop Timestamp : DateTimeOffset notnull col=INTEGER
+  prop UserId : String null col=TEXT
   key primary Id
   index Subject,Timestamp
 

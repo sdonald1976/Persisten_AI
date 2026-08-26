@@ -45,7 +45,9 @@ public sealed class CognitiveCapture : ICognitiveCapture
 
     public bool IsCapturing => _shadow.IsRecording;
 
-    public async Task CaptureUserMessageAsync(string message, CancellationToken ct = default)
+    public async Task CaptureUserMessageAsync(
+        string message, CancellationToken ct = default,
+        string? userId = null, Guid? sourceMessageId = null, Guid? conversationId = null)
     {
         if (!IsCapturing || string.IsNullOrWhiteSpace(message))
             return;
@@ -56,12 +58,20 @@ public sealed class CognitiveCapture : ICognitiveCapture
         // the answer is no. A capture log holding only the sentences a rule fired on cannot measure
         // the rate it fires at, and that rate is the number every precision figure computed so far
         // has had to assume rather than measure.
-        await Shadow.CaptureAsync(_shadow, "memory.unfinished", UnfinishedWorkDetector.Detect(message) is not null, text, ct);
-        await Shadow.CaptureAsync(_shadow, "memory.decision", DecisionDetector.Detect(message) is not null, text, ct);
-        await Shadow.CaptureAsync(_shadow, "tool.capability", ToolNudge.Detect(message) is not null, text, ct);
+        await Shadow.CaptureAsync(
+            _shadow, "memory.unfinished", UnfinishedWorkDetector.Detect(message) is not null, text, ct,
+            userId, sourceMessageId, conversationId);
+        await Shadow.CaptureAsync(
+            _shadow, "memory.decision", DecisionDetector.Detect(message) is not null, text, ct,
+            userId, sourceMessageId, conversationId);
+        await Shadow.CaptureAsync(
+            _shadow, "tool.capability", ToolNudge.Detect(message) is not null, text, ct,
+            userId, sourceMessageId, conversationId);
     }
 
-    public async Task CaptureReplyAsync(string reply, CancellationToken ct = default)
+    public async Task CaptureReplyAsync(
+        string reply, CancellationToken ct = default,
+        string? userId = null, Guid? sourceMessageId = null, Guid? conversationId = null)
     {
         if (!IsCapturing || string.IsNullOrWhiteSpace(reply))
             return;
@@ -70,7 +80,8 @@ public sealed class CognitiveCapture : ICognitiveCapture
         // for that reason: mixing the two under one subject would produce a corpus where half the
         // rows are a different speaker, and no amount of labelling fixes that afterwards.
         await Shadow.CaptureAsync(
-            _shadow, "companion.commitment", CommitmentDetector.Detect(reply) is not null, Trim(reply), ct);
+            _shadow, "companion.commitment", CommitmentDetector.Detect(reply) is not null,
+            Trim(reply), ct, userId, sourceMessageId, conversationId);
     }
 
     /// <summary>
@@ -126,6 +137,10 @@ public sealed class CognitiveCapture : ICognitiveCapture
         {
             Id = Guid.NewGuid(),
             Subject = PairSubject,
+            UserId = pair.UserId,
+            // Keyed to the stored MEMORY, not a message: the excerpts here belong to the
+            // incoming fact, so a message id would never find this row.
+            SourceMemoryId = pair.ExistingId,
             Legacy = pair.IncumbentOutcome,
             Model = null,          // null = capture; a model's verdict arrives via Shadow.CompareAsync
             Confidence = 0,
@@ -154,9 +169,13 @@ public sealed class NoCognitiveCapture : ICognitiveCapture
 {
     public bool IsCapturing => false;
 
-    public Task CaptureUserMessageAsync(string message, CancellationToken ct = default) => Task.CompletedTask;
+    public Task CaptureUserMessageAsync(
+        string message, CancellationToken ct = default,
+        string? userId = null, Guid? sourceMessageId = null, Guid? conversationId = null) => Task.CompletedTask;
 
-    public Task CaptureReplyAsync(string reply, CancellationToken ct = default) => Task.CompletedTask;
+    public Task CaptureReplyAsync(
+        string reply, CancellationToken ct = default,
+        string? userId = null, Guid? sourceMessageId = null, Guid? conversationId = null) => Task.CompletedTask;
 
     public Task CapturePairAsync(SupersessionPairCapture pair, CancellationToken ct = default) => Task.CompletedTask;
 }

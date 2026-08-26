@@ -894,6 +894,9 @@ public sealed class Companion : ICompanion
             var canaryResult = await _rendererShadow.RenderForDisplayAsync(new RendererShadowObservation
             {
                 TraceId = traceId,
+                UserId = userId,
+                SourceMessageId = extractionSource.Id,
+                ConversationId = conversationId,
                 Plan = plan,
                 Transcript = recent
                     .TakeLast(4)
@@ -956,6 +959,9 @@ public sealed class Companion : ICompanion
                 await _shadow.RecordAsync(new ShadowComparison
                 {
                     Id = Guid.NewGuid(),
+                    UserId = userId,
+                    SourceMessageId = extractionSource.Id,
+                    ConversationId = conversationId,
                     Subject = "safety.gate",
                     Legacy = "allow",
                     Model = "block",
@@ -995,6 +1001,9 @@ public sealed class Companion : ICompanion
                 await _shadow.RecordAsync(new ShadowComparison
                 {
                     Id = Guid.NewGuid(),
+                    UserId = userId,
+                    SourceMessageId = extractionSource.Id,
+                    ConversationId = conversationId,
                     Subject = "plan.fidelity",
                     Legacy = $"violated:{check}",
                     Model = null,
@@ -1034,6 +1043,9 @@ public sealed class Companion : ICompanion
                 var observation = new RendererShadowObservation
                 {
                     TraceId = traceId,
+                    UserId = userId,
+                    SourceMessageId = extractionSource.Id,
+                    ConversationId = conversationId,
                     Plan = plan,
                     Transcript = recent
                         .TakeLast(4)
@@ -1108,8 +1120,10 @@ public sealed class Companion : ICompanion
                     // on intuition.
                     if (TeachingDetector.LooseShape(extractionSource.Content))
                     {
-                        await Shadow.CaptureAsync(_shadow, "knowledge.teaching", taught is not null,
-                            extractionSource.Content, ct);
+                        await Shadow.CaptureAsync(
+                            _shadow, "knowledge.teaching", taught is not null,
+                            extractionSource.Content, ct,
+                            userId, extractionSource.Id, conversationId);
                     }
                 }
 
@@ -1183,8 +1197,10 @@ public sealed class Companion : ICompanion
                 // allowed to produce durable memory is not allowed to produce durable training
                 // data either. Off unless CognitiveModels:Capture is set, and it changes nothing
                 // it observes â€” see ICognitiveCapture.
-                await _capture.CaptureUserMessageAsync(extractionSource.Content, ct);
-                await _capture.CaptureReplyAsync(response, ct);
+                await _capture.CaptureUserMessageAsync(
+                    extractionSource.Content, ct, userId, extractionSource.Id, conversationId);
+                await _capture.CaptureReplyAsync(
+                    response, ct, userId, extractionSource.Id, conversationId);
 
                 // Same discipline for the working-context rules: record what they decided on
                 // the populations they decide about â€” that is the base rate every precision
@@ -1192,9 +1208,11 @@ public sealed class Companion : ICompanion
                 // Capture-only; changes nothing it observes.
                 if (AnswerBindingDetector.TrailingQuestion(recent) is { } openQuestion)
                 {
-                    await Shadow.CaptureAsync(_shadow, "context.binding",
+                    await Shadow.CaptureAsync(
+                        _shadow, "context.binding",
                         working.BoundQuestion is not null,
-                        $"{openQuestion} ||| {extractionSource.Content}", ct);
+                        $"{openQuestion} ||| {extractionSource.Content}", ct,
+                        userId, extractionSource.Id, conversationId);
                 }
                 if (_shadow.IsRecording)
                 {
@@ -1209,6 +1227,9 @@ public sealed class Companion : ICompanion
                     await _shadow.RecordAsync(new ShadowComparison
                     {
                         Id = Guid.NewGuid(),
+                        UserId = userId,
+                        SourceMessageId = extractionSource.Id,
+                        ConversationId = conversationId,
                         Subject = "turn.intent",
                         Legacy = $"{intent.Intent.ToKebab()} ({intent.Confidence:F2})"
                             + (intent.Candidates.Count > 1
@@ -1228,6 +1249,9 @@ public sealed class Companion : ICompanion
                     await _shadow.RecordAsync(new ShadowComparison
                     {
                         Id = Guid.NewGuid(),
+                        UserId = userId,
+                        SourceMessageId = extractionSource.Id,
+                        ConversationId = conversationId,
                         Subject = "context.reference",
                         Legacy = $"{working.Move.ToKebab()}: {working.ReferenceMarkers.First()}"
                             + (working.ResolvedReference is null ? " (unresolved)"
@@ -1789,8 +1813,12 @@ public sealed class Companion : ICompanion
             string? subject, int count, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ShadowComparison>>(Array.Empty<ShadowComparison>());
 
-        public Task<int> ForgetCapturesAsync(
-            IReadOnlyCollection<string> excerpts, CancellationToken ct = default)
+        public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+            => Task.FromResult(0);
+
+        public Task<int> ForgetByEvidenceAsync(
+            string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+            Guid? memoryId = null, CancellationToken ct = default)
             => Task.FromResult(0);
     }
 

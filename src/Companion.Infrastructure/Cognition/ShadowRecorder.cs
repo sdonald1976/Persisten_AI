@@ -36,8 +36,12 @@ internal sealed class NullShadowRecorder : IShadowRecorder
         string? subject, int count, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<ShadowComparison>>(Array.Empty<ShadowComparison>());
 
-    public Task<int> ForgetCapturesAsync(
-        IReadOnlyCollection<string> excerpts, CancellationToken ct = default)
+    public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+        => Task.FromResult(0);
+
+    public Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        Guid? memoryId = null, CancellationToken ct = default)
         => Task.FromResult(0);
 }
 
@@ -167,57 +171,48 @@ internal sealed class ShadowRecorder : IShadowRecorder
     /// here than deleting less: the row is training data, the alternative to removing it is a
     /// second pass by a human, and there is no way to get a wrongly deleted one back.
     /// </summary>
-    public async Task<int> ForgetCapturesAsync(
-        IReadOnlyCollection<string> excerpts, CancellationToken ct = default)
+    public async Task<int> ForgetByEvidenceAsync(
+        string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+        Guid? memoryId = null, CancellationToken ct = default)
     {
-        var usable = excerpts
-            .Where(e => !string.IsNullOrWhiteSpace(e) && e.Trim().Length >= MinimumExcerpt)
-            .Select(e => e.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (usable.Count == 0)
+        if (messageIds.Count == 0 && memoryId is null)
             return 0;
 
+        var ids = messageIds.ToHashSet();
         try
         {
             using var scope = _scopes.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
 
-            // Captures — a shadow comparison's input is a premise/candidate pair written by
-            // the pipeline, not the user's sentence, and it is what makes a disagreement readable.
-            // Renderer shadow rows are the exception: their envelope quotes the user's message and
-            // both replies verbatim, so the forget promise covers them too, matched on any of the
-            // three texts a forgotten sentence could live in.
-            var candidates = await db.ShadowComparisons
-                .Where(c => (c.Model == null || c.Subject.StartsWith("renderer."))
-                            && c.Input != null)
+            // Ownership AND exact evidence, both required, both in the query. A row with no
+            // UserId or no SourceMessageId predates A3 and can never be attributed to a turn,
+            // so it is never matched here -- those rows were purged by the migration instead,
+            // because inventing ownership for them would delete somebody else's diagnostics.
+            var doomed = await db.ShadowComparisons
+                .Where(c => c.UserId == userId
+                            && (c.SourceMessageId != null || c.SourceMemoryId != null))
                 .ToListAsync(ct);
-
-            var doomed = candidates
-                .Where(c => usable.Any(e =>
-                    c.Input!.Contains(e, StringComparison.OrdinalIgnoreCase)
-                    || (c.Subject.StartsWith("renderer.")
-                        && ((c.Legacy != null && c.Legacy.Contains(e, StringComparison.OrdinalIgnoreCase))
-                            || (c.Model != null && c.Model.Contains(e, StringComparison.OrdinalIgnoreCase))))))
+            doomed = doomed
+                .Where(c => (c.SourceMessageId is { } m && ids.Contains(m))
+                            // Pair rows are about a stored MEMORY, and its id is the only
+                            // handle that finds them.
+                            || (memoryId is { } mem && c.SourceMemoryId == mem))
                 .ToList();
             if (doomed.Count == 0)
                 return 0;
 
+            // Deleted, not redacted. A shadow comparison is diagnostic rather than
+            // authoritative, and its whole substance is the text it quotes: redacting it
+            // leaves a row that says nothing and costs the same to keep.
             db.ShadowComparisons.RemoveRange(doomed);
             await db.SaveChangesAsync(ct);
-            _logger.LogInformation(
-                "Removed {Count} captured rows for a forgotten memory.", doomed.Count);
             return doomed.Count;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
-            // Same rule as every other write here: telemetry never breaks the caller. But this one
-            // is a promise rather than a data point, so it is logged as a warning that names what
-            // did not happen, instead of disappearing.
-            _logger.LogWarning(ex, "Failed to remove captured rows for a forgotten memory. The "
-                                   + "sentences remain in the capture table and should be cleared "
-                                   + "by hand before the corpus is exported.");
-            return 0;
+            // Unlike a failed write, a failed FORGET is not survivable silence.
+            _logger.LogError(ex, "Could not forget shadow comparisons for a user.");
+            throw;
         }
     }
 
@@ -225,5 +220,31 @@ internal sealed class ShadowRecorder : IShadowRecorder
     /// Below this an excerpt is too generic to match on. Chosen to exclude the short noun phrases
     /// evidence often quotes ("the roof", "the shed") while keeping whole clauses.
     /// </summary>
-    private const int MinimumExcerpt = 12;
+
+    /// <summary>
+    /// A3. Age-based retention. Shadow comparisons had none at all, so verbatim messages and
+    /// replies accumulated indefinitely in a table whose whole purpose is short-lived
+    /// evaluation. Separate from forgetting: this sweeps by age and knows nothing about
+    /// evidence, and forgetting reaches rows this has not yet aged out.
+    ///
+    /// A terminal evaluation artifact that must outlive this window is exported deliberately,
+    /// without private conversation content -- it is not kept here by leaving the table
+    /// unbounded.
+    /// </summary>
+    public async Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+    {
+        try
+        {
+            using var scope = _scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CompanionDbContext>();
+            return await db.ShadowComparisons
+                .Where(c => c.Timestamp < olderThan)
+                .ExecuteDeleteAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not prune shadow comparisons.");
+            return 0;
+        }
+    }
 }

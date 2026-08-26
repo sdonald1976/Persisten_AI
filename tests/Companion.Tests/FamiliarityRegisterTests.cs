@@ -270,6 +270,10 @@ public class FamiliarityRegisterTests
 
     private sealed class CollectingRecorder : IShadowRecorder
     {
+        public Task<int> ForgetByEvidenceAsync(
+            string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+            Guid? memoryId = null, CancellationToken ct = default) => Task.FromResult(0);
+
         public List<ShadowComparison> Rows { get; } = [];
         public bool IsRecording => true;
         public bool IsShadowing => true;
@@ -282,7 +286,5 @@ public class FamiliarityRegisterTests
         public Task<IReadOnlyList<ShadowComparison>> GetCapturesAsync(string? s, int c, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ShadowComparison>>(Rows.Where(r => r.Subject == s).ToList());
         public Task<int> PruneAsync(DateTimeOffset o, CancellationToken ct = default) => Task.FromResult(0);
-        public Task<int> ForgetCapturesAsync(IReadOnlyCollection<string> excerpts, CancellationToken ct = default)
-            => Task.FromResult(0);
     }
 }

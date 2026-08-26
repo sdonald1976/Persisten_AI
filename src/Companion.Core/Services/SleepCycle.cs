@@ -39,6 +39,14 @@ public sealed class SleepCycle : ISleepCycle
     /// </summary>
     public static readonly TimeSpan EmotionalSignalRetention = TimeSpan.FromDays(180);
 
+    /// <summary>
+    /// A3. Shadow comparisons quote verbatim messages and replies and exist to answer a
+    /// short-lived evaluation question, so they are the shortest-lived thing here. A result
+    /// that must outlive it is exported deliberately, without private content, rather than
+    /// preserved by leaving the table unbounded.
+    /// </summary>
+    public static readonly TimeSpan ShadowComparisonRetention = TimeSpan.FromDays(30);
+
     private readonly IReflector _reflector;
     private readonly IMemoryConsolidator _consolidator;
     private readonly IReflectionStore _reflections;
@@ -49,6 +57,7 @@ public sealed class SleepCycle : ISleepCycle
     private readonly ILogger<SleepCycle> _logger;
     private readonly IGapStore? _gaps;
     private readonly IEmotionStore? _emotions;
+    private readonly IShadowRecorder? _shadow;
 
     /// <summary>How long an unpursued knowledge gap is held before aging to Expired.
     /// Diagnostics-grade retention: a gap is working epistemic state, never biography.</summary>
@@ -64,10 +73,12 @@ public sealed class SleepCycle : ISleepCycle
         TimeProvider clock,
         ILogger<SleepCycle> logger,
         IGapStore? gaps = null,
-        IEmotionStore? emotions = null)
+        IEmotionStore? emotions = null,
+        IShadowRecorder? shadow = null)
     {
         _gaps = gaps;
         _emotions = emotions;
+        _shadow = shadow;
         _reflector = reflector;
         _consolidator = consolidator;
         _reflections = reflections;
@@ -99,6 +110,8 @@ public sealed class SleepCycle : ISleepCycle
         // Sweep old telemetry while tidying — a month of model/tool history is plenty for
         // debugging and model comparisons, and the tables stay bounded without a separate job.
         await _diagnostics.PruneAsync(_clock.GetUtcNow() - DiagnosticsRetention, ct);
+        if (_shadow is not null)
+            await _shadow.PruneAsync(_clock.GetUtcNow() - ShadowComparisonRetention, ct);
         await _experiences.PruneAsync(_clock.GetUtcNow() - ExperienceRetention, ct);
         if (_emotions is not null)
             await _emotions.PruneAsync(_clock.GetUtcNow() - EmotionalSignalRetention, ct);

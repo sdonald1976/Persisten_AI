@@ -18,6 +18,8 @@ namespace Companion.Tests;
 /// </summary>
 public class RendererShadowTests
 {
+    private static readonly Guid Doomed = Guid.NewGuid();
+
     private static readonly DateTimeOffset Now = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
     private static ResponsePlan Plan(
@@ -298,6 +300,8 @@ public class RendererShadowTests
             Model = "Tuesday it is — Dr. Feldspar awaits.",
             Applied = "legacy",
             Input = "{\"UserMessage\":\"remind me about dr feldspar\"}",
+            UserId = "usr-scott",
+            SourceMessageId = Doomed,
         });
         await recorder.RecordAsync(new ShadowComparison
         {
@@ -306,9 +310,12 @@ public class RendererShadowTests
             Model = "Also unrelated.",
             Applied = "legacy",
             Input = "{\"UserMessage\":\"gardening\"}",
+            UserId = "usr-scott",
+            SourceMessageId = Guid.NewGuid(),
         });
 
-        var removed = await recorder.ForgetCapturesAsync(["the appointment with Dr. Feldspar"]);
+        // A3: the row is found by the turn it came from, not by the words it quotes.
+        var removed = await recorder.ForgetByEvidenceAsync("usr-scott", [Doomed], Now);
 
         Assert.Equal(1, removed);
         var remaining = await recorder.GetDisagreementsAsync(
@@ -418,6 +425,12 @@ public class RendererShadowTests
 
     private sealed class CollectingRecorder : IShadowRecorder
     {
+        public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+            => Task.FromResult(0);
+        public Task<int> ForgetByEvidenceAsync(
+            string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
+            Guid? memoryId = null, CancellationToken ct = default) => Task.FromResult(0);
+
         public List<ShadowComparison> Rows { get; } = [];
 
         public bool IsRecording => true;
@@ -442,8 +455,5 @@ public class RendererShadowTests
             string? subject, int count, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ShadowComparison>>([]);
 
-        public Task<int> ForgetCapturesAsync(
-            IReadOnlyCollection<string> excerpts, CancellationToken ct = default)
-            => Task.FromResult(0);
     }
 }
