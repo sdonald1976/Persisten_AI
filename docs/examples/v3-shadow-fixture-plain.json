@@ -43,6 +43,8 @@
   "Native": null,
   "NativeBuildError": null,
   "NativeLintRejections": [],
+  "RenderEligible": true,
+  "RenderRefusals": [],
   "Parity": [],
   "FrameTransition": null,
   "CompactV4Chars": null,

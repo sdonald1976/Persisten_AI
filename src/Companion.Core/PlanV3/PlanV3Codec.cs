@@ -249,6 +249,35 @@ public static class PlanV3Codec
             ? $"{item.Id}: coaching phrase \"{m.Value.Trim()}\" in producer-authored text"
             : null;
 
+    /// <summary>
+    /// Render eligibility: may this plan become model-facing bytes?
+    ///
+    /// Separate from <see cref="Validate"/> on purpose. Validate answers a STRUCTURAL question
+    /// about the document, and its answer is unchanged by this type's existence. This answers a
+    /// SERIALIZATION question about the items, and it is the only place that answer lives --
+    /// both <see cref="CompactV3"/> and <see cref="PlanV4Codec.CompactV4"/> consult it rather
+    /// than re-running the lint inline, so serialization cannot enforce a rule a caller had no
+    /// way to ask about.
+    ///
+    /// Never throws. A caller that intends to serialize should ask this first and record the
+    /// refusals; the exception exists only for callers that did not ask.
+    /// </summary>
+    public static RenderEligibility CheckRenderEligibility(PlanV3 plan)
+    {
+        List<RenderRefusal>? refusals = null;
+        foreach (var item in plan.Items)
+        {
+            if (CoachingViolation(item) is null)
+                continue;
+            // The refusal records id/source/rule and deliberately NOT the matched phrase: the
+            // phrase is producer-authored text, and a reason carrying it would put that text
+            // into logs and shadow rows through the exception message.
+            (refusals ??= []).Add(new RenderRefusal(
+                item.Id, item.Source ?? "", RenderRefusalCodes.ProducerCoaching));
+        }
+        return refusals is null ? RenderEligibility.Ok : new RenderEligibility(refusals);
+    }
+
     // ---- canonical model-facing serialization -------------------------------------------
 
     public static RenderCategory CategoryOf(PlanItem i) => i.Category ?? i.Policy switch
@@ -278,11 +307,14 @@ public static class PlanV3Codec
     public static string CompactV3(PlanV3 plan)
     {
         var errors = Validate(plan);
-        foreach (var item in plan.Items)
-            if (CoachingViolation(item) is { } v)
-                errors.Add($"coaching lint: {v}");
         if (errors.Count > 0)
             throw new InvalidOperationException("invalid plan: " + string.Join("; ", errors));
+
+        // Structure first, then eligibility: "is this well formed?" and "may it be rendered?"
+        // are different questions, and a malformed plan cannot meaningfully answer the second.
+        var eligibility = CheckRenderEligibility(plan);
+        if (!eligibility.Eligible)
+            throw new PlanNotRenderableException(eligibility);
 
         var sb = new StringBuilder();
         void Line(string s) => sb.Append(s).Append("\r\n");
@@ -436,7 +468,11 @@ public static class PlanV3Codec
     public static PlanIdentity PersistableIdentity(PlanV3 plan, byte[]? deploymentKey = null, int keyVersion = 0)
     {
         var wire = WirePlanHash(plan);
-        if (!ContainsProtectedContent(plan))
+        // A render-ineligible plan has no model-facing bytes, so it has no renderPromptHash --
+        // the same shape a protected plan already has. This used to THROW out of identity
+        // computation, taking the whole evidence row with it and recording only that something
+        // failed. Structural identity survives; the absent hash is the finding.
+        if (!ContainsProtectedContent(plan) && CheckRenderEligibility(plan).Eligible)
             return new PlanIdentity(wire, RenderPromptHash(plan), null);
         var tag = deploymentKey is null ? null : CorrelationTag(plan, deploymentKey, keyVersion);
         return new PlanIdentity(wire, null, tag);

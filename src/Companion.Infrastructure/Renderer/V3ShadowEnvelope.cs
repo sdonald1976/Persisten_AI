@@ -54,6 +54,16 @@ public sealed record V3ShadowEnvelope
     /// <summary>Content-safe source-side lint rejections ("id source rule").</summary>
     public IReadOnlyList<string> NativeLintRejections { get; init; } = [];
 
+    /// <summary>
+    /// Whether the translated plan could be serialized at all, and why not when it could not.
+    /// Asked via PlanV3Codec.CheckRenderEligibility BEFORE any serialization is attempted, so
+    /// an ineligible plan produces a row that SAYS SO rather than an exception that discards
+    /// the row. Reasons are id/source/rule only — never the offending text.
+    /// </summary>
+    public bool RenderEligible { get; init; } = true;
+
+    public IReadOnlyList<string> RenderRefusals { get; init; } = [];
+
     /// <summary>Semantic parity by class; differences are evidence, never behavior.</summary>
     public IReadOnlyList<V3ParityClass> Parity { get; init; } = [];
 
@@ -104,7 +114,12 @@ public sealed record V3NativeSection(
     string RegisterLine,
     /// <summary>Items per contributing source. Source ids and counts — no content. Without
     /// it a native row cannot say WHICH organ contributed, only how many items exist.</summary>
-    IReadOnlyDictionary<string, int>? SourceCounts = null);
+    IReadOnlyDictionary<string, int>? SourceCounts = null,
+    /// <summary>Render eligibility for the NATIVE plan. False means CompactV3/CompactV4 would
+    /// refuse it, with the typed reasons beside it. This is the plan/4 corpus gate: an
+    /// ineligible native plan is evidence, not a lost row.</summary>
+    bool RenderEligible = true,
+    IReadOnlyList<string>? RenderRefusals = null);
 
 public sealed record V3ParityClass(string Class, string Status, IReadOnlyList<string> Details);
 
@@ -153,9 +168,16 @@ public static class V3ShadowEnvelopeBuilder
                 Text: itemProtected ? null : i.Text));
         }
 
+        // Asked, not discovered: eligibility is consulted here so the row can report a
+        // refusal. PersistableIdentity above already declines to produce a renderPromptHash
+        // for an ineligible plan, so nothing in this method can throw out of serialization.
+        var eligibility = PlanV3Codec.CheckRenderEligibility(v3);
+
         return new V3ShadowEnvelope
         {
             PlanOrigin = "translated_v2",
+            RenderEligible = eligibility.Eligible,
+            RenderRefusals = eligibility.Reasons,
             Protocol = v3.Protocol,
             V2SourceHash = v2Hash,
             WirePlanHash = identity.WirePlanHash,
@@ -197,6 +219,10 @@ public static class V3ShadowEnvelopeBuilder
 
         var validation = PlanV3Codec.Validate(native);
         var audience = PlanV3Codec.ValidateForAudience(native, currentRecipientPrincipals, trust);
+        // The native plan's own eligibility, asked before identity is computed. A structurally
+        // valid but render-ineligible native plan is exactly the case that used to throw here
+        // and lose the entire evidence row.
+        var nativeEligibility = PlanV3Codec.CheckRenderEligibility(native);
         var identity = PlanV3Codec.PersistableIdentity(native, correlationKey, correlationKeyVersion);
         var redacted = native.Items.Count(i =>
             i.Disclosure == Disclosure.restricted || i.Retention != Retention.full);
@@ -227,7 +253,9 @@ public static class V3ShadowEnvelopeBuilder
                 $"warmth={reg.Warmth} bluntness={reg.Bluntness} playful={reg.Playfulness} "
                 + $"teasing={reg.Teasing} skepticism={reg.Skepticism} intensity={reg.Intensity} "
                 + $"verbosity={reg.Verbosity} profanity={reg.Profanity} mirror={reg.Mirror}",
-                native.Items.GroupBy(i => i.Source).ToDictionary(g => g.Key, g => g.Count())),
+                native.Items.GroupBy(i => i.Source).ToDictionary(g => g.Key, g => g.Count()),
+                nativeEligibility.Eligible,
+                nativeEligibility.Reasons),
             NativeLintRejections = nativeLintRejections,
             Parity = parity,
         };

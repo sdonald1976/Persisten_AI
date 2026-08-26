@@ -105,13 +105,17 @@ public static class PlanV4Codec
     /// </summary>
     public static string CompactV4(PlanV3 plan)
     {
+        // Structural first: the v3 document rules plus the FRAME rules this protocol adds.
         var errors = PlanV3Codec.Validate(plan);
         errors.AddRange(ValidateFrame(plan));
-        foreach (var item in plan.Items)
-            if (PlanV3Codec.CoachingViolation(item) is { } v)
-                errors.Add($"coaching lint: {v}");
         if (errors.Count > 0)
             throw new InvalidOperationException("invalid plan: " + string.Join("; ", errors));
+
+        // Then the SAME eligibility check CompactV3 requires -- consulted, not reimplemented,
+        // so plan/4 can never acquire a serialization rule that plan/3 callers cannot ask about.
+        var eligibility = PlanV3Codec.CheckRenderEligibility(plan);
+        if (!eligibility.Eligible)
+            throw new PlanNotRenderableException(eligibility);
 
         var body = PlanV3Codec.CompactV3(plan with { Frame = null });
         var v4 = body.Replace("[plan/3]\r\n", "[plan/4]\r\n");

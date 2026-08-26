@@ -43,21 +43,20 @@ public class CompactV3GoldenTests
             if (PlanV3Codec.Validate(v3).Count > 0)
                 continue;                       // the plan/2 golden already owns validity
 
-            // CompactV3 enforces more than Validate does — the coaching lint runs at
-            // serialization time and REFUSES a plan whose producer-authored text coaches.
-            // Which plans it refuses is itself a behaviour worth pinning: a refactor that
-            // quietly started accepting them would otherwise pass unnoticed.
-            try
-            {
-                manifest[id] = Sha256(PlanV3Codec.CompactV3(v3));
-            }
-            catch (InvalidOperationException)
-            {
-                manifest[id] = "refused-by-lint";
-            }
+            // Render eligibility is asked, never discovered by catching. A structurally valid
+            // plan may still be render-ineligible; which plans are, and for exactly which
+            // typed reasons, is itself behaviour worth pinning — a change that quietly started
+            // accepting them, or refused them for a different rule, would otherwise pass
+            // unnoticed.
+            var eligibility = PlanV3Codec.CheckRenderEligibility(v3);
+            manifest[id] = eligibility.Eligible
+                ? Sha256(PlanV3Codec.CompactV3(v3))
+                : "render-ineligible " + string.Join(",", eligibility.Reasons);
         }
         return manifest;
     }
+
+
 
     [Fact]
     public void CompactV3_IsByteIdentical_AcrossTheEntireFrozenCorpus()
@@ -122,10 +121,8 @@ public class CompactV3GoldenTests
     private static bool Renderable(Companion.Core.Domain.ResponsePlan plan)
     {
         var v3 = V2Translation.FromV2(plan);
-        if (PlanV3Codec.Validate(v3).Count > 0)
-            return false;
-        try { PlanV3Codec.CompactV3(v3); return true; }
-        catch (InvalidOperationException) { return false; }
+        return PlanV3Codec.Validate(v3).Count == 0
+               && PlanV3Codec.CheckRenderEligibility(v3).Eligible;
     }
 
     /// <summary>The manifest text, for the generator below.</summary>

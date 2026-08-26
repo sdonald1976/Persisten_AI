@@ -1,4 +1,6 @@
-# id sha256(CompactV3). Regenerate only as a reviewed change.
+# id sha256(CompactV3), or "render-ineligible <reasons>" for a structurally valid plan
+# that CompactV3 refuses. Reasons are id/source/rule -- never the offending text.
+# Regenerate only as a reviewed change.
 ack-good-01 f849191f4355b7d94158a2256e650a490b6c12fed5ff1291164ef88b935a4ca8
 ack-good-02 6f5274fbc1649bd814885c924d732c507e21c341b2d221909ba01e1bc0892047
 ack-good-03 628c99037943596ad39f1a8878129294afab80e3403dc0b6b33d45f5049c465d
@@ -144,7 +146,7 @@ corru-time-02 e9a120d39fc3bff3b806930d96afeb9db6e6f5340ff591072da8d2a48ba9445c
 dont-break e5252c6a8d5801efb1b74ea48d55cdb5af998fde3ae5e47efa5d9f047a439580
 embodiment 6f5274fbc1649bd814885c924d732c507e21c341b2d221909ba01e1bc0892047
 epc-class-01 b5f71a3b02aa8d20eecca7f1e2c6a8ee8517d64fd1448ae0b1e17883fa82616d
-epc-class-02 refused-by-lint
+epc-class-02 render-ineligible q2 source=working-context rule=producer-coaching
 epc-class-03 b862f8f6e35c454ecea45097d53fb94419c0e088e557be1ae94c89c9c9a563e9
 epc-class-04 2d5280d281212a94167f5180b47e33f464d9d7ba703d7dd7a8fcf502e526a18c
 epc-class-05 62117b2bc38c47080a35f8f067e885e2e7098be6731382f1c68093cc916289fa
@@ -166,7 +168,7 @@ epc-gadget-02 06a50afb0253c59960e983c4da24787196b81b68923cbcdb46ed8aa736a4d142
 epc-gadget-03 e47401ac0fc3f742f5fadcb45028644c3b41c0993e579ae6a891668cb01e6bd3
 epc-gadget-04 61f72d2d7f9f67835a461de37dc5902c54a5fa3f8217c9208e032c30c9bcf616
 epc-gadget-05 7f6adbcd469b21523bd490aa697050172783439b1f8f14331ad62e2e7781dd08
-epc-gadget-06 refused-by-lint
+epc-gadget-06 render-ineligible q2 source=working-context rule=producer-coaching
 epc-game-01 4a6b5382f17a23da90235a1fbe33f3a45e27a5b96f1acb224772b222b150b53e
 epc-game-02 9edb4627571f4e4e6df745d550ada589909c632bf8f10d28ccf049adc2c6e43b
 epc-game-03 ce0a75118b87dd9b1fe438bfa558763b6363e298cdb58421dbe523e632207c22
