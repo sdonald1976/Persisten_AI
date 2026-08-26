@@ -386,7 +386,11 @@ public class RendererShadowTests
         Assert.NotNull(result);
         Assert.False(result!.CriticalFailure);
         Assert.Equal("Thirty seconds well spent. The door forgives you.", result.Reply);
-        var row = Assert.Single(recorder.Rows);
+        // The canary's own comparison row, selected by subject. A V3 evidence row is written
+        // alongside it now that a render-ineligible plan no longer throws out of identity
+        // computation and take the whole row with it; asserting Single here asserted the loss.
+        var row = Assert.Single(recorder.Rows,
+            r => r.Subject == RendererShadowService.RendererShadowSubject);
         Assert.Equal("model", row.Applied);
         Assert.Equal(result.Reply, row.Model);
         Assert.Equal(1, service.Counters.CanaryDisplayed);
@@ -404,7 +408,8 @@ public class RendererShadowTests
 
         Assert.NotNull(result);
         Assert.True(result!.CriticalFailure);
-        var row = Assert.Single(recorder.Rows);
+        var row = Assert.Single(recorder.Rows,
+            r => r.Subject == RendererShadowService.RendererShadowSubject);
         Assert.Equal("legacy", row.Applied);
         Assert.Equal(0, service.Counters.CanaryDisplayed);
         Assert.Equal(1, service.Counters.CanaryFallback);

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Companion.MouthFactory</RootNamespace>
+    <AssemblyName>mouth-factory</AssemblyName>
+    <IsTestProject>false</IsTestProject>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The real Plan/4 types, validators and the ONE inference-time format. The factory has no
+         parallel schema of its own; a row it cannot build through these is a row that does not
+         exist. -->
+    <ProjectReference Include="..\..\src\Companion.Core\Companion.Core.csproj" />
+    <ProjectReference Include="..\..\src\Companion.Infrastructure\Companion.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.18" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.18" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.18" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.18" />
+    <PackageReference Include="Parquet.Net" Version="5.0.2" />
+  </ItemGroup>
+
+</Project>

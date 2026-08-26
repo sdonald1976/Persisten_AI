@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Companion.Infrastructure\Companion.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Companion.Api\Companion.Api.csproj" />
     <ProjectReference Include="..\..\tools\Companion.Eval\Companion.Eval.csproj" />
+    <ProjectReference Include="..\..\tools\Companion.MouthFactory\Companion.MouthFactory.csproj" />
     <!-- The renderer's model-facing serialization and gate suite are frozen inputs to
          the QLoRA experiment (training/renderer/dataset/freeze.py). Linking the source
          lets the tests pin their behavior. -->
