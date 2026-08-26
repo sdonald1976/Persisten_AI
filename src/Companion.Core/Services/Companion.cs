@@ -620,7 +620,6 @@ public sealed class Companion : ICompanion
         string? nativeBuildError = null;
         IReadOnlyList<string> nativeLintRejections = [];
         global::Companion.PlanV3.AssemblyReport? nativeAssembly = null;
-        global::Companion.PlanV3.Frame? nativeFrame = null;
         int? nativeCompactV4Chars = null;
         if (_rendererShadow.IsObserving || _rendererShadow.IsCanaryFor(userId))
         {
@@ -661,6 +660,77 @@ public sealed class Companion : ICompanion
             Verdict = toolOutcome.Calls.Count == 0
                 ? "none" : string.Join(",", toolOutcome.Calls.Select(c => c.Tool)),
         });
+
+        // plan/4 (docs/PLAN_V4_FICTION_FRAME.md): the fiction frame.
+        //
+        // R-02: this is COGNITION, not observation, and it runs unconditionally. It used to
+        // sit inside the renderer-shadow gate below, which meant switching observation off
+        // silently stopped the frame lifecycle from advancing and from persisting — an
+        // observability flag deciding whether durable conversation state moved. Ava would
+        // forget she was in a scene because nobody was watching her be in it.
+        //
+        // The lifecycle owns frame truth; FrameRequestReader supplies the typed request and
+        // InCharacterDetector contributes only a hint that, alone, does nothing. Content
+        // never activates, restricts or exits a frame. What the shadow path may do with the
+        // result is read it — the Frame object below rides the native plan when one is being
+        // built, and is simply unused when one is not.
+        global::Companion.PlanV3.Frame? nativeFrame = null;
+        if (_frames is not null)
+        {
+            try
+            {
+                var request = FrameRequestReader.Read(promptText);
+                if (request == FrameLifecycle.Request.None && inCharacter)
+                    request = FrameLifecycle.Request.DetectedInCharacter;
+
+                var active = await _frames.GetActiveAsync(userId, conversationId, ct);
+                var decision = FrameLifecycle.Decide(request, active is not null);
+
+                if (decision.Transition is { } transition)
+                {
+                    var write = await _frames.ApplyAsync(new FrameTransitionRequest
+                    {
+                        UserId = userId,
+                        ConversationId = conversationId,
+                        Transition = global::Companion.PlanV3.PlanV4Codec.Kebab(transition),
+                        Cause = decision.Cause,
+                        At = now,
+                        SceneRef = active?.SceneRef,
+                        // R-01: the EVENT, never the words — and not even the event on a
+                        // privacy-sensitive turn. The frame still advances (the lifecycle
+                        // is not privacy-conditional); what it declines to record is any
+                        // handle back to what was said. Ava can still tell you she is in
+                        // a scene and when it started; she cannot reproduce the sentence
+                        // that started it, and neither can a training export.
+                        EvidenceMessageId = sensitive ? null : extractionSource.Id,
+                    }, traceId.ToString(), ct);
+
+                    var session = write.Session ?? active;
+                    if (session is not null)
+                        nativeFrame = BuildFrame(transition, session, userId);
+                }
+
+                decisions.Add(new DecisionRecord
+                {
+                    Stage = "plan.frame", Decider = "rule",
+                    Verdict = decision.Transition is { } t
+                        ? global::Companion.PlanV3.PlanV4Codec.Kebab(t) : "none",
+                    Reason = decision.Cause,
+                });
+            }
+            catch (Exception ex)
+            {
+                // Frame truth failing must not cost the turn. It is recorded as a decision so
+                // a lost transition is answerable rather than invisible.
+                decisions.Add(new DecisionRecord
+                {
+                    Stage = "plan.frame", Decider = "rule", Verdict = "failed",
+                    Reason = $"{ex.GetType().Name}",
+                });
+                _logger.LogWarning(ex,
+                    "Frame lifecycle failed for {TraceId}; the turn continues unframed.", traceId);
+            }
+        }
 
         // Source 2 (docs/SOURCE2_TOOL_PLAN.md): fold the turn's TYPED tool outcomes into the
         // native V3 plan through the contribution boundary. The inputs are the typed results
@@ -722,52 +792,6 @@ public sealed class Companion : ICompanion
                 // actually is — FamiliarityStage from two honest counts, and nothing else.
                 // No EmotionalSignal sentiment, no derived claim about how the user feels.
                 contributors.Add(new global::Companion.PlanV3.FamiliarityContributor(familiarity));
-
-                // plan/4 (docs/PLAN_V4_FICTION_FRAME.md): the fiction frame, on the SHADOW path
-                // only. The lifecycle owns frame truth; FrameRequestReader supplies the typed
-                // request and InCharacterDetector contributes only a hint that, alone, does
-                // nothing. Content never activates, restricts or exits a frame.
-                if (_frames is not null)
-                {
-                    var request = FrameRequestReader.Read(promptText);
-                    if (request == FrameLifecycle.Request.None && inCharacter)
-                        request = FrameLifecycle.Request.DetectedInCharacter;
-
-                    var active = await _frames.GetActiveAsync(userId, conversationId, ct);
-                    var decision = FrameLifecycle.Decide(request, active is not null);
-
-                    if (decision.Transition is { } transition)
-                    {
-                        var write = await _frames.ApplyAsync(new FrameTransitionRequest
-                        {
-                            UserId = userId,
-                            ConversationId = conversationId,
-                            Transition = global::Companion.PlanV3.PlanV4Codec.Kebab(transition),
-                            Cause = decision.Cause,
-                            At = now,
-                            SceneRef = active?.SceneRef,
-                            // R-01: the EVENT, never the words — and not even the event on a
-                            // privacy-sensitive turn. The frame still advances (the lifecycle
-                            // is not privacy-conditional); what it declines to record is any
-                            // handle back to what was said. Ava can still tell you she is in
-                            // a scene and when it started; she cannot reproduce the sentence
-                            // that started it, and neither can a training export.
-                            EvidenceMessageId = sensitive ? null : extractionSource.Id,
-                        }, traceId.ToString(), ct);
-
-                        var session = write.Session ?? active;
-                        if (session is not null)
-                            nativeFrame = BuildFrame(transition, session, userId);
-                    }
-
-                    decisions.Add(new DecisionRecord
-                    {
-                        Stage = "plan.frame", Decider = "rule",
-                        Verdict = decision.Transition is { } t
-                            ? global::Companion.PlanV3.PlanV4Codec.Kebab(t) : "none",
-                        Reason = decision.Cause,
-                    });
-                }
 
                 if (contributors.Count > 0)
                 {
