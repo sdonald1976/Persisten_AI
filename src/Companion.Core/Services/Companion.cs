@@ -24,24 +24,16 @@ public sealed class Companion : ICompanion
     private readonly IProfileStore _profiles;
     private readonly IContextAssembler _assembler;
 
-    // All three optional and defaulted, so every existing construction site â€” and every test â€”
+    // Both optional and defaulted, so every existing construction site â€” and every test â€”
     // keeps working with a gate that is simply not there.
-    private readonly IShadowRecorder _shadow;
     private readonly IRendererShadow _rendererShadow;
     private readonly IFrameSessionStore? _frames;
-    private readonly ICognitiveCapture _capture;
-    private readonly IDiagnosticsStore? _diagnostics;
 
-    /// <summary>The serialized-plan contract uses the same camelCase + kebab-enum shape as
-    /// every other JSON boundary — this string IS the future renderer's input format.</summary>
-    private static readonly System.Text.Json.JsonSerializerOptions PlanJson =
-        new(System.Text.Json.JsonSerializerDefaults.Web);
     private readonly IPersonalityService _personality;
     private readonly IEmotionStore _emotions;
     private readonly IAnticipationStore _anticipations;
     private readonly ICompanionStateTracker _innerState;
     private readonly IPrivacyClassifier _privacy;
-    private readonly ITurnTraceLog _turnLog;
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
@@ -50,6 +42,7 @@ public sealed class Companion : ICompanion
     private readonly Turns.Planning.TurnPlanning _planning;
     private readonly Turns.Execution.TurnExecution _execution;
     private readonly Turns.PostTurn.PostTurnEffects _postTurn;
+    private readonly Turns.Observability.TurnObservability _observability;
 
     public Companion(
         IConversationStore conversations,
@@ -62,7 +55,6 @@ public sealed class Companion : ICompanion
         IAnticipationStore anticipations,
         ICompanionStateTracker innerState,
         IPrivacyClassifier privacy,
-        ITurnTraceLog turnLog,
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger,
@@ -71,17 +63,12 @@ public sealed class Companion : ICompanion
         Turns.Planning.TurnPlanning planning,
         Turns.Execution.TurnExecution execution,
         Turns.PostTurn.PostTurnEffects postTurn,
-        IShadowRecorder? shadow = null,
-        ICognitiveCapture? capture = null,
-        IDiagnosticsStore? diagnostics = null,
+        Turns.Observability.TurnObservability observability,
         IRendererShadow? rendererShadow = null,
         IFrameSessionStore? frames = null)
     {
-        _shadow = shadow ?? new NoShadowRecorder();
         _rendererShadow = rendererShadow ?? new NullRendererShadow();
         _frames = frames;
-        _capture = capture ?? new NoCognitiveCapture();
-        _diagnostics = diagnostics;
         _conversations = conversations;
         _projectContext = projectContext;
         _pending = pending;
@@ -92,7 +79,6 @@ public sealed class Companion : ICompanion
         _anticipations = anticipations;
         _innerState = innerState;
         _privacy = privacy;
-        _turnLog = turnLog;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -101,6 +87,7 @@ public sealed class Companion : ICompanion
         _planning = planning;
         _execution = execution;
         _postTurn = postTurn;
+        _observability = observability;
     }
 
     public async Task<TurnTrace> RespondAsync(
@@ -380,7 +367,7 @@ public sealed class Companion : ICompanion
         // actually changes what reaches the prompt. Costs one extra embedding on rewritten
         // turns only, and only while measuring.
         IReadOnlyList<string> rawQueryRetrieved = Array.Empty<string>();
-        if (retrievalQuery != working.RawQuery && _shadow.IsRecording)
+        if (retrievalQuery != working.RawQuery && _observability.IsRecording)
         {
             rawQueryRetrieved = await _context.RetrieveWithRawQueryAsync(
                 userId, working.RawQuery, projectContext.ResolvedProjectName, ct);
@@ -441,7 +428,7 @@ public sealed class Companion : ICompanion
                 "Context packet for {UserId} is ~{Tokens} tokens (threshold {Threshold}); " +
                 "sections: {Sections}. A bloated prompt degrades small local models quietly.",
                 userId, packet.EstimatedTokens, _options.PacketTokenWarningThreshold,
-                string.Join(", ", PresentSections(packet)));
+                string.Join(", ", Turns.Observability.TurnObservability.PresentSections(packet)));
         }
 
         // Something had to be left out to stay inside the model's window. Said plainly, because
@@ -691,58 +678,15 @@ public sealed class Companion : ICompanion
         // The gate's comparison row is written HERE: execution decided, observability records.
         if (executed.Refusal is { } refusal)
         {
-            await _shadow.RecordAsync(new ShadowComparison
-            {
-                Id = Guid.NewGuid(),
-                UserId = userId,
-                SourceMessageId = extractionSource.Id,
-                ConversationId = conversationId,
-                Subject = "safety.gate",
-                Legacy = "allow",
-                Model = "block",
-                Confidence = 1.0,
-                Agreed = false,
-                Applied = refusal.Enforced ? "model" : "legacy",
-                Input = refusal.Reason,
-            }, ct);
+            await _observability.RecordGateRefusalAsync(
+                userId, extractionSource.Id, conversationId, refusal, ct);
         }
 
-        // 6c. Plan fidelity, SHADOW: the deterministic checks of what the model actually
-        // said against what the plan required — the measurable half of the renderer
-        // contract, running long before the plan has any authority. Violations are
-        // decisions AND capture rows; changing the reply is not on the table here.
-        foreach (var (check, violation) in new (string, string?)[]
-        {
-            ("correction-ownership", PlanFidelity.CheckCorrectionOwnership(plan, response)),
-            ("invented-contrition", PlanFidelity.CheckInventedContrition(plan, response)),
-            ("shared-history", PlanFidelity.CheckSharedHistoryClaim(plan, response)),
-            ("epistemic", PlanFidelity.CheckEpistemic(plan, response)),
-        })
-        {
-            if (violation is null)
-                continue;
-            decisions.Add(new DecisionRecord
-            {
-                Stage = "plan.fidelity", Decider = "rule",
-                Verdict = $"violated:{check}",
-                Reason = violation,
-            });
-            if (_shadow.IsRecording)
-            {
-                await _shadow.RecordAsync(new ShadowComparison
-                {
-                    Id = Guid.NewGuid(),
-                    UserId = userId,
-                    SourceMessageId = extractionSource.Id,
-                    ConversationId = conversationId,
-                    Subject = "plan.fidelity",
-                    Legacy = $"violated:{check}",
-                    Model = null,
-                    Applied = "legacy",
-                    Input = violation,
-                }, ct);
-            }
-        }
+        // 6c. Plan fidelity, SHADOW: recorded by observability, which is the whole point —
+        // these checks measure the renderer contract and are forbidden from enforcing it. The
+        // decisions come back and are appended here, in the position the loop occupied.
+        decisions.AddRange(await _observability.RecordPlanFidelityAsync(
+            userId, extractionSource.Id, conversationId, plan, response, ct));
 
         // 6d. Renderer shadow (docs/RENDERER_SHADOW.md): the tuned renderer renders the same
         // plan beside the reply that just went out. Fire-and-forget on an immutable snapshot —
@@ -754,24 +698,15 @@ public sealed class Companion : ICompanion
         // both the GPU work and the row.
         if (!canaryTurn && _rendererShadow.IsObserving)
         {
-            // A tool turn is still ineligible for a renderer COMPARISON — run-1c never
-            // trained on tool results, so scoring it there measures the corpus's absence
-            // rather than the renderer. Its structural V3 evidence is what Source 2 needs,
-            // so it takes the plan-only path: the row is written, the renderer never runs.
-            var eligible = !sensitive && toolOutcome.Calls.Count == 0 && !inCharacter;
-            var planOnly = !sensitive && !eligible;
-            decisions.Add(new DecisionRecord
-            {
-                Stage = "renderer.shadow", Decider = "config",
-                Verdict = eligible ? "observed" : planOnly ? "plan-only" : "skipped",
-                Reason = eligible ? null
-                    : sensitive ? "privacy-sensitive turn"
-                    : inCharacter ? "in-character turn: run-1c has no roleplay capability"
-                    : "turn used tools",
-            });
-            if (eligible || planOnly)
-            {
-                var observation = new RendererShadowObservation
+            var shadowDecision = _observability.ObserveRendererShadow(
+                new Turns.Observability.RendererShadowEligibility
+                {
+                    Shadow = _rendererShadow,
+                    Sensitive = sensitive,
+                    InCharacter = inCharacter,
+                    ToolCallCount = toolOutcome.Calls.Count,
+                },
+                () => new RendererShadowObservation
                 {
                     TraceId = traceId,
                     UserId = userId,
@@ -791,12 +726,9 @@ public sealed class Companion : ICompanion
                     NativeCompactV4Chars = nativeCompactV4Chars,
                     NativeFrameTransition = nativeFrame is null ? null
                         : global::Companion.PlanV3.PlanV4Codec.Kebab(nativeFrame.Transition),
-                };
-                if (eligible)
-                    _rendererShadow.Observe(observation);
-                else
-                    _rendererShadow.ObservePlanOnly(observation);
-            }
+                });
+            if (shadowDecision is not null)
+                decisions.Add(shadowDecision);
         }
 
         // 7. Store the response, with the generation metadata (why it stopped, rounds, tokens) so a
@@ -845,73 +777,20 @@ public sealed class Companion : ICompanion
 
                 // Corpus capture, last and deliberately inside this gate: a turn that is not
                 // allowed to produce durable memory is not allowed to produce durable training
-                // data either. Off unless CognitiveModels:Capture is set, and it changes nothing
-                // it observes â€” see ICognitiveCapture.
-                await _capture.CaptureUserMessageAsync(
-                    extractionSource.Content, ct, userId, extractionSource.Id, conversationId);
-                await _capture.CaptureReplyAsync(
-                    response, ct, userId, extractionSource.Id, conversationId);
-
-                // Same discipline for the working-context rules: record what they decided on
-                // the populations they decide about â€” that is the base rate every precision
-                // claim depends on, and it has never been measured (the ToolNudge lesson).
-                // Capture-only; changes nothing it observes.
-                if (AnswerBindingDetector.TrailingQuestion(recent) is { } openQuestion)
-                {
-                    await Shadow.CaptureAsync(
-                        _shadow, "context.binding",
-                        working.BoundQuestion is not null,
-                        $"{openQuestion} ||| {extractionSource.Content}", ct,
-                        userId, extractionSource.Id, conversationId);
-                }
-                if (_shadow.IsRecording)
-                {
-                    // Every turn's intent verdict, with the working-context move as input
-                    // context â€” the corpus that decides whether this vocabulary ever earns
-                    // authority over generation.
-                    // The input tag carries the evidence the vocabulary decisions need: the
-                    // working-context move, the top RAW topical relevance this turn (for the
-                    // admit-unknown signal characterization), and whether the message had
-                    // imperative shape (for the request/directive vocabulary question).
-                    var topTopical = outcome.Selected.Count == 0 ? 0.0 : outcome.Selected.Max(r => r.Topical);
-                    await _shadow.RecordAsync(new ShadowComparison
+                // data either. Recording only — nothing after this reads what it wrote.
+                await _observability.CaptureExchangeAsync(
+                    new Turns.Observability.TurnCaptureSnapshot
                     {
-                        Id = Guid.NewGuid(),
                         UserId = userId,
-                        SourceMessageId = extractionSource.Id,
                         ConversationId = conversationId,
-                        Subject = "turn.intent",
-                        Legacy = $"{intent.Intent.ToKebab()} ({intent.Confidence:F2})"
-                            + (intent.Candidates.Count > 1
-                                ? $" over {intent.Candidates[1].Intent.ToKebab()} ({intent.Candidates[1].Confidence:F2})" : ""),
-                        Model = null,
-                        Applied = "legacy",
-                        Input = SecretDetector.LooksLikeSecret(extractionSource.Content)
-                            ? null
-                            : $"[{working.Move.ToKebab()}|topical={topTopical:F2}" +
-                              $"{(TurnIntentClassifier.LooksDirective(extractionSource.Content) ? "|directive" : "")}" +
-                              $"{(focal is null ? "" : focal.Covered ? "|focal=covered" : "|focal=uncovered")}] " +
-                              extractionSource.Content,
+                        ExtractionSource = extractionSource,
+                        DisplayedReply = response,
+                        Recent = recent,
+                        Working = working,
+                        Intent = intent,
+                        Selected = outcome.Selected,
+                        Focal = focal,
                     }, ct);
-                }
-                if (working.ReferenceMarkers.Count > 0 && _shadow.IsRecording)
-                {
-                    await _shadow.RecordAsync(new ShadowComparison
-                    {
-                        Id = Guid.NewGuid(),
-                        UserId = userId,
-                        SourceMessageId = extractionSource.Id,
-                        ConversationId = conversationId,
-                        Subject = "context.reference",
-                        Legacy = $"{working.Move.ToKebab()}: {working.ReferenceMarkers.First()}"
-                            + (working.ResolvedReference is null ? " (unresolved)"
-                                : $" -> {working.ResolvedReference}"),
-                        Model = null,
-                        Applied = "legacy",
-                        Input = SecretDetector.LooksLikeSecret(extractionSource.Content)
-                            ? null : extractionSource.Content,
-                    }, ct);
-                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -936,106 +815,38 @@ public sealed class Companion : ICompanion
             });
         }
 
-        // 11. Record the trace for debugging (`/why`).
-        _logger.LogInformation(
-            "Turn complete for {UserId}: {Selected} memories, project={Project}, " +
-            "reply finish={Finish}/rounds={Rounds}, " +
-            "extraction {Accepted}A/{Merged}M/{Review}R/{Rejected}X, {Actions} project updates",
-            userId, outcome.Selected.Count, projectContext.ResolvedProjectName ?? "(none)",
-            generated.FinishReason ?? "(none)", generated.Rounds,
-            extraction.Accepted, extraction.Merged, extraction.NeedsReview, extraction.Rejected,
-            updates.Actions.Count);
-
-        // The operational record for "why did you say that?" â€” powers diagnostics.last_turn.
-        _turnLog.Record(userId, new TurnDiagnostics
-        {
-            TraceId = traceId,
-            At = now,
-            UserMessagePreview = promptText.Length <= 80 ? promptText : promptText[..80],
-            PromptChars = renderedPrompt.Length,
-            // Full text only when explicitly switched on; the preview above is always safe.
-            PromptSystem = _options.CapturePromptText ? renderedPrompt : null,
-            PromptUser = _options.CapturePromptText ? promptText : null,
-            MemoriesRetrieved = selectedMemories.Count,
-            RetrievedSummaries = selectedMemories.Take(5)
-                .Select(r => (r.Memory.Content.Length <= 120 ? r.Memory.Content : r.Memory.Content[..120])
-                    + $" (score {r.Score:F2})").ToList(),
-            Retrieved = selectedMemories.Take(5)
-                .Select(r => new RetrievedMemoryTrace
-                {
-                    Content = r.Memory.Content.Length <= 120 ? r.Memory.Content : r.Memory.Content[..120],
-                    Score = r.Score,
-                    Topical = r.Topical,
-                    Source = r.Source == RetrievalSource.Associative ? "associative" : "retrieval",
-                }).ToList(),
-            Decisions = decisions,
-            WorkingContext = working,
-            Intent = intent,
-            Plan = plan,
-            Focal = focal,
-            RetrievedWithRawQuery = rawQueryRetrieved,
-            ContextSections = PresentSections(packet),
-            DetectedProject = projectContext.ResolvedProjectName,
-            InCharacterTurn = inCharacter,
-            PrivateConversation = !remember,
-            FinishReason = generated.FinishReason,
-            GenerationRounds = generated.Rounds,
-            ModelUsed = generated.Model,
-            AdvertisedTools = toolOutcome.AdvertisedTools,
-            ToolCalls = toolOutcome.Calls,
-            ToolDecisions = toolOutcome.Decisions,
-            PlanningRounds = toolOutcome.PlanningRounds,
-            PacketTokens = packet.EstimatedTokens,
-        });
-
-        // The DURABLE twin of the ring entry (the ring forgets on restart, which is how the
-        // Epcot specimen's trace was lost). Content fields are nulled on turns not allowed to
-        // produce durable derived data â€” structure survives, words do not â€” and previews of
-        // ordinary turns mirror text the Messages table already stores. The store owns the
-        // never-throw guarantee.
-        if (_diagnostics is not null)
-        {
-            string? Bounded(string? text, int max) =>
-                !extractFacts || text is null ? null
-                : SecretDetector.LooksLikeSecret(text) ? null
-                : text.Length <= max ? text : text[..max];
-
-            await _diagnostics.RecordTurnAsync(new TurnRecord
+        // 11. Record the trace for debugging (`/why`). Observability owns every write below;
+        // the TurnTrace returned after it is the turn's RESULT — it carries the displayed reply
+        // out to the API — so it is built here, not there.
+        await _observability.RecordTurnAsync(
+            new Turns.Observability.TurnRecordSnapshot
             {
-                Id = traceId,
+                TraceId = traceId,
                 UserId = userId,
-                Timestamp = now,
-                // A1 lineage: every preview below is derived from this message, so forgetting
-                // it must reach them.
-                SourceMessageId = extractionSource.Id,
-                UserPreview = Bounded(promptText, 300),
-                AssistantPreview = Bounded(response, 300),
-                Move = working.Move.ToKebab(),
-                ResolvedReference = Bounded(working.ResolvedReference, 200),
-                ResolutionConfidence = working.ResolutionConfidence?.ToKebab(),
-                BoundQuestion = Bounded(working.BoundQuestion, 300),
-                RetrievalQuery = Bounded(retrievalQuery, 500),
-                Intent = intent.Intent.ToKebab(),
-                IntentConfidence = intent.Confidence,
-                IntentRunnerUp = intent.Candidates.Count > 1
-                    ? $"{intent.Candidates[1].Intent.ToKebab()} ({intent.Candidates[1].Confidence:F2})" : null,
-                Retrieved = !extractFacts ? null : System.Text.Json.JsonSerializer.Serialize(
-                    selectedMemories.Take(5).Select(r => new
-                    {
-                        c = r.Memory.Content.Length <= 90 ? r.Memory.Content : r.Memory.Content[..90],
-                        s = Math.Round(r.Score, 2),
-                        t = Math.Round(r.Topical, 2),
-                    })),
-                FocalTerms = !extractFacts || focal is null ? null : string.Join(",", focal.FocalTerms),
-                FocalCovered = focal?.Covered,
-                Decisions = string.Join("; ", decisions.Select(d => $"{d.Stage}={d.Verdict}")),
-                Plan = !extractFacts ? null
-                    : System.Text.Json.JsonSerializer.Serialize(plan, PlanJson) is var planJson
-                        && planJson.Length <= 2500 ? planJson : null,
-                PacketTokens = packet.EstimatedTokens,
-                ModelUsed = generated.Model,
+                Now = now,
+                PromptText = promptText,
+                Response = response,
+                RenderedPrompt = renderedPrompt,
+                RetrievalQuery = retrievalQuery,
+                ExtractionSource = extractionSource,
+                ExtractFacts = extractFacts,
+                InCharacter = inCharacter,
+                Remember = remember,
+                SelectedMemories = selectedMemories,
+                RawQueryRetrieved = rawQueryRetrieved,
+                Decisions = decisions,
+                Working = working,
+                Intent = intent,
+                Plan = plan,
+                Focal = focal,
+                Packet = packet,
+                ProjectContext = projectContext,
+                Outcome = outcome,
+                Generated = generated,
+                ToolOutcome = toolOutcome,
+                Extraction = extraction,
+                Updates = updates,
             }, ct);
-        }
 
         return new TurnTrace
         {
@@ -1062,28 +873,6 @@ public sealed class Companion : ICompanion
     /// persona, no mood, no relationship framing; the planner is an executive, not her.
     /// </summary>
 
-    /// <summary>Which packet sections were actually present â€” diagnostics, not content.</summary>
-    private static IReadOnlyList<string> PresentSections(ContextPacket packet)
-    {
-        var sections = new List<string>();
-        void If(bool present, string name) { if (present) sections.Add(name); }
-        If(!string.IsNullOrWhiteSpace(packet.Persona), "persona");
-        If(!string.IsNullOrWhiteSpace(packet.MoodNote), "mood");
-        If(!string.IsNullOrWhiteSpace(packet.RegisterNote), "register");
-        If(!string.IsNullOrWhiteSpace(packet.InterpretationNote), "interpretation");
-        If(!string.IsNullOrWhiteSpace(packet.FamiliarityNote), "familiarity");
-        If(!string.IsNullOrWhiteSpace(packet.RelationshipNote), "relationship");
-        If(!string.IsNullOrWhiteSpace(packet.TemporalNote), "temporal");
-        If(!string.IsNullOrWhiteSpace(packet.Musing), "musing");
-        If(!string.IsNullOrWhiteSpace(packet.CuriosityQuestion), "curiosity");
-        If(packet.Project is not null, "project");
-        If(packet.OpenLoops.Count > 0, "openLoops");
-        If(packet.Memories.Count > 0, "memories");
-        If(packet.LearnedKnowledge.Count > 0, "knowledge");
-        If(packet.PreferenceNotes.Count > 0, "preferences");
-        If(!string.IsNullOrWhiteSpace(packet.ToolResults), "toolResults");
-        return sections;
-    }
 
     // ---- helpers ----
 
@@ -1270,36 +1059,6 @@ public sealed class Companion : ICompanion
         };
 
 
-    /// <summary>Recording is optional here for the same reason the gate is: neither may be required.</summary>
-    private sealed class NoShadowRecorder : IShadowRecorder
-    {
-        public bool IsRecording => false;
-
-        public bool IsShadowing => false;
-
-        public Task RecordAsync(ShadowComparison comparison, CancellationToken ct = default)
-            => Task.CompletedTask;
-
-        public Task<IReadOnlyList<ShadowAgreement>> GetAgreementAsync(
-            DateTimeOffset since, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<ShadowAgreement>>(Array.Empty<ShadowAgreement>());
-
-        public Task<IReadOnlyList<ShadowComparison>> GetDisagreementsAsync(
-            string? subject, int count, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<ShadowComparison>>(Array.Empty<ShadowComparison>());
-
-        public Task<IReadOnlyList<ShadowComparison>> GetCapturesAsync(
-            string? subject, int count, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<ShadowComparison>>(Array.Empty<ShadowComparison>());
-
-        public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
-            => Task.FromResult(0);
-
-        public Task<int> ForgetByEvidenceAsync(
-            string userId, IReadOnlyCollection<Guid> messageIds, DateTimeOffset now,
-            Guid? memoryId = null, CancellationToken ct = default)
-            => Task.FromResult(0);
-    }
 
 }
 

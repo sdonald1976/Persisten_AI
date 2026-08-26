@@ -82,7 +82,11 @@ public sealed class PostTurnEffects(
     // rather than returned because the alternative reorders writes: the capture happens
     // between learning and the gap observations, and hoisting it to the caller would move it
     // after them. Preserving effect order matters more than the tidier boundary.
-    IShadowRecorder? shadow = null)
+    //
+    // It is an ITeachingObserver rather than a recorder on purpose: this class owns durable
+    // cognitive state, so the narrowest possible ability to write an observation down is the
+    // only observability it should be able to reach.
+    Observability.ITeachingObserver? teaching = null)
 {
     /// <summary>
     /// Stores the assistant reply with its generation metadata, so a reply is answerable after
@@ -153,14 +157,13 @@ public sealed class PostTurnEffects(
                     Verdict = ConceptKnowledge.Canonical(taught),
                 });
             }
-            // Every loose-copular sentence the detector rejected is a labeled negative for
-            // the future corpus — broadening happens on data, never on intuition.
-            if (shadow is not null && TeachingDetector.LooseShape(request.ExtractionSource.Content))
+            // The observer decides whether the sentence is worth a row; the shape test lives
+            // with it. Recording only — nothing below reads the result.
+            if (teaching is not null)
             {
-                await Shadow.CaptureAsync(
-                    shadow, "knowledge.teaching", taught is not null,
-                    request.ExtractionSource.Content, ct,
-                    request.UserId, request.ExtractionSource.Id, request.ConversationId);
+                await teaching.ObserveTeachingAsync(
+                    request.UserId, request.ExtractionSource.Id, request.ConversationId,
+                    request.ExtractionSource.Content, taught is not null, ct);
             }
         }
 

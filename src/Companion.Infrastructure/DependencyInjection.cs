@@ -360,6 +360,10 @@ public static class DependencyInjection
         services.AddScoped<Core.Turns.Planning.TurnPlanning>();
         services.AddScoped<Core.Turns.Execution.TurnExecution>();
         services.AddScoped<Core.Turns.PostTurn.PostTurnEffects>();
+        services.AddScoped<Core.Turns.Observability.TurnObservability>();
+        // PostTurnEffects takes the narrow observer, not the recorder behind it.
+        services.AddScoped<Core.Turns.Observability.ITeachingObserver>(
+            sp => sp.GetRequiredService<Core.Turns.Observability.TurnObservability>());
         services.AddScoped<ICompanion, Core.Services.Companion>();
 
         // Session openers so the user never faces a blank prompt (the companion initiates). The
