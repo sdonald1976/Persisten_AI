@@ -66,6 +66,7 @@ public sealed class Companion : ICompanion
     private readonly CompanionOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<Companion> _logger;
+    private readonly Turns.Admission.TurnAdmission _admission;
 
     public Companion(
         IConversationStore conversations,
@@ -97,6 +98,7 @@ public sealed class Companion : ICompanion
         IOptions<CompanionOptions> options,
         TimeProvider clock,
         ILogger<Companion> logger,
+        Turns.Admission.TurnAdmission admission,
         IReplyGate? gate = null,
         IOptions<SafetyOptions>? safety = null,
         IShadowRecorder? shadow = null,
@@ -149,36 +151,26 @@ public sealed class Companion : ICompanion
         _options = options.Value;
         _clock = clock;
         _logger = logger;
+        _admission = admission;
     }
 
     public async Task<TurnTrace> RespondAsync(
         string userId, Guid conversationId, string userMessage,
         IProgress<string>? tokenSink = null, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(userMessage))
-            throw new ArgumentException("User message must not be empty.", nameof(userMessage));
+        // Admission (Turns/Admission/TurnAdmission): validation, conversation resolution and
+        // ownership, the turn's instant, the pre-storage temporal anchor, the stored user
+        // message that becomes the turn's evidence identity, and the pending-clarification
+        // lookup. Moved verbatim, in the same order, with the same exceptions.
+        var admitted = await _admission.AdmitAsync(userId, conversationId, userMessage, ct);
 
-        // The conversation must exist and belong to this user before ANY work happens â€” no message
-        // storage, retrieval, generation, extraction, or project/open-loop mutation on an unknown
-        // or foreign conversation. A missing conversation is an invalid request, not a new one.
-        var conversation = await _conversations.GetConversationAsync(conversationId, userId, ct);
-        if (conversation is null)
-            throw new ConversationNotFoundException(conversationId);
-
-        var now = _clock.GetUtcNow();
-
-        // Temporal anchor: how long since they last spoke, read BEFORE this message is stored so
-        // the gap describes the actual absence, not this very turn.
-        var lastSeenBefore = await _conversations.GetLastMessageAtAsync(userId, ct);
-
-        // 1â€“2. Store the raw user message. (Raw storage is unconditional â€” private turns skip
-        // durable *derived* memory, see the extraction gate below, not conversation storage.)
-        var userMsg = await StoreMessageAsync(userId, conversationId, MessageRole.User, userMessage, replyToId: null, now, ct);
+        var userMsg = admitted.UserMessage;
+        var now = admitted.Now;
+        var lastSeenBefore = admitted.LastSeenBefore;
 
         // If a clarification is pending in this conversation, try to resolve it before treating
         // this message as a brand-new request.
-        var pending = await _pending.GetActiveAsync(userId, conversationId, ct);
-        if (pending is not null)
+        if (admitted.Pending is { } pending)
             return await ResolvePendingAsync(userId, conversationId, pending, userMsg, tokenSink, now, lastSeenBefore, ct);
 
         // 3. Resolve the project reference and build project-aware context.

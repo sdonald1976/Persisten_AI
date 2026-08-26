@@ -355,6 +355,7 @@ public static class DependencyInjection
         services.AddScoped<IAttentionService, AttentionService>();
         services.AddScoped<IAssociativeRecallService, AssociativeRecallService>();
         services.AddScoped<IContextAssembler, ContextAssembler>();
+        services.AddScoped<Core.Turns.Admission.TurnAdmission>();
         services.AddScoped<ICompanion, Core.Services.Companion>();
 
         // Session openers so the user never faces a blank prompt (the companion initiates). The
