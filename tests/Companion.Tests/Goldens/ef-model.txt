@@ -1,0 +1,642 @@
+# EF model snapshot. The mapping split must not change this file.
+
+===== Companion.Core.Domain.ActivityBranchRecord  table=ActivityBranches =====
+  prop ActivatedAt : DateTimeOffset notnull col=INTEGER
+  prop ActivationEvidence : String null col=TEXT
+  prop ActivityType : String notnull col=TEXT
+  prop AnswerBindingsJson : String notnull col=TEXT
+  prop AppliedKeysJson : String notnull col=TEXT
+  prop BranchId : String notnull col=TEXT
+  prop BranchKind : String notnull col=TEXT
+  prop BranchPointQuestionNumber : Nullable`1 null col=INTEGER
+  prop ContentWithheld : Boolean notnull col=INTEGER
+  prop ConversationId : Guid notnull col=TEXT
+  prop CurrentQuestionNumber : Int32 notnull col=INTEGER
+  prop FinalGuess : String null col=TEXT
+  prop FinalGuessCorrect : Nullable`1 null col=INTEGER
+  prop HypothesesJson : String null col=TEXT
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop InstanceId : String notnull col=TEXT
+  prop Label : String notnull col=TEXT
+  prop Lifecycle : String notnull col=TEXT
+  prop MovesJson : String notnull col=TEXT
+  prop ParentBranchId : String null col=TEXT
+  prop ProcedureDefinitionId : Nullable`1 null col=TEXT
+  prop QuestionLimit : Int32 notnull col=INTEGER
+  prop Retention : String notnull col=TEXT
+  prop StrategyVersion : String notnull col=TEXT
+  prop TerminalAt : Nullable`1 null col=INTEGER
+  prop UpdatedAt : DateTimeOffset notnull col=INTEGER
+  prop UserId : String notnull col=TEXT
+  prop Version : Int32 notnull col=INTEGER
+  key primary Id
+  index unique BranchId
+  index TerminalAt
+  index UserId,ConversationId
+
+===== Companion.Core.Domain.Anticipation  table=Anticipations =====
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Description : String notnull col=TEXT max=200
+  prop EncouragedAt : Nullable`1 null col=INTEGER
+  prop EventAt : DateTimeOffset notnull col=INTEGER
+  prop Evidence : String null col=TEXT max=200
+  prop FollowedUpAt : Nullable`1 null col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop SourceMessageId : Nullable`1 null col=TEXT
+  prop Status : AnticipationStatus notnull col=TEXT max=20
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,Status
+
+===== Companion.Core.Domain.AttentionItem  table=AttentionItems =====
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop ExpiresAt : DateTimeOffset notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop LastActivatedAt : DateTimeOffset notnull col=INTEGER
+  prop Owner : MemoryOwner notnull col=TEXT max=20
+  prop SourceId : String null col=TEXT max=80
+  prop SourceType : AttentionSourceType notnull col=TEXT max=40
+  prop Status : AttentionStatus notnull col=TEXT max=20
+  prop Strength : Double notnull col=REAL
+  prop Subject : String notnull col=TEXT max=160
+  prop Summary : String notnull col=TEXT max=500
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,Status,LastActivatedAt
+
+===== Companion.Core.Domain.CapabilityDescriptor  table=Capabilities =====
+  prop Availability : CapabilityAvailability notnull col=TEXT max=20
+  prop Confidence : Double notnull col=REAL
+  prop ConsecutiveFailures : Int32 notnull col=INTEGER
+  prop Description : String notnull col=TEXT max=500
+  prop Id : String notnull col=TEXT max=100
+  prop InputTypes : String notnull col=TEXT max=200
+  prop LastVerifiedAt : Nullable`1 null col=INTEGER
+  prop LocalOnly : Boolean notnull col=INTEGER
+  prop Model : String null col=TEXT max=200
+  prop Name : String notnull col=TEXT max=120
+  prop OutputTypes : String notnull col=TEXT max=200
+  prop Provider : String notnull col=TEXT max=120
+  key primary Id
+
+===== Companion.Core.Domain.CompanionMoodTransition  table=CompanionMoodTransitions =====
+  prop AppliedValence : Nullable`1 null col=REAL
+  prop CompactedAt : Nullable`1 null col=INTEGER
+  prop EvidenceForgotten : Boolean notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop IsBaseline : Boolean notnull col=INTEGER
+  prop NewSpirits : Double notnull col=REAL
+  prop OccurredAt : DateTimeOffset notnull col=INTEGER
+  prop PreviousSpirits : Nullable`1 null col=REAL
+  prop SourceEvidenceEventId : Nullable`1 null col=TEXT
+  prop UserId : String notnull col=TEXT max=100
+  prop Version : Int32 notnull col=INTEGER
+  key primary Id
+  index unique UserId,Version
+
+===== Companion.Core.Domain.CompanionPreference  table=CompanionPreferences =====
+  prop Affinity : Double notnull col=REAL
+  prop Confidence : Double notnull col=REAL
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Embedding : Single[] null col=BLOB
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Observations : Int32 notnull col=INTEGER
+  prop Reason : String null col=TEXT max=400
+  prop Subject : String notnull col=TEXT max=200
+  prop UpdatedAt : DateTimeOffset notnull col=INTEGER
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId
+
+===== Companion.Core.Domain.Concept  table=Concepts =====
+  prop CanonicalName : String notnull col=TEXT max=120
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop DisplayName : String notnull col=TEXT max=120
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Kind : ConceptKind notnull col=INTEGER
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index unique UserId,CanonicalName
+
+===== Companion.Core.Domain.ConceptAlias  table=ConceptAliases =====
+  prop Alias : String notnull col=TEXT max=120
+  prop ConceptId : Guid notnull col=TEXT
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,Alias
+
+===== Companion.Core.Domain.ConceptAssertion  table=ConceptAssertions =====
+  prop ConceptId : Guid notnull col=TEXT
+  prop Confidence : Double notnull col=REAL
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Embedding : Single[] null col=BLOB
+  prop FirstObserved : DateTimeOffset notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Importance : Double notnull col=REAL
+  prop LastConfirmed : DateTimeOffset notnull col=INTEGER
+  prop NormalizedText : String notnull col=TEXT max=500
+  prop Origin : KnowledgeOrigin notnull col=INTEGER
+  prop Relation : ConceptRelation notnull col=INTEGER
+  prop Status : MemoryStatus notnull col=INTEGER
+  prop SupersededById : Nullable`1 null col=TEXT
+  prop TargetConceptId : Nullable`1 null col=TEXT
+  prop UserId : String notnull col=TEXT max=200
+  prop Validity : Validity notnull col=INTEGER
+  prop Value : String null col=TEXT max=500
+  key primary Id
+  index UserId,ConceptId
+
+===== Companion.Core.Domain.Conversation  table=Conversations =====
+  prop DoNotRemember : Boolean notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop LastActivityAt : DateTimeOffset notnull col=INTEGER
+  prop ModelUsed : String null col=TEXT
+  prop Source : String null col=TEXT
+  prop StartedAt : DateTimeOffset notnull col=INTEGER
+  prop Title : String null col=TEXT
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId
+
+===== Companion.Core.Domain.Curiosity  table=Curiosities =====
+  prop About : String null col=TEXT max=120
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop GapId : Nullable`1 null col=TEXT
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Question : String notnull col=TEXT max=300
+  prop Reason : String null col=TEXT max=300
+  prop ReflectionId : Guid notnull col=TEXT
+  prop Status : CuriosityStatus notnull col=TEXT max=20
+  prop UserId : String notnull col=TEXT max=200
+  prop VoicedAt : Nullable`1 null col=INTEGER
+  key primary Id
+  index ReflectionId
+  index UserId,Status
+
+===== Companion.Core.Domain.Decision  table=Decisions =====
+  prop DecidedAt : DateTimeOffset notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop ProjectId : Nullable`1 null col=TEXT
+  prop Rationale : String null col=TEXT
+  prop SourceMessageId : Nullable`1 null col=TEXT
+  prop Statement : String notnull col=TEXT
+  prop Status : MemoryStatus notnull col=TEXT max=20
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index ProjectId
+  index UserId
+
+===== Companion.Core.Domain.EmotionalSignal  table=EmotionalSignals =====
+  prop Evidence : String null col=TEXT max=200
+  prop EvidenceEventId : Guid notnull col=TEXT
+  prop EvidenceForgotten : Boolean notnull col=INTEGER
+  prop EvidenceKind : String notnull col=TEXT
+  prop FollowedUp : Boolean notnull col=INTEGER
+  prop ForgottenAt : Nullable`1 null col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Label : String null col=TEXT max=60
+  prop MessageId : Guid notnull col=TEXT
+  prop ProjectId : Nullable`1 null col=TEXT
+  prop Sentiment : Nullable`1 null col=TEXT max=20
+  prop Timestamp : DateTimeOffset notnull col=INTEGER
+  prop Topic : String null col=TEXT max=120
+  prop UserId : String notnull col=TEXT max=200
+  prop Valence : Nullable`1 null col=REAL
+  key primary Id
+  index UserId,Timestamp
+
+===== Companion.Core.Domain.EpisodicMemory  table=EpisodicMemories =====
+  prop Confidence : Double notnull col=REAL
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Description : String notnull col=TEXT
+  prop Embedding : Single[] null col=BLOB
+  prop EmotionalSignificance : String null col=TEXT
+  prop EpisodeStatus : EpisodeStatus notnull col=TEXT max=20
+  prop EventTime : DateTimeOffset notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Importance : Double notnull col=REAL
+  prop MentionedAt : DateTimeOffset notnull col=INTEGER
+  prop Owner : MemoryOwner notnull col=TEXT max=20
+  prop RelatedProject : String null col=TEXT
+  prop Status : MemoryStatus notnull col=TEXT max=20
+  prop TimePrecision : TimePrecision notnull col=TEXT max=20
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId
+  index UserId,Status
+
+===== Companion.Core.Domain.Experience  table=Experiences =====
+  prop At : DateTimeOffset notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Kind : String notnull col=TEXT max=50
+  prop Source : String notnull col=TEXT max=50
+  prop Text : String notnull col=TEXT max=500
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,At
+
+===== Companion.Core.Domain.FeedbackRecord  table=Feedback =====
+  prop ConversationId : Guid notnull col=TEXT
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Note : String null col=TEXT
+  prop Rating : FeedbackRating notnull col=TEXT max=20
+  prop Response : String notnull col=TEXT
+  prop UserId : String notnull col=TEXT max=200
+  prop UserMessage : String notnull col=TEXT
+  key primary Id
+  index UserId
+
+===== Companion.Core.Domain.FrameBoundaryRecord  table=FrameBoundaries =====
+  prop ConversationId : Guid notnull col=TEXT
+  prop DeactivatedAt : Nullable`1 null col=INTEGER
+  prop EvidenceKind : String notnull col=TEXT max=30
+  prop EvidenceMessageId : Nullable`1 null col=TEXT
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop SceneRef : String notnull col=TEXT max=64
+  prop StatedAt : DateTimeOffset notnull col=INTEGER
+  prop Status : FrameBoundaryStatus notnull col=INTEGER
+  prop Subject : String notnull col=TEXT max=200
+  prop UserId : String notnull col=TEXT max=100
+  key primary Id
+  index UserId,ConversationId,SceneRef,Status
+
+===== Companion.Core.Domain.FrameSession  table=FrameSessions =====
+  prop ActiveCompanionCharacterId : String null col=TEXT max=64
+  prop AppliedKeysJson : String notnull col=TEXT
+  prop CharactersJson : String notnull col=TEXT
+  prop Continuity : String notnull col=TEXT max=20
+  prop ConversationId : Guid notnull col=TEXT
+  prop EndedAt : Nullable`1 null col=INTEGER
+  prop EnteredAt : DateTimeOffset notnull col=INTEGER
+  prop LastTransitionAt : DateTimeOffset notnull col=INTEGER
+  prop Narration : String notnull col=TEXT max=20
+  prop NarratorCharacterId : String null col=TEXT max=64
+  prop NarratorKind : String null col=TEXT max=20
+  prop Person : String notnull col=TEXT max=10
+  prop SceneRef : String notnull col=TEXT max=64
+  prop SessionId : Guid notnull col=TEXT generated=OnAdd
+  prop Status : FrameSessionStatus notnull col=INTEGER
+  prop TransitionLogJson : String notnull col=TEXT
+  prop UserId : String notnull col=TEXT max=100
+  prop Version : Int32 notnull col=INTEGER concurrency
+  prop ViewpointCharacterId : String null col=TEXT max=64
+  key primary SessionId
+  index EndedAt
+  index UserId,ConversationId,Status
+
+===== Companion.Core.Domain.KnowledgeGap  table=KnowledgeGaps =====
+  prop CuriosityId : Nullable`1 null col=TEXT
+  prop FirstSeen : DateTimeOffset notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Kind : GapKind notnull col=INTEGER
+  prop LastSeen : DateTimeOffset notnull col=INTEGER
+  prop Occurrences : Int32 notnull col=INTEGER
+  prop Pursuit : GapPursuit notnull col=INTEGER
+  prop ResolutionNote : String null col=TEXT max=300
+  prop Source : GapSource notnull col=INTEGER
+  prop SourceRef : Nullable`1 null col=TEXT
+  prop Status : GapStatus notnull col=INTEGER
+  prop Subject : String notnull col=TEXT max=200
+  prop SubjectConceptId : Nullable`1 null col=TEXT
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,Kind,Subject
+  index UserId,Status
+
+===== Companion.Core.Domain.MemoryAssociation  table=MemoryAssociations =====
+  prop AssociationType : MemoryAssociationType notnull col=TEXT max=40
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Evidence : String notnull col=TEXT max=500
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop LastReinforcedAt : DateTimeOffset notnull col=INTEGER
+  prop SourceMemoryId : Guid notnull col=TEXT
+  prop Strength : Double notnull col=REAL
+  prop TargetMemoryId : Guid notnull col=TEXT
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,SourceMemoryId
+  index UserId,TargetMemoryId
+
+===== Companion.Core.Domain.MemoryEvidence  table=Evidence =====
+  prop Excerpt : String notnull col=TEXT
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop MemoryId : Guid notnull col=TEXT
+  prop MemoryKind : MemoryKind notnull col=TEXT max=20
+  prop MessageId : Guid notnull col=TEXT
+  prop UserId : String notnull col=TEXT max=200
+  prop Weight : Double notnull col=REAL
+  key primary Id
+  index UserId,MemoryId
+
+===== Companion.Core.Domain.MemoryRevision  table=Revisions =====
+  prop Actor : String notnull col=TEXT max=100
+  prop After : String null col=TEXT
+  prop Before : String null col=TEXT
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Kind : RevisionKind notnull col=TEXT max=20
+  prop MemoryId : Guid notnull col=TEXT
+  prop MemoryKind : MemoryKind notnull col=TEXT max=20
+  prop Note : String null col=TEXT
+  prop Timestamp : DateTimeOffset notnull col=INTEGER
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,MemoryId
+
+===== Companion.Core.Domain.Message  table=Messages =====
+  prop CompletionTokens : Nullable`1 null col=INTEGER
+  prop Content : String notnull col=TEXT
+  prop ConversationId : Guid notnull col=TEXT
+  prop FinishReason : String null col=TEXT max=40
+  prop GenerationRounds : Nullable`1 null col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop ModelUsed : String null col=TEXT max=200
+  prop PromptTokens : Nullable`1 null col=INTEGER
+  prop ReplyToId : Nullable`1 null col=TEXT
+  prop Role : MessageRole notnull col=TEXT max=20
+  prop Timestamp : DateTimeOffset notnull col=INTEGER
+  prop TokenCount : Nullable`1 null col=INTEGER
+  prop Truncated : Nullable`1 null col=INTEGER
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index ConversationId,Timestamp
+  index UserId
+  fk ConversationId -> Companion.Core.Domain.Conversation onDelete=Cascade
+
+===== Companion.Core.Domain.ModelCallRecord  table=ModelCalls =====
+  prop CompletionChars : Int32 notnull col=INTEGER
+  prop CompletionTokens : Nullable`1 null col=INTEGER
+  prop DurationMs : Int64 notnull col=INTEGER
+  prop Error : String null col=TEXT max=200
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Model : String null col=TEXT max=200
+  prop Ok : Boolean notnull col=INTEGER
+  prop Operation : String notnull col=TEXT max=20
+  prop PromptChars : Int32 notnull col=INTEGER
+  prop PromptTokens : Nullable`1 null col=INTEGER
+  prop Role : String notnull col=TEXT max=40
+  prop Timestamp : DateTimeOffset notnull col=INTEGER
+  key primary Id
+  index Timestamp
+
+===== Companion.Core.Domain.OpenLoop  table=OpenLoops =====
+  prop ClosedAt : Nullable`1 null col=INTEGER
+  prop ClosureEvidence : String null col=TEXT
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Description : String notnull col=TEXT
+  prop Embedding : Single[] null col=BLOB
+  prop ExpectedFollowUp : Nullable`1 null col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Owner : String notnull col=TEXT max=100
+  prop ProjectId : Nullable`1 null col=TEXT
+  prop SourceMessageId : Nullable`1 null col=TEXT
+  prop Status : OpenLoopStatus notnull col=TEXT max=20
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index ProjectId
+  index UserId,Status
+
+===== Companion.Core.Domain.OutboundMessage  table=OutboundMessages =====
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop SentAt : DateTimeOffset notnull col=INTEGER
+  prop Source : String notnull col=TEXT max=100
+  prop Text : String notnull col=TEXT max=500
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,SentAt
+
+===== Companion.Core.Domain.PendingClarification  table=PendingClarifications =====
+  prop AmbiguityType : AmbiguityType notnull col=TEXT max=20
+  prop CandidatesJson : String notnull col=TEXT
+  prop ConversationId : Guid notnull col=TEXT
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop OriginalMessageId : Guid notnull col=TEXT
+  prop OriginalText : String notnull col=TEXT
+  prop Question : String notnull col=TEXT
+  prop ResolutionNote : String null col=TEXT
+  prop ResolvedAt : Nullable`1 null col=INTEGER
+  prop ResolvedProjectId : Nullable`1 null col=TEXT
+  prop Status : ClarificationStatus notnull col=TEXT max=20
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index ConversationId,Status
+  index UserId,Status
+
+===== Companion.Core.Domain.Procedure  table=Procedures =====
+  prop Access : ProcedureAccess notnull col=TEXT max=20
+  prop Confidence : Double notnull col=REAL
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Description : String notnull col=TEXT max=1000
+  prop Evidence : String notnull col=TEXT max=1000
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Name : String notnull col=TEXT max=160
+  prop Owner : ProcedureOwner notnull col=TEXT max=40
+  prop ProjectId : Nullable`1 null col=TEXT
+  prop SourceConversationId : Guid notnull col=TEXT
+  prop SourceMessageId : Guid notnull col=TEXT
+  prop Status : ProcedureStatus notnull col=TEXT max=20
+  prop UpdatedAt : DateTimeOffset notnull col=INTEGER
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,Status
+
+===== Companion.Core.Domain.ProcedureRevision  table=ProcedureRevisions =====
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Kind : String notnull col=TEXT max=40
+  prop Note : String notnull col=TEXT max=1000
+  prop ProcedureId : Guid notnull col=TEXT
+  prop SourceMessageId : Guid notnull col=TEXT
+  prop Timestamp : DateTimeOffset notnull col=INTEGER
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index ProcedureId
+  index UserId,ProcedureId,Timestamp
+  fk ProcedureId -> Companion.Core.Domain.Procedure onDelete=Cascade
+
+===== Companion.Core.Domain.ProcedureStep  table=ProcedureSteps =====
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Instruction : String notnull col=TEXT max=1000
+  prop IsActive : Boolean notnull col=INTEGER
+  prop Notes : String null col=TEXT max=500
+  prop Order : Int32 notnull col=INTEGER
+  prop ProcedureId : Guid notnull col=TEXT
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index ProcedureId
+  index UserId,ProcedureId,Order
+  fk ProcedureId -> Companion.Core.Domain.Procedure onDelete=Cascade
+
+===== Companion.Core.Domain.Project  table=Projects =====
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Embedding : Single[] null col=BLOB
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop LastActivityAt : DateTimeOffset notnull col=INTEGER
+  prop Name : String notnull col=TEXT max=300
+  prop Purpose : String null col=TEXT
+  prop Status : ProjectStatus notnull col=TEXT max=20
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId
+
+===== Companion.Core.Domain.ProjectAlias  table=ProjectAliases =====
+  prop Alias : String notnull col=TEXT max=300
+  prop Confidence : Double notnull col=REAL
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop ProjectId : Guid notnull col=TEXT
+  prop Source : String null col=TEXT
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index ProjectId
+  index UserId
+
+===== Companion.Core.Domain.ProjectEvent  table=ProjectEvents =====
+  prop Description : String notnull col=TEXT
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Kind : ProjectEventKind notnull col=TEXT max=30
+  prop ProjectId : Guid notnull col=TEXT
+  prop SourceMessageId : Nullable`1 null col=TEXT
+  prop Timestamp : DateTimeOffset notnull col=INTEGER
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index ProjectId,Timestamp
+
+===== Companion.Core.Domain.Reflection  table=Reflections =====
+  prop ContinuesReflectionId : Nullable`1 null col=TEXT
+  prop CoveredThrough : DateTimeOffset notnull col=INTEGER
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Embedding : Single[] null col=BLOB
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop MessagesReflected : Int32 notnull col=INTEGER
+  prop Musing : String null col=TEXT max=2000
+  prop ThreadId : Guid notnull col=TEXT
+  prop ThreadSettled : Boolean notnull col=INTEGER
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,CreatedAt
+  index UserId,ThreadId
+
+===== Companion.Core.Domain.SemanticMemory  table=SemanticMemories =====
+  prop Confidence : Double notnull col=REAL
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Embedding : Single[] null col=BLOB
+  prop FirstObserved : DateTimeOffset notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Importance : Double notnull col=REAL
+  prop LastConfirmed : DateTimeOffset notnull col=INTEGER
+  prop NormalizedFact : String notnull col=TEXT
+  prop Origin : MemoryOrigin notnull col=TEXT max=20
+  prop Owner : MemoryOwner notnull col=TEXT max=20
+  prop Predicate : String notnull col=TEXT
+  prop RelatedProject : String null col=TEXT
+  prop Status : MemoryStatus notnull col=TEXT max=20
+  prop Subject : String notnull col=TEXT
+  prop SupersededById : Nullable`1 null col=TEXT
+  prop UserId : String notnull col=TEXT max=200
+  prop Validity : Validity notnull col=TEXT max=20
+  prop Value : String notnull col=TEXT
+  key primary Id
+  index UserId
+  index UserId,Status
+
+===== Companion.Core.Domain.ShadowComparison  table=ShadowComparisons =====
+  prop Agreed : Boolean notnull col=INTEGER
+  prop Applied : String notnull col=TEXT max=20
+  prop Confidence : Double notnull col=REAL
+  prop DurationMs : Int64 notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Input : String null col=TEXT max=2000
+  prop Legacy : String null col=TEXT max=200
+  prop Model : String null col=TEXT max=200
+  prop Subject : String notnull col=TEXT max=80
+  prop Timestamp : DateTimeOffset notnull col=INTEGER
+  key primary Id
+  index Subject,Timestamp
+
+===== Companion.Core.Domain.SharedExperiencePerspective  table=SharedExperiencePerspectives =====
+  prop Confidence : Double notnull col=REAL
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop Evidence : String notnull col=TEXT max=500
+  prop ExperienceId : Guid notnull col=TEXT
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Owner : MemoryOwner notnull col=TEXT max=20
+  prop Revision : Int32 notnull col=INTEGER
+  prop Summary : String notnull col=TEXT max=500
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,ExperienceId
+
+===== Companion.Core.Domain.ToolCallRecord  table=ToolCalls =====
+  prop Arguments : String null col=TEXT max=2000
+  prop Code : String notnull col=TEXT max=40
+  prop DurationMs : Int64 notnull col=INTEGER
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Ok : Boolean notnull col=INTEGER
+  prop Timestamp : DateTimeOffset notnull col=INTEGER
+  prop Tool : String notnull col=TEXT max=80
+  prop UserId : String notnull col=TEXT max=200
+  key primary Id
+  index UserId,Timestamp
+
+===== Companion.Core.Domain.TurnRecord  table=TurnRecords =====
+  prop AssistantPreview : String null col=TEXT max=300
+  prop BoundQuestion : String null col=TEXT max=300
+  prop Decisions : String notnull col=TEXT max=1000
+  prop FocalCovered : Nullable`1 null col=INTEGER
+  prop FocalTerms : String null col=TEXT max=300
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Intent : String null col=TEXT max=40
+  prop IntentConfidence : Double notnull col=REAL
+  prop IntentRunnerUp : String null col=TEXT max=60
+  prop ModelUsed : String null col=TEXT max=200
+  prop Move : String null col=TEXT max=40
+  prop PacketTokens : Int32 notnull col=INTEGER
+  prop Plan : String null col=TEXT max=2500
+  prop ResolutionConfidence : String null col=TEXT max=20
+  prop ResolvedReference : String null col=TEXT max=200
+  prop RetrievalQuery : String null col=TEXT max=500
+  prop Retrieved : String null col=TEXT max=2000
+  prop Timestamp : DateTimeOffset notnull col=INTEGER
+  prop UserId : String notnull col=TEXT max=200
+  prop UserPreview : String null col=TEXT max=300
+  key primary Id
+  index UserId,Timestamp
+
+===== Companion.Core.Domain.UserPreferenceRecord  table=UserPreferences =====
+  prop ActiveSlot : String null col=TEXT max=300
+  prop DeactivatedAt : Nullable`1 null col=INTEGER
+  prop Dimension : String notnull col=TEXT max=40
+  prop EvidenceEventId : Guid notnull col=TEXT
+  prop EvidenceKind : String notnull col=TEXT max=30
+  prop EvidenceMessageId : Nullable`1 null col=TEXT
+  prop EvidenceStatement : String null col=TEXT max=500
+  prop Id : Guid notnull col=TEXT generated=OnAdd
+  prop Kind : UserPreferenceKind notnull col=INTEGER
+  prop Restrictive : Boolean notnull col=INTEGER
+  prop RevocationEvidenceMessageId : Nullable`1 null col=TEXT
+  prop RevocationStatement : String null col=TEXT max=500
+  prop RevokedAt : Nullable`1 null col=INTEGER
+  prop Scope : String notnull col=TEXT max=40
+  prop StatedAt : DateTimeOffset notnull col=INTEGER
+  prop Status : UserPreferenceStatus notnull col=INTEGER
+  prop Subject : String null col=TEXT max=200
+  prop SupersededById : Nullable`1 null col=TEXT
+  prop UserId : String notnull col=TEXT max=100
+  prop Value : String notnull col=TEXT max=40
+  key primary Id
+  index unique UserId,ActiveSlot
+  index UserId,Status
+
+===== Companion.Core.Domain.UserProfile  table=Users =====
+  prop CompanionGender : String null col=TEXT max=40
+  prop CompanionName : String null col=TEXT max=80
+  prop CompanionPronouns : String null col=TEXT max=40
+  prop CompanionSpirits : Double notnull col=REAL
+  prop CompanionSpiritsNudgedAt : Nullable`1 null col=INTEGER
+  prop CreatedAt : DateTimeOffset notnull col=INTEGER
+  prop DisplayName : String null col=TEXT
+  prop Persona : String null col=TEXT
+  prop PersonalityPreset : String null col=TEXT max=40
+  prop UserId : String notnull col=TEXT max=200
+  key primary UserId
