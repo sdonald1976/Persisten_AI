@@ -263,6 +263,7 @@ public sealed class MemoryCurator : IMemoryCurator
         if (forgotten && evidenceMessageIds.Count > 0)
         {
             var at = _clock.GetUtcNow();
+            var derivedCleared = 0;
             await SweepAsync("shared perspectives",
                 _perspectives is null ? null : (u, m, n, c) => _perspectives.ForgetByEvidenceAsync(u, m, n, c));
             await SweepAsync("experiences",
@@ -286,8 +287,11 @@ public sealed class MemoryCurator : IMemoryCurator
                     return;
                 var affected = await sweep(userId, evidenceMessageIds, at, ct);
                 if (affected > 0)
+                {
+                    derivedCleared += affected;
                     _logger.LogInformation(
                         "Forgetting {MemoryId} also cleared {Count} {Kind}.", memoryId, affected, what);
+                }
             }
         }
 

@@ -136,6 +136,7 @@ public sealed class GapStore : IGapStore
             .ToListAsync(ct);
 
         var n = EvidenceForgetting.ForgetKnowledgeGaps(rows, ids);
+        n += EvidenceForgetting.SweepLegacyKnowledgeGaps(rows);
         if (n > 0) await _db.SaveChangesAsync(ct);
         return n;
     }

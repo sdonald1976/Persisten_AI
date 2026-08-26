@@ -204,4 +204,84 @@ public static class EvidenceForgetting
         }
         return n;
     }
+
+    // ---- legacy rows, swept at the moment forgetting is actually invoked -----------------
+
+    /// <summary>
+    /// Whether a derived row can PROVE it is independent of the forgotten evidence.
+    ///
+    /// A row written before lineage existed carries no id at all. It cannot be matched, and
+    /// it cannot be cleared either — so at the moment a user actually invokes forgetting, the
+    /// honest reading is that it might well have come from the turn they are removing. The
+    /// policy is to favour privacy over preserving ambiguous derived state, once, at exactly
+    /// that moment.
+    ///
+    /// This is NOT text matching and NOT invented lineage. Nothing is attributed to a
+    /// message. The question asked is only "does this row carry any lineage at all", which a
+    /// row answers about itself.
+    /// </summary>
+    public static bool HasNoLineage(string? lineageJson) => ReadIds(lineageJson).Count == 0;
+
+    /// <summary>Redacts a user's lineage-less reflections, and retires what they anchored.</summary>
+    public static int SweepLegacyReflections(
+        IEnumerable<Reflection> reflections, out HashSet<Guid> redactedIds)
+    {
+        redactedIds = [];
+        var n = 0;
+        foreach (var r in reflections)
+        {
+            if (r.EvidenceForgotten || !HasNoLineage(r.SourceMessageIdsJson)) continue;
+            r.Musing = null;
+            r.Embedding = null;
+            r.EvidenceForgotten = true;
+            redactedIds.Add(r.Id);
+            n++;
+        }
+        return n;
+    }
+
+    /// <summary>Redacts a user's lineage-less companion preferences.</summary>
+    public static int SweepLegacyCompanionPreferences(IEnumerable<CompanionPreference> preferences)
+    {
+        var n = 0;
+        foreach (var p in preferences)
+        {
+            if (p.EvidenceForgotten || !HasNoLineage(p.EvidenceMessageIdsJson)) continue;
+            p.Subject = string.Empty;
+            p.Reason = null;
+            p.Embedding = null;
+            p.EvidenceForgotten = true;
+            n++;
+        }
+        return n;
+    }
+
+    /// <summary>Retires a user's lineage-less knowledge gaps.</summary>
+    public static int SweepLegacyKnowledgeGaps(IEnumerable<KnowledgeGap> gaps)
+    {
+        var n = 0;
+        foreach (var g in gaps)
+        {
+            if (g.Status == GapStatus.EvidenceForgotten
+                || !HasNoLineage(g.EvidenceMessageIdsJson)) continue;
+            g.Subject = string.Empty;
+            g.ResolutionNote = null;
+            g.Occurrences = 0;
+            g.Status = GapStatus.EvidenceForgotten;
+            n++;
+        }
+        return n;
+    }
+
+    /// <summary>
+    /// Which of a user's shared perspectives cannot prove independence.
+    ///
+    /// A perspective comments on ONE experience, so its parent answers the question. A
+    /// world-sourced experience is a structural PROOF of independence — it came from the
+    /// world link and never from a message — so its perspective survives. A parent that is
+    /// missing, or that carries no lineage and is not world-sourced, proves nothing.
+    /// </summary>
+    public static bool PerspectiveProvesIndependence(Experience? parent)
+        => parent is { EvidenceMessageId: null }
+           && string.Equals(parent.Source, "world", StringComparison.OrdinalIgnoreCase);
 }

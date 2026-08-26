@@ -49,25 +49,32 @@ public sealed class SharedPerspectiveStore : ISharedPerspectiveStore
         if (messageIds.Count == 0) return 0;
         var ids = messageIds.ToHashSet();
 
-        // A perspective is commentary on ONE experience. Its lineage runs through that
-        // experience, so the experiences forgotten in this same sweep are what it follows.
-        var forgottenExperiences = await _db.Experiences
-            .Where(e => e.UserId == userId && e.EvidenceMessageId != null)
-            .Select(e => new { e.Id, e.EvidenceMessageId })
+        // A perspective comments on ONE experience, so the parent answers both questions:
+        // whether this forgetting reaches it, and whether it can prove independence at all.
+        var experiences = await _db.Experiences
+            .Where(e => e.UserId == userId)
             .ToListAsync(ct);
-        var doomedExperienceIds = forgottenExperiences
-            .Where(e => ids.Contains(e.EvidenceMessageId!.Value))
-            .Select(e => e.Id)
-            .ToHashSet();
-        if (doomedExperienceIds.Count == 0) return 0;
+        var byId = experiences.ToDictionary(e => e.Id);
 
-        var doomed = await _db.SharedExperiencePerspectives
+        var mine = await _db.SharedExperiencePerspectives
             .Where(p => p.UserId == userId)
             .ToListAsync(ct);
-        doomed = doomed.Where(p => doomedExperienceIds.Contains(p.ExperienceId)).ToList();
+
+        var doomed = mine.Where(p =>
+        {
+            var parent = byId.GetValueOrDefault(p.ExperienceId);
+
+            // Exact identity: the parent came from a message being forgotten.
+            if (parent?.EvidenceMessageId is { } m && ids.Contains(m))
+                return true;
+
+            // Legacy sweep: anything that cannot prove independence goes at the moment
+            // forgetting is invoked. A world-sourced parent IS such a proof.
+            return !EvidenceForgetting.PerspectiveProvesIndependence(parent);
+        }).ToList();
+
         if (doomed.Count == 0) return 0;
 
-        // Deleted: commentary on a forgotten experience has nothing left to comment on.
         _db.SharedExperiencePerspectives.RemoveRange(doomed);
         await _db.SaveChangesAsync(ct);
         return doomed.Count;

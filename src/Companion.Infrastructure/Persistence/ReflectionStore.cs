@@ -170,6 +170,12 @@ public sealed class ReflectionStore : IReflectionStore
 
         var n = EvidenceForgetting.ForgetReflections(reflections, ids, out var redacted);
 
+        // Legacy sweep. Rows written before lineage existed cannot be matched and cannot
+        // prove they did not come from the turn being forgotten, so at the moment the user
+        // actually invokes forgetting they go too. User-scoped by the query above.
+        n += EvidenceForgetting.SweepLegacyReflections(reflections, out var legacy);
+        redacted.UnionWith(legacy);
+
         // Curiosities inherit their reflection's evidence: a question drawn from a musing
         // that is now gone has nothing left to stand on, and it must never be voiced.
         if (redacted.Count > 0)

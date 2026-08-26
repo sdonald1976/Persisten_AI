@@ -14,8 +14,12 @@ public sealed class PreferenceStore : IPreferenceStore
 
     public async Task<IReadOnlyList<CompanionPreference>> GetAllAsync(
         string userId, CancellationToken ct = default)
+        // A redacted preference is excluded AT THE SOURCE, so it cannot reach a prompt,
+        // a retrieval, a resolution, a comparison or any other contribution however a caller
+        // asks. This is the whole justification for redacting rather than deleting: the row
+        // may keep content-free numeric history only because nothing can read it back.
         => await _db.CompanionPreferences
-            .Where(p => p.UserId == userId)
+            .Where(p => p.UserId == userId && !p.EvidenceForgotten)
             .OrderByDescending(p => p.UpdatedAt)
             .ToListAsync(ct);
 
@@ -26,8 +30,11 @@ public sealed class PreferenceStore : IPreferenceStore
         CancellationToken ct = default)
     {
         var normalized = subject.Trim();
+        // A redacted row is never revived. Without this, a later signal whose subject
+        // happened to match could resurrect a preference the user asked to be forgotten,
+        // carrying its old affinity back into the prompt.
         var existing = await _db.CompanionPreferences.FirstOrDefaultAsync(
-            p => p.UserId == userId && p.Subject.ToLower() == normalized.ToLower(), ct);
+            p => !p.EvidenceForgotten && p.UserId == userId && p.Subject.ToLower() == normalized.ToLower(), ct);
 
         if (existing is null)
         {
@@ -87,6 +94,7 @@ public sealed class PreferenceStore : IPreferenceStore
             .ToListAsync(ct);
 
         var n = EvidenceForgetting.ForgetCompanionPreferences(rows, ids);
+        n += EvidenceForgetting.SweepLegacyCompanionPreferences(rows);
         if (n > 0)
         {
             foreach (var p in rows.Where(p => p.EvidenceForgotten))
