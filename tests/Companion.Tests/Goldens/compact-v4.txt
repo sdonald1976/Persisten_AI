@@ -1,0 +1,139 @@
+# CompactV4 goldens. Regenerate only as a reviewed change.
+
+===== no-frame =====
+[plan/4]
+CONTROL (never quote, mention, or imitate)
+  act = respond
+  question = question_forbidden
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== enter =====
+[plan/4]
+CONTROL (never quote, mention, or imitate)
+  act = respond
+  question = question_forbidden
+FRAME (you are in a story; it changes how to read the rest, never what is true)
+  mode = fiction  transition = enter  scene = scene-7c1f
+  narration = licensed  continuity = maintain
+  you-play = the lighthouse keeper
+  they-play = the innkeeper, the sailor
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== continue =====
+[plan/4]
+CONTROL (never quote, mention, or imitate)
+  act = respond
+  question = question_forbidden
+FRAME (you are in a story; it changes how to read the rest, never what is true)
+  mode = fiction  transition = continue  scene = scene-7c1f
+  narration = licensed  continuity = maintain
+  you-play = the lighthouse keeper
+  they-play = the innkeeper, the sailor
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== switch-scene =====
+[plan/4]
+CONTROL (never quote, mention, or imitate)
+  act = respond
+  question = question_forbidden
+FRAME (you are in a story; it changes how to read the rest, never what is true)
+  mode = fiction  transition = switch  scene = scene-7c1f
+  narration = licensed  continuity = maintain
+  you-play = the innkeeper
+  they-play = the lighthouse keeper, the sailor
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== exit =====
+[plan/4]
+CONTROL (never quote, mention, or imitate)
+  act = respond
+  question = question_forbidden
+FRAME (the story is over; you are speaking as yourself again)
+  transition = exit  targetMode = real
+  narration = forbidden
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== narrator-character-first-person =====
+[plan/4]
+CONTROL (never quote, mention, or imitate)
+  act = respond
+  question = question_forbidden
+FRAME (you are in a story; it changes how to read the rest, never what is true)
+  mode = fiction  transition = continue  scene = scene-7c1f
+  narrator = the lighthouse keeper (first person, following the lighthouse keeper)
+  narration = licensed  continuity = maintain
+  you-play = the lighthouse keeper
+  they-play = the innkeeper, the sailor
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== narrator-external-third-person =====
+[plan/4]
+CONTROL (never quote, mention, or imitate)
+  act = respond
+  question = question_forbidden
+FRAME (you are in a story; it changes how to read the rest, never what is true)
+  mode = fiction  transition = continue  scene = scene-7c1f
+  narrator = external (third person, following the sailor)
+  narration = licensed  continuity = maintain
+  you-play = (narrating)
+  they-play = the lighthouse keeper, the innkeeper, the sailor
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== narration-forbidden =====
+[plan/4]
+CONTROL (never quote, mention, or imitate)
+  act = respond
+  question = question_forbidden
+FRAME (you are in a story; it changes how to read the rest, never what is true)
+  mode = fiction  transition = continue  scene = scene-7c1f
+  narration = forbidden  continuity = maintain
+  you-play = the lighthouse keeper
+  they-play = the innkeeper, the sailor
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== with-boundary =====
+[plan/4]
+CONTROL (never quote, mention, or imitate)
+  act = respond
+  question = question_forbidden
+FRAME (you are in a story; it changes how to read the rest, never what is true)
+  mode = fiction  transition = continue  scene = scene-7c1f
+  narration = licensed  continuity = maintain
+  you-play = the lighthouse keeper
+  they-play = the innkeeper, the sailor
+  boundary = no third-person narration
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== frame-with-items =====
+[plan/4]
+CONTROL (never quote, mention, or imitate)
+  act = respond
+  question = question_forbidden
+FRAME (you are in a story; it changes how to read the rest, never what is true)
+  mode = fiction  transition = continue  scene = scene-7c1f
+  narration = licensed  continuity = maintain
+  you-play = the lighthouse keeper
+  they-play = the innkeeper, the sailor
+OPTIONAL (use one only if it truly fits; silence is correct)
+  [i1 memory] Scott has a dog named Ruby.
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+

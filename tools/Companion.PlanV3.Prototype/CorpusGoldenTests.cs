@@ -19,7 +19,7 @@ public class CorpusGoldenTests
         PropertyNameCaseInsensitive = true,
     };
 
-    private static string RepoRoot()
+    internal static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "training", "renderer", "dataset", "train-200.jsonl")))
@@ -27,7 +27,7 @@ public class CorpusGoldenTests
         return dir?.FullName ?? throw new InvalidOperationException("repo root not found");
     }
 
-    private static IEnumerable<(string Id, ResponsePlan Plan, string? FrozenPlan2)> CorpusPlans()
+    internal static IEnumerable<(string Id, ResponsePlan Plan, string? FrozenPlan2)> CorpusPlans()
     {
         var root = RepoRoot();
 

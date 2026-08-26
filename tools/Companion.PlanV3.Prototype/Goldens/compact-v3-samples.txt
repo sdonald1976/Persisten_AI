@@ -1,0 +1,95 @@
+# CompactV3 golden samples. Regenerate only as a reviewed change.
+
+===== ack-good-01 =====
+[plan/3]
+CONTROL (never quote, mention, or imitate)
+  act = acknowledge
+  question = question_forbidden
+OPTIONAL (use one only if it truly fits; silence is correct)
+  [c1 note] Scott has been anxious about the promotion decision for three weeks.
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== ack-good-02 =====
+[plan/3]
+CONTROL (never quote, mention, or imitate)
+  act = acknowledge
+  question = question_forbidden
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== ack-good-03 =====
+[plan/3]
+CONTROL (never quote, mention, or imitate)
+  act = acknowledge
+  question = question_forbidden
+OPTIONAL (use one only if it truly fits; silence is correct)
+  [c1 note] Scott staked the tomato plants two weekends ago.
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== ack-good-04 =====
+[plan/3]
+CONTROL (never quote, mention, or imitate)
+  act = acknowledge
+  question = question_forbidden
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== ack-good-05 =====
+[plan/3]
+CONTROL (never quote, mention, or imitate)
+  act = acknowledge
+  question = question_forbidden
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== ack-mund-01 =====
+[plan/3]
+CONTROL (never quote, mention, or imitate)
+  act = acknowledge
+  question = question_forbidden
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== ack-mund-02 =====
+[plan/3]
+CONTROL (never quote, mention, or imitate)
+  act = acknowledge
+  question = question_forbidden
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== ack-mund-03 =====
+[plan/3]
+CONTROL (never quote, mention, or imitate)
+  act = acknowledge
+  question = question_forbidden
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== ack-mund-04 =====
+[plan/3]
+CONTROL (never quote, mention, or imitate)
+  act = acknowledge
+  question = question_forbidden
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
+
+===== ack-mund-05 =====
+[plan/3]
+CONTROL (never quote, mention, or imitate)
+  act = acknowledge
+  question = question_forbidden
+STYLE
+  warmth=plain bluntness=plain playful=off teasing=off skepticism=off intensity=even verbosity=conversational profanity=neutral mirror=false
+
