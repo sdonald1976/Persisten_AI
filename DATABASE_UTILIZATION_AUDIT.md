@@ -39,6 +39,13 @@ rather than guessing.
 | Orphaned | 0 | — |
 | Uncertain | 5 | Procedures, ProcedureSteps, ProcedureRevisions, Users, EmotionalSignals |
 
+Two different counts appear below and are easy to conflate, so they are named here. The
+**classification** above has 5 Uncertain tables. Section E answers a different question — why
+an empty table is empty — and leaves that **unresolved for 6**: the same three procedure
+tables, plus the three concept tables, which are classified *Unwired* rather than Uncertain
+because their writer is reachable and their subsystem produced nothing at all. A table can be
+confidently classified and still have an unexplained row count; those are not the same fact.
+
 **Tables with privacy or lifecycle concerns: 9.** Detail in §G. The five that matter most:
 `ShadowComparisons` (holds user text, no `UserId`, forgotten by **substring match**),
 `Experiences` (84 rows of user-derived text, no `/forget` path), `AttentionItems`,
@@ -137,7 +144,7 @@ built against it would silently get nothing.
 | **Reflections** | `Reflection` | `20260810173155` | 16 | `ReflectionStore` ← `Reflector` (background, `ReflectionWorker`) | `Companion.cs:502` `GetNextToVoiceAsync`, every turn | `UserId` | **not reached** | none | Active | **add lifecycle/forgetting** | High |
 | **Curiosities** | `Curiosity` | `20260810173155` | 10 | `ReflectionStore` ← `Reflector` | `Companion.cs:502`; `SleepCycle`; `GapStore` | `UserId` | **not reached** | none | Active | **add lifecycle/forgetting** | High |
 | **AttentionItems** | `AttentionItem` | `20260811191812` | 4 | `AttentionStore.UpsertAsync` ← `AttentionService.CaptureTurnAsync` ← `Companion.cs:1055`, every remembered turn | `GetActiveAsync` ← `Companion.cs:522`, every turn | `UserId` | **not reached** | `ExpireOldAsync` exists; called from `AttentionService` | Active | **add lifecycle/forgetting** | High |
-| **Experiences** | `Experience` | `20260813153459` | **84** | `ExperienceStore.AddAsync` ← turn + `Reflector` + `WorldWorker` | `GetSinceAsync` ← `Reflector` (background only) | `UserId` | **not reached** | `PruneAsync` ← `SleepCycle`, **30 days** | Active | **add lifecycle/forgetting** | High |
+| **Experiences** | `Experience` | `20260813153459` | **84** | `ExperienceStore.AddAsync` ← **`WorldWorker` only** (correction: the original entry listed the turn and `Reflector` as writers; receiver-aware analysis during the A1 work showed the only `AddAsync` call site is `WorldWorker.cs:197`, and all 84 rows are world perceptions) | `GetSinceAsync` ← `Reflector` (background only) | `UserId` | **not reached** | `PruneAsync` ← `SleepCycle`, **30 days** | Active | **add lifecycle/forgetting** | High |
 | **SharedExperiencePerspectives** | `SharedExperiencePerspective` | `20260811191812` | 1 | `AddValidatedAsync` ← `Reflector` (background) | `GetForExperiencesAsync` ← `Companion.cs:1546`, every turn | `UserId` | **not reached** | none | Active | **add lifecycle/forgetting** | High |
 
 All five hold user-derived text (`Reflections.Musing`, `Curiosities.Question`/`.Reason`,
@@ -442,11 +449,15 @@ wiring: `IActivityInstanceProvider` (no implementation at all), `IFrameSessionSt
 `IDiagnosticsStore`, `IShadowRecorder`, `ICognitiveCapture` (currently a no-op object).
 Extracting the turn pipeline will move all of them; none blocks the move.
 
-**Turn stages that exist only to write data nothing consumes:**
+**Turn stages whose output no LATER TURN consumes.** Stated per table, because only the
+first is genuinely unconsumed and the heading previously implied all three were:
 
-- `Revisions` writes inside `MemoryPipeline`/`MemoryCurator` — write-only in production.
-- `TurnRecords` (`Companion.cs:1296`) — read only by a diagnostics endpoint.
-- `Experiences` writes on the turn — read only by background reflection.
+- `Revisions` — written by `MemoryPipeline`/`MemoryCurator`, **no production reader at all**.
+  This is the only one that is truly write-only.
+- `TurnRecords` (`Companion.cs:1296`) — consumed, but only by the `/diagnostics/turns`
+  endpoint. Nothing in cognition reads it back.
+- `Experiences` — consumed by background reflection (`Reflector.GetSinceAsync`). Not written
+  by the turn at all; see the correction in §C.
 
 None should be removed. All three belong in `Turns/Observability` or `Turns/PostTurn` under
 the audit's §E map, where "written on the turn, consumed elsewhere" is the expected shape.
