@@ -31,8 +31,6 @@ public sealed class Companion : ICompanion
     private readonly SafetyOptions _safety;
     private readonly IShadowRecorder _shadow;
     private readonly IRendererShadow _rendererShadow;
-    private readonly IUserPreferenceStore? _userPreferences;
-    private readonly IActivityInstanceProvider? _activities;
     private readonly IFrameSessionStore? _frames;
     private readonly ICognitiveCapture _capture;
     private readonly IDiagnosticsStore? _diagnostics;
@@ -61,6 +59,7 @@ public sealed class Companion : ICompanion
     private readonly ILogger<Companion> _logger;
     private readonly Turns.Admission.TurnAdmission _admission;
     private readonly Turns.Context.TurnContext _context;
+    private readonly Turns.Planning.TurnPlanning _planning;
 
     public Companion(
         IConversationStore conversations,
@@ -87,6 +86,7 @@ public sealed class Companion : ICompanion
         ILogger<Companion> logger,
         Turns.Admission.TurnAdmission admission,
         Turns.Context.TurnContext context,
+        Turns.Planning.TurnPlanning planning,
         IReplyGate? gate = null,
         IOptions<SafetyOptions>? safety = null,
         IShadowRecorder? shadow = null,
@@ -95,16 +95,12 @@ public sealed class Companion : ICompanion
         IConceptKnowledge? concepts = null,
         IGapStore? gaps = null,
         IRendererShadow? rendererShadow = null,
-        IUserPreferenceStore? userPreferences = null,
-        IActivityInstanceProvider? activities = null,
         IFrameSessionStore? frames = null)
     {
         _gate = gate ?? new AlwaysOpenGate();
         _safety = safety?.Value ?? new SafetyOptions();
         _shadow = shadow ?? new NoShadowRecorder();
         _rendererShadow = rendererShadow ?? new NullRendererShadow();
-        _userPreferences = userPreferences;
-        _activities = activities;
         _frames = frames;
         _capture = capture ?? new NoCognitiveCapture();
         _diagnostics = diagnostics;
@@ -134,6 +130,7 @@ public sealed class Companion : ICompanion
         _logger = logger;
         _admission = admission;
         _context = context;
+        _planning = planning;
     }
 
     public async Task<TurnTrace> RespondAsync(
@@ -509,18 +506,11 @@ public sealed class Companion : ICompanion
         // above, recorded beside the turn, and NOT rendered: the generation packet is
         // byte-identical with or without it. Fidelity of real replies to the plan is
         // measured before the plan is ever given authority (docs/RESPONSE_PLAN.md).
-        var plan = ResponsePlanner.Build(
+        var planned = _planning.BuildProductionPlan(
             traceId, intent, working, promptText, selectedMemories, knowledge,
             curiosity?.Question, packet.RegisterNote, packet.MoodNote, persona);
-        decisions.Add(new DecisionRecord
-        {
-            Stage = "plan", Decider = "rule",
-            Verdict = plan.Act.ToKebab()
-                + (plan.Acknowledgments.Count > 0 ? $"|ack={plan.Acknowledgments.Count}" : "")
-                + (plan.Content.Count(c => c.Requirement == ContentRequirement.MustState) is var must && must > 0 ? $"|must={must}" : "")
-                + (plan.Epistemic.Count > 0 ? $"|epistemic={plan.Epistemic.Count}" : "")
-                + (plan.Question is not null ? $"|q={plan.Question.Kind.ToKebab()}" : ""),
-        });
+        var plan = planned.Plan;
+        decisions.Add(planned.Decision);
 
         // 5b. The narrowest plan promotion: correction acknowledgments ONLY, and only
         // when the conflict check proved the error is hers (an agreement-shaped turn
@@ -546,37 +536,20 @@ public sealed class Companion : ICompanion
         // P4 (docs/RESPONSE_PLAN_V3_SPEC.md §15): the NATIVE v3 plan, built from the same
         // upstream state as the v2 plan — never FROM it. Shadow evidence only: a failed
         // build records a content-safe diagnostic and the turn continues unchanged.
-        global::Companion.PlanV3.PlanV3? nativeV3 = null;
+        PlanV3.PlanV3? nativeV3 = null;
         string? nativeBuildError = null;
         IReadOnlyList<string> nativeLintRejections = [];
-        global::Companion.PlanV3.AssemblyReport? nativeAssembly = null;
+        PlanV3.AssemblyReport? nativeAssembly = null;
         int? nativeCompactV4Chars = null;
         if (_rendererShadow.IsObserving || _rendererShadow.IsCanaryFor(userId))
         {
-            try
-            {
-                var nativeResult = global::Companion.PlanV3.PlanV3Builder.Build(
-                    traceId, intent, working, promptText, selectedMemories, knowledge,
-                    curiosity?.Question, sensitiveTurn: sensitive,
-                    userParticipantId: userId, userDisplay: userId,
-                    companionParticipantId: "companion-ava",
-                    companionDisplay: identityProjection?.CompanionName ?? "Ava");
-                nativeV3 = nativeResult.Plan;
-                nativeLintRejections = nativeResult.LintRejections;
-            }
-            catch (Exception ex)
-            {
-                nativeBuildError = $"{ex.GetType().Name}: {Truncate(ex.Message, 120)}";
-                _logger.LogDebug(ex, "Native v3 build failed for {TraceId}; production unaffected.", traceId);
-            }
-            decisions.Add(new DecisionRecord
-            {
-                Stage = "plan.native-v3", Decider = "rule",
-                Verdict = nativeV3 is not null ? "built" : "failed",
-                Reason = nativeBuildError
-                    ?? (nativeLintRejections.Count > 0
-                        ? $"lint-rejected:{nativeLintRejections.Count}" : null),
-            });
+            var native = _planning.BuildNativePlan(
+                traceId, intent, working, promptText, selectedMemories, knowledge,
+                curiosity?.Question, sensitive, userId, identityProjection?.CompanionName);
+            nativeV3 = native.Plan;
+            nativeBuildError = native.BuildError;
+            nativeLintRejections = native.LintRejections;
+            decisions.AddRange(native.Decisions);
         }
 
         var planningContext = BuildPlanningContext(recent, selectedMemories, projectContext.ResolvedProjectName);
@@ -637,7 +610,7 @@ public sealed class Companion : ICompanion
 
                     var session = write.Session ?? active;
                     if (session is not null)
-                        nativeFrame = BuildFrame(transition, session, userId);
+                        nativeFrame = Turns.Planning.TurnPlanning.BuildFrame(transition, session);
                 }
 
                 decisions.Add(new DecisionRecord
@@ -669,94 +642,33 @@ public sealed class Companion : ICompanion
         // unexecuted call contributes nothing, a failure can only be acknowledged, and nothing
         // reaches must_express without a planner disposition. Shadow evidence only: the
         // production packet, the reply, and run-1c are untouched either way.
+        // Source 2/3/4 contribution and the frame's ride on the native plan
+        // (Turns/Planning/TurnPlanning). The assembler alone grants authority. Shadow
+        // evidence only: the production packet, the reply, and run-1c are untouched.
         if (nativeV3 is not null)
         {
-            try
-            {
-                var contributors = new List<global::Companion.PlanV3.IPlanV3Contributor>();
-                if (toolOutcome.TypedOutcomes.Count > 0)
+            var contributed = await _planning.ContributeAsync(
+                new Turns.Planning.NativePlanResult
                 {
-                    contributors.Add(new global::Companion.PlanV3.ToolOutcomeContributor(toolOutcome.TypedOutcomes));
-                    contributors.Add(new global::Companion.PlanV3.ToolAuthorizationContributor(toolOutcome.TypedOutcomes));
-                }
+                    Plan = nativeV3,
+                    BuildError = nativeBuildError,
+                    LintRejections = nativeLintRejections,
+                },
+                traceId, userId, promptText, sensitive, plan, toolOutcome, working,
+                innerState, familiarity, conversationId, nativeFrame, ct);
 
-                // Source 3 (docs/SOURCE3_PREFERENCE_PLAN.md): the user's explicit standing
-                // preferences, read from the store on this shadow-gated path only. Register
-                // preferences vote; expression restrictions become must_not_express notes;
-                // every one cites its record id as evidence. Hosting configuration votes as
-                // its OWN authority so a deployment restriction can never masquerade as
-                // something the user asked for.
-                if (_userPreferences is not null)
-                {
-                    var activePreferences = await _userPreferences.GetActiveAsync(userId, ct);
-                    if (activePreferences.Count > 0)
-                        contributors.Add(new global::Companion.PlanV3.UserPreferenceContributor(activePreferences));
-                }
-                if (_options.HostingRegisterRestrictions.Count > 0)
-                    contributors.Add(new global::Companion.PlanV3.HostingConfigContributor(
-                        _options.HostingRegisterRestrictions));
+            nativeV3 = contributed.Plan;
+            nativeAssembly = contributed.Assembly;
+            nativeBuildError = contributed.BuildError;
+            nativeLintRejections = contributed.LintRejections;
 
-                // Sources 1a/1b: the active activity instance. The readiness audit found this
-                // contributor wired NOWHERE — the runtime and store were built and nothing fed
-                // them per turn. It is connected here so it participates the moment a producer
-                // exists; today the provider is absent and it contributes nothing.
-                if (_activities is not null
-                    && await _activities.GetActiveAsync(userId, conversationId, ct) is { } activity)
-                {
-                    contributors.Add(new global::Companion.PlanV3.ActivityInstanceContributor(activity));
-                }
-
-                // Source 4a (docs/SOURCE4_PHASE1_PLAN.md): the turn's own typed cognitive
-                // state votes on verbosity and nothing else. Built from the typed fields
-                // only — the interpretation note and every other prose field are out of its
-                // reach by construction, not by discipline.
-                contributors.Add(
-                    global::Companion.PlanV3.WorkingContextContributor.From(traceId, working));
-
-                // Source 4b (docs/SOURCE4_PHASE2_PLAN.md): AVA'S OWN state modulates intensity,
-                // citing the mood TRANSITION it descends from. Never MoodReading, never an
-                // inference about how the user feels — and never anything but a register vote.
-                contributors.Add(new global::Companion.PlanV3.MoodContributor(innerState));
-
-                // Source 4c (docs/SOURCE4_PHASE3_PLAN.md): how far along the relationship
-                // actually is — FamiliarityStage from two honest counts, and nothing else.
-                // No EmotionalSignal sentiment, no derived claim about how the user feels.
-                contributors.Add(new global::Companion.PlanV3.FamiliarityContributor(familiarity));
-
-                if (contributors.Count > 0)
-                {
-                    var toolContext = new global::Companion.PlanV3.PlanContributionContext(
-                        traceId, plan.Act.ToKebab(), promptText, userId, "companion-ava", sensitive);
-                    var report = global::Companion.PlanV3.PlanV3Assembler.Assemble(
-                        toolContext,
-                        contributors,
-                        global::Companion.PlanV3.SourceRegistry.Default,
-                        nativeV3);
-                    nativeV3 = report.Plan;
-                    nativeAssembly = report;
-                    nativeLintRejections = [.. nativeLintRejections, .. report.LintRejections];
-                }
-            }
-            catch (Exception ex)
-            {
-                // The assembly is diagnostic; losing it must never cost the turn or the row
-                // the other sources already earned.
-                nativeBuildError = $"{ex.GetType().Name}: {Truncate(ex.Message, 120)}";
-                _logger.LogDebug(ex, "Native v3 tool assembly failed for {TraceId}; production unaffected.", traceId);
-            }
-            // plan/4 evidence: the frame rides the native plan, and CompactV4 is computed so
-            // its serialization is exercised on real turns. It is RECORDED, never sent — no
-            // plan/4 text reaches a model until Run-2 is trained and promoted.
+            // Serializing the plan to measure its size is not planning, so the probe stays
+            // here. It is RECORDED, never sent.
             if (nativeFrame is not null && nativeV3 is not null)
             {
-                nativeV3 = nativeV3 with
-                {
-                    Protocol = global::Companion.PlanV3.PlanV4Codec.Protocol,
-                    Frame = nativeFrame,
-                };
                 try
                 {
-                    nativeCompactV4Chars = global::Companion.PlanV3.PlanV4Codec.CompactV4(nativeV3).Length;
+                    nativeCompactV4Chars = PlanV3.PlanV4Codec.CompactV4(nativeV3).Length;
                 }
                 catch (Exception ex)
                 {
@@ -764,15 +676,7 @@ public sealed class Companion : ICompanion
                 }
             }
 
-            if (nativeAssembly is not null || nativeBuildError is not null)
-                decisions.Add(new DecisionRecord
-                {
-                    Stage = "plan.native-v3.tools", Decider = "rule",
-                    Verdict = nativeAssembly is null ? "failed"
-                        : $"accepted={nativeAssembly.Accepted}|rejected={nativeAssembly.Rejected}",
-                    Reason = nativeAssembly?.AuthorityViolations.Count > 0
-                        ? $"violations:{nativeAssembly.AuthorityViolations.Count}" : nativeBuildError,
-                });
+            decisions.AddRange(contributed.Decisions);
         }
 
         // The user-scoped renderer canary (docs/RENDERER_SHADOW.md §8): on this user's
@@ -1444,33 +1348,7 @@ public sealed class Companion : ICompanion
     /// Builds the plan/4 frame from the authoritative session. Reads only what the session
     /// records — no scene content, and nothing inferred from the message.
     /// </summary>
-    private static global::Companion.PlanV3.Frame BuildFrame(
-        global::Companion.PlanV3.FrameTransition transition,
-        Domain.FrameSession session,
-        string userId)
-    {
-        var exiting = transition == global::Companion.PlanV3.FrameTransition.exit;
-        var characters = System.Text.Json.JsonSerializer
-            .Deserialize<List<global::Companion.PlanV3.FrameCharacter>>(session.CharactersJson) ?? [];
 
-        return new global::Companion.PlanV3.Frame
-        {
-            // Exiting restores real rules ON this turn, not the next one.
-            Mode = exiting
-                ? global::Companion.PlanV3.FrameMode.real
-                : global::Companion.PlanV3.FrameMode.fiction,
-            Transition = transition,
-            SceneRef = exiting ? null : session.SceneRef,
-            Narration = exiting || session.Narration != "licensed"
-                ? global::Companion.PlanV3.FrameNarration.forbidden
-                : global::Companion.PlanV3.FrameNarration.licensed,
-            Continuity = session.Continuity == "maintain"
-                ? global::Companion.PlanV3.FrameContinuity.maintain
-                : global::Companion.PlanV3.FrameContinuity.none,
-            ActiveCompanionCharacterId = exiting ? null : session.ActiveCompanionCharacterId,
-            Characters = exiting ? [] : characters,
-        };
-    }
 
 
 
@@ -1675,7 +1553,5 @@ public sealed class Companion : ICompanion
             => Task.FromResult(0);
     }
 
-    private static string Truncate(string text, int max)
-        => text.Length <= max ? text : text[..max];
 }
 
