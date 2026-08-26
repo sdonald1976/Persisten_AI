@@ -22,11 +22,11 @@ namespace Companion.PlanV3;
 /// </summary>
 public class CompactV3GoldenTests
 {
-    private static string ManifestPath => Path.Combine(
+    public static string ManifestPath => Path.Combine(
         CorpusGoldenTests.RepoRoot(), "tools", "Companion.PlanV3.Prototype",
         "Goldens", "compact-v3-manifest.txt");
 
-    private static string SamplesPath => Path.Combine(
+    public static string SamplesPath => Path.Combine(
         CorpusGoldenTests.RepoRoot(), "tools", "Companion.PlanV3.Prototype",
         "Goldens", "compact-v3-samples.txt");
 
@@ -103,7 +103,7 @@ public class CompactV3GoldenTests
     }
 
     /// <summary>The first ten corpus plans by id, rendered in full.</summary>
-    internal static string RenderSamples()
+    public static string RenderSamples()
     {
         var sb = new StringBuilder();
         sb.Append("# CompactV3 golden samples. Regenerate only as a reviewed change.\n");
@@ -129,7 +129,7 @@ public class CompactV3GoldenTests
     }
 
     /// <summary>The manifest text, for the generator below.</summary>
-    internal static string RenderManifest()
+    public static string RenderManifest()
     {
         var sb = new StringBuilder();
         sb.Append("# id sha256(CompactV3). Regenerate only as a reviewed change.\n");

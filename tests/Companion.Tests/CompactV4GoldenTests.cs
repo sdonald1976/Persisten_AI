@@ -25,7 +25,7 @@ public class CompactV4GoldenTests
     private const string User = "usr-scott";
     private const string Ava = "companion-ava";
 
-    private static string GoldenPath => Path.Combine(
+    public static string GoldenPath => Path.Combine(
         RepoRoot(), "tests", "Companion.Tests", "Goldens", "compact-v4.txt");
 
     private static PlanV3.PlanV3 Plan(Frame? frame, IReadOnlyList<PlanItem>? items = null)
@@ -118,7 +118,7 @@ public class CompactV4GoldenTests
             ]));
     }
 
-    private static string Render()
+    public static string Render()
     {
         var sb = new StringBuilder();
         sb.Append("# CompactV4 goldens. Regenerate only as a reviewed change.\n");

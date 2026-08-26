@@ -21,7 +21,7 @@ public class PromptRenderGoldenTests
 {
     private static readonly DateTimeOffset Now = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
-    private static string GoldenPath => Path.Combine(
+    public static string GoldenPath => Path.Combine(
         RepoRoot(), "tests", "Companion.Tests", "Goldens", "prompt-render.txt");
 
     private static Message Msg(MessageRole role, string content, int minute)
@@ -106,7 +106,7 @@ public class PromptRenderGoldenTests
         });
     }
 
-    private static string Render()
+    public static string Render()
     {
         var sb = new StringBuilder();
         sb.Append("# Rendered production prompt goldens. Regenerate only as a reviewed change.\n");

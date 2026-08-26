@@ -1,1 +1,7 @@
 *.safetensors filter=lfs diff=lfs merge=lfs -text
+
+# Goldens are byte-comparison artifacts. The regeneration tool writes LF, so the working
+# tree must be LF too — otherwise every `goldens --accept` leaves the files looking modified
+# on Windows even when nothing about their content moved.
+tests/Companion.Tests/Goldens/** text eol=lf
+tools/Companion.PlanV3.Prototype/Goldens/** text eol=lf

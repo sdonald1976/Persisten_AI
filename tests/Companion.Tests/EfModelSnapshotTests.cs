@@ -23,7 +23,7 @@ public class EfModelSnapshotTests
 {
     private static readonly DateTimeOffset Now = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
-    private static string SnapshotPath => Path.Combine(
+    public static string SnapshotPath => Path.Combine(
         RepoRoot(), "tests", "Companion.Tests", "Goldens", "ef-model.txt");
 
     private static string Describe(IModel model)
@@ -82,7 +82,7 @@ public class EfModelSnapshotTests
         return sb.ToString();
     }
 
-    internal static async Task<string> CurrentAsync()
+    public static async Task<string> CurrentAsync()
     {
         await using var host = new TestHost(Now);
         using var scope = host.CreateScope();
