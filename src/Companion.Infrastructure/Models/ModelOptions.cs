@@ -12,6 +12,20 @@ public sealed class ModelOptions
     /// <summary>"Mock" for the offline stand-ins, anything else for the OpenAI-compatible server.</summary>
     public string Provider { get; set; } = "Mock";
 
+    /// <summary>
+    /// Pull missing Ollama models before the API serves anything, and refuse to start if one
+    /// cannot be acquired.
+    ///
+    /// On by default because this is single-user local software and the alternative is worse: a
+    /// machine with an empty Ollama comes up, finds the conversational model present and the rest
+    /// missing, and talks normally while remembering nothing. Slow first boot beats silently
+    /// amnesiac.
+    ///
+    /// Turn it off on a box where an unattended multi-gigabyte download would be unwelcome; the
+    /// preflight worker still reports what is missing.
+    /// </summary>
+    public bool AutoPull { get; set; } = true;
+
     /// <summary>The conversational model (larger, better quality). Used for the assistant's reply.</summary>
     public EndpointOptions Chat { get; set; } = new();
 

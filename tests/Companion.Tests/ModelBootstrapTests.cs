@@ -332,6 +332,61 @@ public class ModelBootstrapTests
         Assert.Equal(["chat-model"], ollama.Pulled);
     }
 
+    // ---- startup gate: what the API actually does on boot -------------------------------------
+
+    [Fact]
+    public async Task AMissingModelIsPulledInNormalMode()
+    {
+        // The behaviour the second machine needed and did not get.
+        var ollama = new FakeOllama(installed: true, serving: []);
+
+        var report = await Run(ollama, Discover(), BootstrapMode.Normal);
+
+        Assert.Contains("chat-model", ollama.Pulled);
+        Assert.Contains("embed-model", ollama.Pulled);
+        Assert.Contains(report.Results, r => r.Acquired && r.Dependency.Id == "model.conversation");
+    }
+
+    [Fact]
+    public async Task StartupIsRefusedWhenARequiredModelCannotBeAcquired()
+    {
+        // Refusing to boot is the point: Stheno present and the rest missing is how she comes up
+        // able to talk and unable to remember, with nothing on screen to say so.
+        var report = await Run(
+            new FakeOllama(installed: true, serving: [], pullSucceeds: false),
+            Discover(), BootstrapMode.Normal);
+
+        Assert.False(report.Ok);
+    }
+
+    [Fact]
+    public async Task TheStartupGateOnlyEverPullsOllamaTags()
+    {
+        // A service can honestly fetch an Ollama tag at boot. It cannot restore a Git LFS object
+        // or a Hugging Face snapshot, and it must not refuse to serve because a training adapter
+        // it never loads is absent. The gate filters to OllamaModel for exactly that reason.
+        var startupScope = Discover()
+            .Where(d => d.Active && d.Kind == DependencyKind.OllamaModel)
+            .ToList();
+
+        Assert.NotEmpty(startupScope);
+        Assert.DoesNotContain(startupScope, d => d.Id == "renderer.adapter");   // git-lfs
+        Assert.DoesNotContain(startupScope, d => d.Id == "renderer.served");    // built locally
+        Assert.DoesNotContain(startupScope, d => d.Id == "renderer.base");      // huggingface
+    }
+
+    [Fact]
+    public void AutoPullIsOnByDefault_AndTheMockProviderNeedsNothing()
+    {
+        Assert.True(new ModelOptions().AutoPull);
+
+        // Mock calls no real model, so the gate has nothing to acquire and cannot block a test host.
+        var mock = ModelDependencies.Discover(
+            new ModelOptions { Provider = "Mock" }, Cognitive(), new CompanionOptions(),
+            new SafetyOptions(), "/models", "/repo");
+        Assert.Empty(mock.Where(d => d.Active && d.Kind == DependencyKind.OllamaModel));
+    }
+
     // ---- secrets ------------------------------------------------------------------------------------------
 
     [Fact]

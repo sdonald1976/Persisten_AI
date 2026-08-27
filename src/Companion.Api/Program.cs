@@ -70,6 +70,16 @@ catch (InvalidOperationException ex)
     return;
 }
 
+
+// Models the configuration requires, before anything is served. Same ModelBootstrap the CLI tool
+// runs; Ollama tags only. A required model that cannot be pulled STOPS startup rather than
+// letting her come up able to talk and unable to remember.
+if (!await Companion.Api.ModelBootstrapGate.RunAsync(
+        builder.Configuration, builder.Environment.ContentRootPath, app.Logger))
+{
+    return;
+}
+
 var logger = app.Logger;
 var expectedToken = ApiToken.Resolve(apiOptions, dbPath, logger);
 
