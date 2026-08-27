@@ -176,9 +176,20 @@ def main():
     def save_state(step, epoch, tag):
         path = OUT / f"checkpoint-{tag}"
         model.save_pretrained(path)
+        # RNG state travels with the checkpoint. Example ORDER is already exact (the
+        # per-epoch permutation is reseeded from SEED + epoch), but LoRA dropout draws
+        # from the global generators, so without these a resumed run takes different
+        # dropout masks from the step it resumes at onward. That makes it a different
+        # valid sample rather than the same run continued -- which is fine as training
+        # and fatal as a reproducibility claim, since the freeze manifest says the run
+        # is reproducible from its config and seed.
         torch.save({"optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict(),
-                    "step": step, "epoch": epoch}, path / "trainer-state.pt")
+                    "step": step, "epoch": epoch,
+                    "torch_rng": torch.get_rng_state(),
+                    "cuda_rng": torch.cuda.get_rng_state_all()
+                    if torch.cuda.is_available() else None},
+                   path / "trainer-state.pt")
 
     # Resume: newest checkpoint with trainer-state wins. Examples consumed inside a
     # partially accumulated batch are re-run (their gradients were zeroed at save).
@@ -194,7 +205,27 @@ def main():
         optimizer.load_state_dict(state["optimizer"])
         scheduler.load_state_dict(state["scheduler"])
         resume_step, resume_epoch = state["step"], state["epoch"]
+
+        # Restore the generators, and say plainly when a checkpoint predates them: a
+        # resume without RNG state is still correct training, but it is no longer the
+        # same run, and that belongs in the run log rather than in nobody's memory.
+        if state.get("torch_rng") is not None:
+            torch.set_rng_state(state["torch_rng"].cpu().to(torch.uint8))
+            cuda_rng = state.get("cuda_rng")
+            if cuda_rng is not None and torch.cuda.is_available():
+                if len(cuda_rng) == torch.cuda.device_count():
+                    torch.cuda.set_rng_state_all([t.cpu().to(torch.uint8) for t in cuda_rng])
+                else:
+                    print(f"  RNG WARNING: checkpoint has {len(cuda_rng)} CUDA generator(s), "
+                          f"this host has {torch.cuda.device_count()}; CUDA RNG not restored. "
+                          f"Dropout masks will diverge from the interrupted run.")
+            rng_note = "exact (RNG restored)"
+        else:
+            rng_note = ("APPROXIMATE - checkpoint predates RNG capture; dropout masks "
+                        "diverge from here. Record this on the run.")
+
         print(f"RESUMING from {latest.name}: step {resume_step}, epoch {resume_epoch}")
+        print(f"  resume fidelity: {rng_note}")
 
     def evaluate():
         model.eval()
