@@ -615,6 +615,178 @@ public class MouthFactoryTests
         Assert.Equal(a.History.Count, b.History.Count);
     }
 
+    // ---- question-policy distribution ------------------------------------------------------------
+
+    [Fact]
+    public void TheDefaultMixMatchesTheFrozenRun1Corpus()
+    {
+        // 462 / 156 / 112 of 730, read as POLICY from train-200.jsonl - the dataset artifact
+        // named and hash-verified in freeze-run1c.json.
+        var mix = QuestionPolicyMix.FrozenRun1;
+        Assert.Equal(0.633, mix.Forbidden, 3);
+        Assert.Equal(0.214, mix.AskRequired, 3);
+        Assert.Equal(0.153, mix.MayAsk, 3);
+    }
+
+    [Fact]
+    public void SelectPartitionsTheUnitIntervalInMixProportions()
+    {
+        var mix = QuestionPolicyMix.FrozenRun1;
+        Assert.Equal("none", mix.Select(0.0));
+        Assert.Equal("none", mix.Select(0.63));
+        Assert.Equal("must_ask", mix.Select(0.70));
+        Assert.Equal("may_ask", mix.Select(0.90));
+        Assert.Equal("may_ask", mix.Select(0.999));
+    }
+
+    [Fact]
+    public void GeneratedScenariosApproximateTheConfiguredMix()
+    {
+        // The bug this replaces: 96% forbidden, which made every teacher look worse at negative
+        // constraints than it is. Families that MANDATE a policy are excluded, since they are not
+        // drawn from the mix.
+        var scenarios = Curriculum.Families
+            .SelectMany(f => new ScenarioGenerator(20260826).Generate(f, 40))
+            .Where(sc => sc.QuestionPolicySource == "mix")
+            .ToList();
+
+        var forbidden = scenarios.Count(sc => sc.Question.Policy == "none") / (double)scenarios.Count;
+
+        Assert.InRange(forbidden, 0.55, 0.75);        // frozen anchor is 0.633
+        Assert.Contains(scenarios, sc => sc.Question.Policy == "must_ask");
+        Assert.Contains(scenarios, sc => sc.Question.Policy == "may_ask");
+    }
+
+    [Fact]
+    public void TheMixIsConfigurable()
+    {
+        var allForbidden = Curriculum.Families
+            .SelectMany(f => new ScenarioGenerator(7, new QuestionPolicyMix(1, 0, 0)).Generate(f, 10))
+            .Where(sc => sc.QuestionPolicySource == "mix")
+            .ToList();
+
+        Assert.All(allForbidden, sc => Assert.Equal("none", sc.Question.Policy));
+    }
+
+    [Fact]
+    public void TheFamilyHashIsStableAcrossProcesses()
+    {
+        // string.GetHashCode is RANDOMISED per process in .NET Core. Seeding scenario generation
+        // with it meant two runs of the same seed produced different hidden state under the same
+        // scenario ids - which broke reproducibility and, worse, meant a resumed run attached
+        // rows to different truth than they were evaluated against.
+        //
+        // These are FNV-1a values computed independently of the implementation. If someone
+        // reaches for GetHashCode again, this fails in-process rather than months later in a
+        // corpus nobody can reproduce.
+        Assert.Equal(0x1C24B8A7, ScenarioGenerator.StableHash("a1"));
+        Assert.Equal(0x367D89F7, ScenarioGenerator.StableHash("b11"));
+        Assert.Equal(0x011C9DC5, ScenarioGenerator.StableHash(""));
+    }
+
+    [Fact]
+    public void PolicyAssignmentIsDeterministicFromTheSeed()
+    {
+        var a = new ScenarioGenerator(4242).Generate(Curriculum.Find("a1")!, 60).ToList();
+        var b = new ScenarioGenerator(4242).Generate(Curriculum.Find("a1")!, 60).ToList();
+
+        Assert.Equal(a.Select(x => x.Question.Policy), b.Select(x => x.Question.Policy));
+        Assert.Equal(a.Select(x => x.Question.Text), b.Select(x => x.Question.Text));
+        Assert.Equal(a.Select(x => x.HardCase), b.Select(x => x.HardCase));
+    }
+
+    // ---- coherence: a drawn policy is never a blind relabel ---------------------------------------
+
+    [Fact]
+    public void AFamilyWhosePurposeIsAQuestionKeepsItsPolicy()
+    {
+        // b2 exists to train questions and activity continuity. Drawing "forbidden" for it would
+        // delete the stratum, so it is never drawn for.
+        var b2 = new ScenarioGenerator(20260826).Generate(Curriculum.Find("b2")!, 30).ToList();
+
+        Assert.All(b2, sc => Assert.Equal("must_ask", sc.Question.Policy));
+        Assert.All(b2, sc => Assert.Equal("family", sc.QuestionPolicySource));
+    }
+
+    [Fact]
+    public void EveryAskingScenarioActuallyHasAQuestionToAsk()
+    {
+        // The relabel failure: "must_ask" stamped onto a scenario with nothing to ask about
+        // produces a plan no upstream planner would emit.
+        var scenarios = Curriculum.Families
+            .SelectMany(f => new ScenarioGenerator(99).Generate(f, 25))
+            .ToList();
+
+        foreach (var sc in scenarios.Where(sc => sc.Question.Policy != "none"))
+            Assert.False(string.IsNullOrWhiteSpace(sc.Question.Text));
+    }
+
+    [Fact]
+    public void AQuestionPrefersTheScenariosOwnAmbiguityOrUnknown()
+    {
+        // When the scenario has an open ambiguity, an asked question is ABOUT it - not generic.
+        var asking = Curriculum.Families
+            .SelectMany(f => new ScenarioGenerator(20260826).Generate(f, 40))
+            .Where(sc => sc.Question.Policy != "none"
+                         && (sc.IntentionalAmbiguities.Count > 0 || sc.EpistemicUnknowns.Count > 0))
+            .ToList();
+
+        Assert.All(asking, sc =>
+        {
+            var topic = sc.IntentionalAmbiguities.FirstOrDefault() ?? sc.EpistemicUnknowns[0];
+            Assert.Contains(topic, sc.Question.Text!, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void ACorrectionTurnIsNeverForcedToInterrogate()
+    {
+        // After "no, it's Tuesday" the companion acknowledges; it does not demand clarification.
+        var b3 = new ScenarioGenerator(20260826).Generate(Curriculum.Find("b3")!, 40).ToList();
+
+        Assert.All(b3, sc => Assert.NotEqual("must_ask", sc.Question.Policy));
+    }
+
+    // ---- hard cases -------------------------------------------------------------------------------
+
+    [Fact]
+    public void AForbiddenQuestionAgainstAPullToAskIsTaggedHard()
+    {
+        var scenarios = Curriculum.Families
+            .SelectMany(f => new ScenarioGenerator(20260826).Generate(f, 40))
+            .ToList();
+
+        var hard = scenarios.Where(sc => sc.HardCase).ToList();
+        Assert.NotEmpty(hard);
+
+        // Every hard case is forbidden AND has something pulling toward a question.
+        Assert.All(hard, sc =>
+        {
+            Assert.Equal("none", sc.Question.Policy);
+            Assert.True(sc.IntentionalAmbiguities.Count > 0
+                        || sc.EpistemicUnknowns.Count > 0
+                        || sc.UserMessage.Contains('?'));
+        });
+
+        // And they are a minority - they must not dominate a production-weighted pilot.
+        Assert.True(hard.Count < scenarios.Count / 2,
+            $"{hard.Count}/{scenarios.Count} tagged hard");
+    }
+
+    [Fact]
+    public void HardCasesAreRoutedToTheHardSplit()
+    {
+        var scenarios = Curriculum.Families
+            .SelectMany(f => new ScenarioGenerator(20260826).Generate(f, 20))
+            .ToList();
+        var hardFamilies = scenarios.Where(sc => sc.HardCase)
+            .Select(sc => sc.ScenarioFamilyId).ToHashSet(StringComparer.Ordinal);
+
+        var plan = FamilySplitter.Plan(scenarios, hardFamilies: hardFamilies);
+
+        Assert.All(hardFamilies, f => Assert.Equal("hard", plan.FamilyToSplit[f]));
+    }
+
     // ---- helpers -------------------------------------------------------------------------------------------------------
 
     private static ScenarioTruth Scenario() => new()

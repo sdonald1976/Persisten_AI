@@ -68,6 +68,12 @@ public sealed record TrainingRowMetadata
 
     /// <summary>train | validation | test | hard | unseen. Assigned by the family-aware splitter.</summary>
     public string? Split { get; init; }
+
+    /// <summary>Carried from the scenario so reporting can separate hard cases from the
+    /// production-weighted body without re-reading scenarios.</summary>
+    public bool HardCase { get; init; }
+
+    public string QuestionPolicy { get; init; } = "none";
 }
 
 /// <summary>Exactly how a candidate came to exist, so it can be reproduced or blamed.</summary>

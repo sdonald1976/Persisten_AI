@@ -112,6 +112,21 @@ public sealed record ScenarioTruth
 
     /// <summary>The seed that produced this scenario. Regeneration with it is byte-identical.</summary>
     public required long Seed { get; init; }
+
+    /// <summary>
+    /// A deliberately difficult case: the plan forbids a question while the scenario pulls hard
+    /// toward asking one — an unresolved ambiguity, an admitted unknown, or a user turn that is
+    /// itself a question. These are exactly the rows worth training on, and exactly the rows that
+    /// would make a production-weighted acceptance rate look worse than the corpus really is.
+    /// They are kept, tagged, reported separately, and routed to the hard split.
+    /// </summary>
+    public bool HardCase { get; init; }
+
+    /// <summary>
+    /// Where the question policy came from: "family" when the family's purpose dictates it,
+    /// "mix" when drawn from the configured distribution. Reported, never trained on.
+    /// </summary>
+    public string QuestionPolicySource { get; init; } = "mix";
 }
 
 public enum CurriculumLayer { A, B }

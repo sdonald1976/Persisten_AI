@@ -159,7 +159,12 @@ async Task<int> ExportAsync()
             .Select(l => JsonSerializer.Deserialize<ScenarioTruth>(l, Web())!).ToList()
         : [];
 
-    var split = FamilySplitter.Plan(scenarios);
+    // Deliberately difficult forbidden-question cases go to the hard split rather than diluting
+    // train/validation, and are reported apart from the production-weighted body.
+    var hardFamilies = scenarios.Where(sc => sc.HardCase)
+        .Select(sc => sc.ScenarioFamilyId)
+        .ToHashSet(StringComparer.Ordinal);
+    var split = FamilySplitter.Plan(scenarios, hardFamilies: hardFamilies);
     var paired = rowList
         .Where(row => metadata.ContainsKey(row.Id))
         .Select(row =>
@@ -375,6 +380,20 @@ void Report(PipelineResult result)
         foreach (var (code, count) in result.RejectionCodes.OrderByDescending(kv => kv.Value))
             Console.WriteLine($"  {count,6}  {code}");
     }
+
+    // Hard cases are reported apart: they are deliberately difficult, and folding them into one
+    // acceptance rate makes a production-weighted corpus look worse than it is.
+    var hard = result.AcceptedRows.Count(a => a.Meta.HardCase);
+    var hardScenarios = result.Scenarios.Count(sc => sc.HardCase);
+    Console.WriteLine();
+    var hardShare = result.Scenarios.Count == 0 ? 0d : (double)hardScenarios / result.Scenarios.Count;
+    Console.WriteLine($"hard cases      {hardScenarios} scenarios ({hardShare:P1}), {hard} accepted");
+
+    var policies = result.Scenarios.GroupBy(sc => sc.Question.Policy, StringComparer.Ordinal)
+        .OrderByDescending(g => g.Count());
+    Console.WriteLine("question policy mix");
+    foreach (var g in policies)
+        Console.WriteLine($"  {g.Count(),6}  {g.Key,-12}{(double)g.Count() / Math.Max(1, result.Scenarios.Count):P1}");
 
     if (result.AcceptedRows.Count > 0)
     {

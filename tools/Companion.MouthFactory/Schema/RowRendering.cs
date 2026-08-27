@@ -73,6 +73,8 @@ public static class RowRendering
             TranscriptTurns = scenario.History.Count,
             TargetWords = words,
             Opening = Opening(target),
+            HardCase = scenario.HardCase,
+            QuestionPolicy = scenario.Question.Policy,
         };
 
         return (row, metadata, null);

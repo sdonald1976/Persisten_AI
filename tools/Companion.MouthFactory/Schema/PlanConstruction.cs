@@ -128,13 +128,18 @@ public static class PlanConstruction
             && scenario.Question.Text is { Length: > 0 } questionText)
         {
             var id = $"q{items.Count + 1}";
+            var mustAsk = scenario.Question.Policy.Equals("must_ask", StringComparison.OrdinalIgnoreCase);
             items.Add(new PlanItem
             {
                 Id = id,
                 Type = "question",
-                Policy = scenario.Question.Policy.Equals("must_ask", StringComparison.OrdinalIgnoreCase)
-                    ? ExpressionPolicy.ask_required
-                    : ExpressionPolicy.may_express,
+                Policy = mustAsk ? ExpressionPolicy.ask_required : ExpressionPolicy.may_express,
+                // A may_ask suggestion must carry a question-capable CATEGORY; may_express alone
+                // defaults to "note", which the validator rightly refuses to treat as a question.
+                // ask_required already derives clarify. Curiosity for the optional case mirrors
+                // the frozen corpus exactly, where may_ask is always "curiosity:optional" and
+                // ask_required is always "clarify:mandatory".
+                Category = mustAsk ? RenderCategory.clarify : RenderCategory.curiosity,
                 Text = questionText,
                 Source = "scenario",
             });

@@ -50,6 +50,46 @@ public static class Curriculum
 }
 
 /// <summary>
+/// How often each question policy appears. Configurable, because it is an empirical anchor
+/// rather than a declared contract, and the anchor may move.
+///
+/// PROVENANCE, stated because the first version of this got it wrong twice. R5 declares no
+/// question-policy distribution, and neither does any freeze manifest — so there is no
+/// authoritative contract to read. The strongest available anchor is the frozen run-1 corpus:
+/// <c>training/renderer/dataset/train-200.jsonl</c>, the dataset artifact named in
+/// <c>freeze-run1c.json</c> and hash-verified against its recorded sha256 (de7a093d…). That is a
+/// frozen artifact, not an incidental file.
+///
+/// Read as POLICY, not question kind — the plan/2 line is "{kind}:{mandatory|optional}", and
+/// reading only the kind is the mistake that produced the first set of numbers:
+///
+///   question_forbidden  462 / 730  63.3%   (line reads "none")
+///   ask_required        156 / 730  21.4%   (all "clarify:mandatory")
+///   may_ask             112 / 730  15.3%   (all "curiosity:optional")
+///
+/// The factory previously emitted 96% forbidden, which made every teacher look worse at negative
+/// constraints than it is, because the curriculum was a third more question-hostile than anything
+/// production produces.
+/// </summary>
+public sealed record QuestionPolicyMix(double Forbidden, double AskRequired, double MayAsk)
+{
+    /// <summary>The frozen run-1 distribution. Default until something declares otherwise.</summary>
+    public static readonly QuestionPolicyMix FrozenRun1 = new(0.633, 0.214, 0.153);
+
+    /// <summary>Which policy a uniform draw in [0,1) selects.</summary>
+    public string Select(double roll)
+    {
+        var total = Forbidden + AskRequired + MayAsk;
+        if (total <= 0)
+            return "none";
+        var scaled = roll * total;
+        return scaled < Forbidden ? "none"
+            : scaled < Forbidden + AskRequired ? "must_ask"
+            : "may_ask";
+    }
+}
+
+/// <summary>
 /// Builds scenario truth deterministically from a family and a seed.
 ///
 /// Deterministic on purpose: the same (family, index, seed) produces the same scenario id and the
@@ -61,8 +101,10 @@ public static class Curriculum
 /// afterwards; what it may never do is change the structure, because the structure is what the
 /// deterministic evaluators check against.
 /// </summary>
-public sealed class ScenarioGenerator(long runSeed)
+public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = null)
 {
+    private readonly QuestionPolicyMix _mix = mix ?? QuestionPolicyMix.FrozenRun1;
+
     private static readonly Participant User =
         new() { Id = "usr-scott", Name = "Scott", Kind = ParticipantKind.User, Pronouns = "he/him" };
 
@@ -79,7 +121,7 @@ public sealed class ScenarioGenerator(long runSeed)
     {
         // Stable and reproducible: family + index + run seed, never a clock or a RNG the caller
         // cannot reconstruct.
-        var seed = unchecked(runSeed * 31 + family.Id.GetHashCode(StringComparison.Ordinal) * 17 + index);
+        var seed = unchecked(runSeed * 31 + StableHash(family.Id) * 17 + index);
         var rng = new Random((int)(seed & 0x7FFFFFFF));
         var scenarioFamilyId = $"{family.Id}-fam{index:D4}";
         var id = $"{family.Id}-{index:D4}";
@@ -92,12 +134,40 @@ public sealed class ScenarioGenerator(long runSeed)
             : LayerB(family, id, scenarioFamilyId, seed, history, rng);
     }
 
+
+    /// <summary>
+    /// A hash that is the same in every process, on every machine, forever.
+    ///
+    /// This replaces string.GetHashCode, which is RANDOMISED PER PROCESS in .NET Core. Using it
+    /// meant two runs with the same seed produced different scenarios — verified by two identical
+    /// dry-runs disagreeing. That broke reproducibility outright, and quietly broke resume in the
+    /// worse way: the ledger keys on the scenario id, which is stable, while the hidden state
+    /// behind that id changed, so a resumed run would attach rows to different truth than the one
+    /// they were generated and evaluated against.
+    ///
+    /// FNV-1a, 32-bit. Chosen for being trivially stable and specified, not for quality — the
+    /// only property required here is that it never changes.
+    /// </summary>
+    public static int StableHash(string text)
+    {
+        unchecked
+        {
+            var hash = 2166136261u;
+            foreach (var c in text)
+            {
+                hash ^= c;
+                hash *= 16777619u;
+            }
+            return (int)(hash & 0x7FFFFFFF);
+        }
+    }
+
     /// <summary>
     /// Layer A: teach how to speak. A minimal plan — act, register, occasionally one may_express
     /// item — because R5 §4 is explicit that minimal is not absent. No factual QA, and no reward
     /// for demonstrating latent knowledge: content is supplied, fictional or arbitrary.
     /// </summary>
-    private static ScenarioTruth LayerA(
+    private ScenarioTruth LayerA(
         FamilySpec family, string id, string familyId, long seed,
         IReadOnlyList<Turn> history, Random rng)
     {
@@ -107,6 +177,11 @@ public sealed class ScenarioGenerator(long runSeed)
             : null;
 
         var supplied = SuppliedContent(family.Id, rng);
+        var userMessage = UserMessageFor(family.Id, rng);
+        // Layer A has no ambiguities or unknowns of its own, so a drawn question is generic by
+        // construction - which is exactly what an ordinary conversational turn looks like.
+        var (question, source, hard) = ChooseQuestion(family, rng, [], [], userMessage);
+
         return new ScenarioTruth
         {
             Id = id,
@@ -122,8 +197,11 @@ public sealed class ScenarioGenerator(long runSeed)
                 },
             ],
             History = history,
-            UserMessage = UserMessageFor(family.Id, rng),
+            UserMessage = userMessage,
             Register = register,
+            Question = question,
+            QuestionPolicySource = source,
+            HardCase = hard,
             Frame = frame,
             SourceFamilyId = $"generated/{family.Id}",
             Seed = seed,
@@ -134,7 +212,7 @@ public sealed class ScenarioGenerator(long runSeed)
     /// Layer B: teach the protocol. Every scenario carries the structure its family exists to
     /// exercise, plus the expected and prohibited propositions the deterministic checks read.
     /// </summary>
-    private static ScenarioTruth LayerB(
+    private ScenarioTruth LayerB(
         FamilySpec family, string id, string familyId, long seed,
         IReadOnlyList<Turn> history, Random rng)
     {
@@ -143,7 +221,6 @@ public sealed class ScenarioGenerator(long runSeed)
         var unknowns = new List<string>();
         var ambiguities = new List<string>();
         var prohibited = new List<Proposition>();
-        var question = new QuestionPolicySpec();
         FrameState? frame = null;
 
         switch (family.Id)
@@ -178,7 +255,6 @@ public sealed class ScenarioGenerator(long runSeed)
 
             case "b2":
                 facts.Add(new ApprovedFact { Id = "f1", Text = "the deployment is waiting on approval", Policy = FactPolicy.MustExpress });
-                question = new QuestionPolicySpec { Policy = "must_ask", Text = "should I hold it until morning?" };
                 break;
 
             case "b6":
@@ -225,6 +301,10 @@ public sealed class ScenarioGenerator(long runSeed)
                 break;
         }
 
+        var userMessage = UserMessageFor(family.Id, rng);
+        var (question, source, hard) = ChooseQuestion(
+            family, rng, ambiguities, unknowns, userMessage);
+
         return new ScenarioTruth
         {
             Id = id,
@@ -238,14 +318,85 @@ public sealed class ScenarioGenerator(long runSeed)
             IntentionalAmbiguities = ambiguities,
             ProhibitedPropositions = prohibited,
             History = history,
-            UserMessage = UserMessageFor(family.Id, rng),
+            UserMessage = userMessage,
             Register = RegisterFor(family.Id, rng),
             Question = question,
+            QuestionPolicySource = source,
+            HardCase = hard,
             Frame = frame,
             SourceFamilyId = $"generated/{family.Id}",
             Seed = seed,
         };
     }
+
+
+    /// <summary>
+    /// Chooses a question policy that is COHERENT with the scenario, then reports how it was
+    /// chosen. Two rules, and the second is the one that matters:
+    ///
+    ///   1. A family whose whole purpose is a question keeps its policy. b2 exists to train
+    ///      questions and activity continuity; drawing "forbidden" for it would delete the
+    ///      stratum. Those are marked source="family" and are excluded from the mix.
+    ///
+    ///   2. Everything else draws from the mix — but the DRAW IS NOT A RELABEL. A policy that
+    ///      needs a question gets one written to fit this scenario's own truth: the open
+    ///      ambiguity if there is one, the admitted unknown if there is one, and only otherwise
+    ///      a generic follow-up. Stamping "must_ask" onto a scenario with nothing to ask about
+    ///      would produce a plan no upstream planner would ever emit, and train the mouth on it.
+    ///
+    /// A correction turn is the one case where the mix is narrowed rather than followed: after
+    /// "no, it's Tuesday" the companion acknowledges, it does not interrogate. Those draw only
+    /// between forbidden and may_ask.
+    /// </summary>
+    private (QuestionPolicySpec Spec, string Source, bool HardCase) ChooseQuestion(
+        FamilySpec family, Random rng,
+        IReadOnlyList<string> ambiguities, IReadOnlyList<string> unknowns, string userMessage)
+    {
+        // 1. Family-mandated.
+        if (family.Id == "b2")
+            return (new QuestionPolicySpec
+            {
+                Policy = "must_ask", Text = "should I hold it until morning?",
+            }, "family", false);
+
+        // 2. Drawn, with corrections narrowed away from interrogation.
+        var roll = rng.NextDouble();
+        var policy = _mix.Select(roll);
+        if (family.Id == "b3" && policy == "must_ask")
+            policy = roll < 0.5 ? "none" : "may_ask";
+
+        var text = policy == "none" ? null : QuestionFor(ambiguities, unknowns, rng);
+        if (policy != "none" && text is null)
+            policy = "none";                       // nothing coherent to ask: do not invent one
+
+        // A forbidden question is HARD when the scenario pulls toward asking: an unresolved
+        // ambiguity, an admitted unknown, or a user turn that is itself a question.
+        var hard = policy == "none"
+                   && (ambiguities.Count > 0 || unknowns.Count > 0 || userMessage.Contains('?'));
+
+        return (new QuestionPolicySpec { Policy = policy, Text = text }, "mix", hard);
+    }
+
+    /// <summary>
+    /// A question this scenario could actually ask. Null when there is nothing to ask about,
+    /// which is the signal to fall back to forbidden rather than fabricate a reason.
+    /// </summary>
+    private static string? QuestionFor(
+        IReadOnlyList<string> ambiguities, IReadOnlyList<string> unknowns, Random rng)
+    {
+        if (ambiguities.Count > 0)
+            return $"which one did you mean - {ambiguities[0]}?";
+        if (unknowns.Count > 0)
+            return $"do you know {unknowns[0]}?";
+        return GenericQuestions[rng.Next(GenericQuestions.Length)];
+    }
+
+    private static readonly string[] GenericQuestions =
+    [
+        "want me to pick it up from there?",
+        "shall I leave it for now?",
+        "do you want the short version or the whole thing?",
+    ];
 
     /// <summary>R5's A7b buckets, applied to every family so context length is covered throughout.</summary>
     private static int TranscriptTurns(FamilySpec family, Random rng)
