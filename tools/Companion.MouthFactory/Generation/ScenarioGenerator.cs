@@ -241,7 +241,8 @@ public sealed class ScenarioGenerator(
         var facts = BuildFacts(situation, Math.Min(wanted, situation.Facts.Count), rng);
 
         var (question, source, hard) = ChooseQuestion(
-            family, rng, situation.AmbiguityItems, situation.UnknownItems, situation.UserMessage);
+            family, rng, situation.AmbiguityItems, situation.UnknownItems, situation.UserMessage,
+            situation.Question);
 
         return new ScenarioTruth
         {
@@ -265,6 +266,30 @@ public sealed class ScenarioGenerator(
             Seed = seed,
         };
     }
+
+    private static Situation Pick(IReadOnlyList<Situation> pool, Random rng)
+        => pool[rng.Next(pool.Count)];
+
+    private static ApprovedFact Must(string id, SituationFact fact)
+        => new() { Id = id, Text = fact.Text, Policy = FactPolicy.MustExpress, Anchors = fact.Anchors };
+
+    /// <summary>
+    /// A proposition the reply must not assert, from the fact's own distinctive words.
+    ///
+    /// Content words only, and only the ones longer than three characters — the same unit the
+    /// deterministic checks use, so what is declared here and what is detected there cannot drift.
+    /// </summary>
+    private static Proposition Forbid(string text) => new()
+    {
+        Subject = "withheld", Predicate = "must-not-express", Object = text,
+        SurfaceForms = text.ToLowerInvariant()
+            .Split([' ', ',', '.', ';', ':', '!', '?'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length > 4)
+            .Distinct()
+            .Take(3)
+            .ToList(),
+        Reason = "must_not_express",
+    };
 
     /// <summary>
     /// Turn a situation into approved facts: <paramref name="mustCount"/> of them required, one
@@ -327,83 +352,112 @@ public sealed class ScenarioGenerator(
         // protocol, but a control composition still has to sit on a conversation that has a
         // subject - the pilot proved that a plan without one gets answered from nowhere.
         string? userMessage = null;
+        string? situationQuestion = null;
 
+        // Every family draws its OWN situation, so a stratum is a STRUCTURE applied to many
+        // topics rather than one sentence repeated. Pinning each family to a single situation
+        // collapsed Layer B to almost no input diversity - b2 produced 89 scenarios from 3
+        // distinct inputs, b1 from 9 - and the writer answered identical inputs identically:
+        // 1,312 exact-duplicate rejections, the largest single rejection reason of that run.
         switch (family.Id)
         {
             case "b1":
-                userMessage = "did the rebuild go through?";
-                facts.Add(new ApprovedFact { Id = "f1", Text = "the second build finished clean", Policy = FactPolicy.MustExpress });
-                facts.Add(new ApprovedFact { Id = "f2", Text = "the cat knocked over the mug", Policy = FactPolicy.MayExpress });
-                facts.Add(new ApprovedFact { Id = "f3", Text = "the neighbour complained about the noise", Policy = FactPolicy.BackgroundOnly });
-                facts.Add(new ApprovedFact { Id = "f4", Text = "the invoice is overdue", Policy = FactPolicy.MustNotExpress });
-                prohibited.Add(new Proposition
-                {
-                    Subject = "invoice", Predicate = "is-overdue",
-                    SurfaceForms = ["invoice", "overdue"],
-                    Reason = "must_not_express",
-                });
-                break;
-
-            case "b3":
-                // A correction turn. The corrected day is the one thing here that cannot be
-                // paraphrased, so it is both the anchor of the required fact and - in its stale
-                // form - the discriminating token that marks a resurrection. Declaring both is
-                // what keeps "The meeting is on Tuesday" from being read as saying Thursday.
-                userMessage = "wait, no - it's Tuesday, not Thursday.";
+            {
+                // Every expression policy at once, over any turn that has something withheld.
+                var w = Pick(Situations.Withheld, rng);
+                userMessage = w.UserMessage;
+                situationQuestion = w.Question;
+                facts.Add(Must("f1", w.Facts[0]));
+                var extra = Pick(Situations.Everyday, rng);
                 facts.Add(new ApprovedFact
                 {
-                    Id = "f1", Text = "the meeting is on Tuesday",
-                    Policy = FactPolicy.MustExpress, Anchors = ["Tuesday"],
+                    Id = "f2", Text = extra.Facts[0].Text, Policy = FactPolicy.MayExpress,
+                });
+                foreach (var bg in w.BackgroundItems)
+                    facts.Add(new ApprovedFact
+                    {
+                        Id = $"f{facts.Count + 1}", Text = bg, Policy = FactPolicy.BackgroundOnly,
+                    });
+                facts.Add(new ApprovedFact
+                {
+                    Id = $"f{facts.Count + 1}", Text = w.Forbidden!.Text,
+                    Policy = FactPolicy.MustNotExpress,
+                });
+                prohibited.Add(Forbid(w.Forbidden.Text));
+                break;
+            }
+
+            case "b3":
+            {
+                var owner = Pick(Situations.Corrections, rng);
+                var c = owner.Correction!;
+                userMessage = owner.UserMessage;
+                facts.Add(new ApprovedFact
+                {
+                    Id = "f1", Text = c.CurrentText, Policy = FactPolicy.MustExpress,
+                    Anchors = [c.Anchor],
                 });
                 superseded.Add(new Supersession
                 {
-                    StaleText = "the meeting is on Thursday",
-                    CurrentText = "the meeting is on Tuesday",
-                    Kind = CorrectionKind.Temporal,
-                    DiscriminatingTokens = ["thursday"],
+                    StaleText = c.StaleText, CurrentText = c.CurrentText,
+                    Kind = CorrectionKind.Temporal, DiscriminatingTokens = [c.Discriminator],
                 });
-                forbiddenTokens.Add("Thursday");
+                forbiddenTokens.Add(c.Discriminator);
                 prohibited.Add(new Proposition
                 {
-                    Subject = "meeting", Predicate = "on", Object = "Thursday",
-                    SurfaceForms = ["thursday"], Reason = "superseded",
+                    Subject = "superseded", Predicate = "was", Object = c.Discriminator,
+                    SurfaceForms = [c.Discriminator], Reason = "superseded",
                 });
-                unknowns.Add("who booked the room");
+                unknowns.AddRange(owner.UnknownItems);
                 break;
+            }
 
             case "b2":
-                userMessage = "are we clear to ship?";
-                facts.Add(new ApprovedFact { Id = "f1", Text = "the deployment is waiting on approval", Policy = FactPolicy.MustExpress });
+            {
+                // Questions and activity continuity: the turn must end in a question.
+                var q = Pick(Situations.Working, rng);
+                userMessage = q.UserMessage;
+                situationQuestion = q.Question;
+                facts.Add(Must("f1", q.Facts[0]));
                 break;
+            }
 
             case "b5":
-                // Tool and procedure inputs: an identifier the reply must reproduce exactly. This
-                // is the case RequiredTokens exists for, and paraphrasing it would be a defect
-                // rather than the fresh wording every other fact is asked for.
-                userMessage = "which script does the release use now?";
-                facts.Add(new ApprovedFact
-                {
-                    Id = "f1", Text = "the release runs release-prod.sh now",
-                    Policy = FactPolicy.MustExpress, Anchors = ["release-prod.sh"],
-                });
-                requiredTokens.Add("release-prod.sh");
+            {
+                var proc = Pick(Situations.Procedures, rng);
+                userMessage = proc.UserMessage;
+                situationQuestion = proc.Question;
+                facts.Add(Must("f1", proc.Facts[0]));
+                requiredTokens.AddRange(proc.ExactTokens);
                 break;
+            }
 
             case "b6":
-                userMessage = "did anything turn up while I was out?";
-                facts.Add(new ApprovedFact { Id = "f1", Text = "the parcel arrived just after eleven", Policy = FactPolicy.MustExpress });
-                facts.Add(new ApprovedFact { Id = "f2", Text = "the courier wore a blue jacket", Policy = FactPolicy.BackgroundOnly });
-                prohibited.Add(new Proposition
+            {
+                // Distractor resistance: a required fact beside background that must not surface.
+                var d = Situations.Everyday.Concat(Situations.Working)
+                    .Where(x => x.BackgroundItems.Count > 0).ToList();
+                var pick = d[rng.Next(d.Count)];
+                userMessage = pick.UserMessage;
+                situationQuestion = pick.Question;
+                facts.Add(Must("f1", pick.Facts[0]));
+                foreach (var bg in pick.BackgroundItems)
                 {
-                    Subject = "courier", Predicate = "wore", Object = "blue jacket",
-                    SurfaceForms = ["blue jacket", "courier"], Reason = "background_only distractor",
-                });
+                    facts.Add(new ApprovedFact
+                    {
+                        Id = $"f{facts.Count + 1}", Text = bg, Policy = FactPolicy.BackgroundOnly,
+                    });
+                    prohibited.Add(Forbid(bg));
+                }
                 break;
+            }
 
             case "b8":
+            {
                 // The no-frame half of R5 §5: no invented biography when no frame is declared.
-                userMessage = "what do you reckon I should do this weekend?";
-                facts.Add(new ApprovedFact { Id = "f1", Text = "nothing is in the diary this weekend", Policy = FactPolicy.MustExpress });
+                var a = Pick(Situations.Advice, rng);
+                userMessage = a.UserMessage;
+                facts.Add(Must("f1", a.Facts[0]));
                 prohibited.Add(new Proposition
                 {
                     Subject = "scott", Predicate = "has", Object = "an allotment",
@@ -411,17 +465,32 @@ public sealed class ScenarioGenerator(
                     Reason = "invented biography without a frame",
                 });
                 break;
+            }
 
             case "b9":
-                userMessage = "how did the suite do overnight?";
-                facts.Add(new ApprovedFact { Id = "f1", Text = "the test suite passed", Policy = FactPolicy.MustExpress });
-                facts.Add(new ApprovedFact { Id = "f2", Text = "the disk is nearly full", Policy = FactPolicy.MustExpress });
-                facts.Add(new ApprovedFact { Id = "f3", Text = "the backup ran overnight", Policy = FactPolicy.MayExpress });
+            {
+                // Multi-source composition: two required items and one optional, from one event.
+                var rich = Situations.Working.Concat(Situations.Everyday)
+                    .Where(x => x.Facts.Count >= 3).ToList();
+                var m = rich[rng.Next(rich.Count)];
+                userMessage = m.UserMessage;
+                situationQuestion = m.Question;
+                facts.Add(Must("f1", m.Facts[0]));
+                facts.Add(Must("f2", m.Facts[1]));
+                facts.Add(new ApprovedFact
+                {
+                    Id = "f3", Text = m.Facts[2].Text, Policy = FactPolicy.MayExpress,
+                    Anchors = m.Facts[2].Anchors,
+                });
                 break;
+            }
 
             case "b11":
+            {
                 frame = FrameFor("a7b", history.Count, rng);
-                facts.Add(new ApprovedFact { Id = "f1", Text = "the lantern goes out", Policy = FactPolicy.MustExpress });
+                var scene = Pick(Situations.Fiction, rng);
+                userMessage = scene.UserMessage;
+                facts.Add(Must("f1", scene.Facts[0]));
                 prohibited.Add(new Proposition
                 {
                     Subject = "scott", Predicate = "really", Object = "was in the cave",
@@ -429,26 +498,28 @@ public sealed class ScenarioGenerator(
                     Reason = "fiction crossing into a real-world claim",
                 });
                 break;
+            }
 
             default:
-                // b4, b7 and anything added later: a real situation rather than the placeholder
-                // "the thing you asked about is ready", which was too vague to state or to check -
-                // 29 of the pilot's accepted rows answered it without saying anything was ready.
+            {
+                // b4, b7 and anything added later.
                 var pool = Situations.ForFamily(family.Id);
                 var situation = pool[rng.Next(pool.Count)];
                 userMessage = situation.UserMessage;
+                situationQuestion = situation.Question;
                 facts.AddRange(BuildFacts(situation, Math.Min(1, situation.Facts.Count), rng));
                 ambiguities.AddRange(situation.AmbiguityItems);
                 unknowns.AddRange(situation.UnknownItems);
                 requiredTokens.AddRange(situation.ExactTokens);
                 break;
+            }
         }
 
         if (family.Id == "b11")
             userMessage ??= FictionPrompts[rng.Next(FictionPrompts.Length)];
         userMessage ??= UserMessageFor(family.Id, rng);
         var (question, source, hard) = ChooseQuestion(
-            family, rng, ambiguities, unknowns, userMessage);
+            family, rng, ambiguities, unknowns, userMessage, situationQuestion);
 
         return new ScenarioTruth
         {
@@ -497,13 +568,18 @@ public sealed class ScenarioGenerator(
     /// </summary>
     private (QuestionPolicySpec Spec, string Source, bool HardCase) ChooseQuestion(
         FamilySpec family, Random rng,
-        IReadOnlyList<string> ambiguities, IReadOnlyList<string> unknowns, string userMessage)
+        IReadOnlyList<string> ambiguities, IReadOnlyList<string> unknowns, string userMessage,
+        string? situationQuestion = null)
     {
-        // 1. Family-mandated.
+        // 1. Family-mandated. b2 exists to train questions, so it keeps its policy - but the
+        //    question is the one this situation would actually raise. A fixed "should I hold it
+        //    until morning?" under "how did the planning meeting go?" is a plan no planner emits.
         if (family.Id == "b2")
             return (new QuestionPolicySpec
             {
-                Policy = "must_ask", Text = "should I hold it until morning?",
+                Policy = "must_ask",
+                Text = QuestionFor(ambiguities, unknowns, situationQuestion, rng)
+                       ?? "do you want me to pick it up from there?",
             }, "family", false);
 
         // 2. Drawn, with corrections narrowed away from interrogation.
@@ -512,7 +588,9 @@ public sealed class ScenarioGenerator(
         if (family.Id == "b3" && policy == "must_ask")
             policy = roll < 0.5 ? "none" : "may_ask";
 
-        var text = policy == "none" ? null : QuestionFor(ambiguities, unknowns, rng);
+        var text = policy == "none"
+            ? null
+            : QuestionFor(ambiguities, unknowns, situationQuestion, rng);
         if (policy != "none" && text is null)
             policy = "none";                       // nothing coherent to ask: do not invent one
 
@@ -535,13 +613,19 @@ public sealed class ScenarioGenerator(
     /// which is the signal to fall back to forbidden rather than fabricate a reason.
     /// </summary>
     private static string? QuestionFor(
-        IReadOnlyList<string> ambiguities, IReadOnlyList<string> unknowns, Random rng)
+        IReadOnlyList<string> ambiguities, IReadOnlyList<string> unknowns,
+        string? situationQuestion, Random rng)
     {
+        // The scenario's own open question outranks everything: an unresolved ambiguity or an
+        // admitted unknown IS what this turn would ask about, and asking something else instead
+        // produces a plan no upstream planner would emit.
         if (ambiguities.Count > 0)
             return $"which one did you mean - {ambiguities[0]}?";
         if (unknowns.Count > 0)
             return $"do you know {unknowns[0]}?";
-        return GenericQuestions[rng.Next(GenericQuestions.Length)];
+
+        // Otherwise the follow-up this situation actually invites, and only then a generic one.
+        return situationQuestion ?? GenericQuestions[rng.Next(GenericQuestions.Length)];
     }
 
     private static readonly string[] GenericQuestions =
@@ -603,24 +687,66 @@ public sealed class ScenarioGenerator(
     /// Register per family. Intimacy, profanity and darkness are set here as ordinary register
     /// values — there is no content class, rating or gate anywhere in this method.
     /// </summary>
-    private static RegisterControls RegisterFor(string familyId, Random rng) => familyId switch
+    /// <summary>
+    /// Register per scenario, drawn within the bounds its family requires.
+    ///
+    /// It used to be one fixed value per family, and that was a diversity ceiling nobody could see
+    /// past. Every b9 scenario carried the same two facts under the same neutral register, so all
+    /// 122 accepted b9 rows opened with the same words — 0.8% distinct openings — and the writer
+    /// was right to repeat itself, because it was being asked the same question 122 times.
+    ///
+    /// Varying register is not a trick to defeat the deduplicator. R5 asks for warmth, bluntness,
+    /// playfulness and verbosity coverage throughout, and the same facts said warmly, bluntly and
+    /// tersely are three different renderings the mouth has to learn. The family constraints that
+    /// define a stratum are preserved exactly: a6d still always licenses profanity, b4 still
+    /// carries mixed valence, a3 still sits at the verbosity extremes.
+    /// </summary>
+    private static RegisterControls RegisterFor(string familyId, Random rng)
     {
-        "a6a" => new RegisterControls { Warmth = "high", Intensity = "raised", Playfulness = "light" },
-        "a6b" => new RegisterControls { Teasing = "invited", Playfulness = "full", Warmth = "high" },
-        "a6c" => new RegisterControls { Warmth = "high", Intensity = "raised", Verbosity = "conversational" },
-        "a6d" => new RegisterControls { Profanity = "encouraged", Bluntness = "high" },
-        "a6e" => new RegisterControls { Profanity = "encouraged", Teasing = "invited", Playfulness = "full" },
-        "a6f" => new RegisterControls { Profanity = "encouraged", Warmth = "high", Intensity = "raised" },
-        "a4" => new RegisterControls { Playfulness = "full", Teasing = "allowed" },
-        "a3" => new RegisterControls { Verbosity = rng.NextDouble() < 0.5 ? "terse" : "expansive" },
-        "b4" => new RegisterControls
+        var baseline = new RegisterControls
         {
-            Warmth = "high", Bluntness = "high", Skepticism = "on",
-            Profanity = rng.NextDouble() < 0.5 ? "forbidden" : "mirror-only",
-        },
-        "b7" => new RegisterControls { Verbosity = "short" },
-        _ => new RegisterControls(),
-    };
+            Warmth = Draw(rng, "neutral", "neutral", "high", "low"),
+            Bluntness = Draw(rng, "neutral", "neutral", "high", "low"),
+            Playfulness = Draw(rng, "light", "light", "full", "off"),
+            Teasing = Draw(rng, "off", "allowed", "invited"),
+            Skepticism = Draw(rng, "open", "open", "on"),
+            Intensity = Draw(rng, "even", "even", "raised"),
+            Verbosity = Draw(rng, "conversational", "conversational", "terse", "expansive"),
+            Profanity = Draw(rng, "neutral", "neutral", "neutral", "mirror-only"),
+        };
+
+        return familyId switch
+        {
+            "a6a" => baseline with { Warmth = "high", Intensity = "raised", Playfulness = "light" },
+            "a6b" => baseline with { Teasing = "invited", Playfulness = "full", Warmth = "high" },
+            "a6c" => baseline with
+            {
+                Warmth = "high", Intensity = "raised", Verbosity = "conversational",
+            },
+            "a6d" => baseline with { Profanity = "encouraged", Bluntness = "high" },
+            "a6e" => baseline with
+            {
+                Profanity = "encouraged", Teasing = "invited", Playfulness = "full",
+            },
+            "a6f" => baseline with
+            {
+                Profanity = "encouraged", Warmth = "high", Intensity = "raised",
+            },
+            "a4" => baseline with { Playfulness = "full", Teasing = Draw(rng, "allowed", "invited") },
+            "a3" => baseline with { Verbosity = rng.NextDouble() < 0.5 ? "terse" : "expansive" },
+            "b4" => baseline with
+            {
+                Warmth = "high", Bluntness = "high", Skepticism = "on",
+                Profanity = rng.NextDouble() < 0.5 ? "forbidden" : "mirror-only",
+            },
+            "b7" => baseline with { Verbosity = "short" },
+            _ => baseline,
+        };
+    }
+
+    /// <summary>Uniform pick. Repeating a value in the list is how it is weighted.</summary>
+    private static string Draw(Random rng, params string[] options)
+        => options[rng.Next(options.Length)];
 
     private static string? SuppliedContent(string familyId, Random rng) => familyId switch
     {

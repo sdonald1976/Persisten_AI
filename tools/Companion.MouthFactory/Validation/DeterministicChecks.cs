@@ -139,7 +139,7 @@ public static partial class DeterministicChecks
         // also uses. Shared vocabulary is what a correction is made of, and it can never be
         // evidence that the correction failed.
         var resurrected = scenario.Superseded
-            .Where(s => ContainsAny(lower, StaleMarkers(s))).ToList();
+            .Where(s => StaleMarkers(s).Any(m => ContainsWord(lower, m))).ToList();
         Check("no-stale-resurrection", resurrected.Count == 0, "stale-resurrection",
             string.Join(", ", resurrected.Select(s => s.Kind.ToString())));
 
@@ -289,6 +289,22 @@ public static partial class DeterministicChecks
 
         var current = Fragments(s.CurrentText).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return Fragments(s.StaleText).Where(w => !current.Contains(w)).ToList();
+    }
+
+    /// <summary>
+    /// Whole-word containment, for tokens whose whole job is to discriminate.
+    ///
+    /// Raw substring matching makes short tokens dangerous in a way that is invisible until it
+    /// fires: "tom" is inside "tomorrow", "may" is inside "maybe", "him" is inside "hymn". A
+    /// correction check that rejects "Priya sent it tomorrow" for resurrecting Tom is the same
+    /// defect this check was just repaired for, wearing different clothes.
+    /// </summary>
+    private static bool ContainsWord(string lower, string needle)
+    {
+        var token = needle.ToLowerInvariant().Trim();
+        if (token.Length == 0)
+            return false;
+        return Regex.IsMatch(lower, @"(?<![\p{L}\p{N}])" + Regex.Escape(token) + @"(?![\p{L}\p{N}])");
     }
 
     private static bool Asserts(string lower, Proposition p)

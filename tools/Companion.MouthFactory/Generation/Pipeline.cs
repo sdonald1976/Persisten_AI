@@ -116,7 +116,11 @@ public sealed class FactoryPipeline(
                 continue;
             }
 
-            for (var variant = 0; variant < options.TargetsPerScenario; variant++)
+            // The same variant decision the staged path makes. Scheduling may change the ORDER
+            // calls happen in; it must never change which candidates exist, or the two paths stop
+            // being comparable and the staged/interleaved equivalence test is measuring nothing.
+            var wanted = VariantPolicy.For(scenario, options.TargetsPerScenario);
+            for (var variant = 0; variant < wanted; variant++)
             {
                 if (ledger.ShouldSkip(scenario.Id, variant))
                     continue;                                    // resumed: already terminal

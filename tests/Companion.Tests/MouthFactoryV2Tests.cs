@@ -42,30 +42,52 @@ public class MouthFactoryV2Tests
     }
 
     [Fact]
-    public void ADayNameIsAnchoredBecauseItCannotBeParaphrased()
+    public void ACorrectedValueIsAnchoredAndItsStaleFormForbidden()
     {
-        var correction = Build().First(s => s.FamilyId == "b3");
-        var required = Assert.Single(
-            correction.ApprovedFacts.Where(f => f.Policy == FactPolicy.MustExpress));
+        // Every correction scenario, not one: the stratum draws from a pool now, and the anchor
+        // rule has to hold for all of them rather than for the one that used to be hardcoded.
+        var corrections = Build().Where(s => s.FamilyId == "b3").ToList();
+        Assert.NotEmpty(corrections);
 
-        Assert.Contains("Tuesday", required.Anchors);
-        Assert.Contains("Thursday", correction.ForbiddenTokens);
+        foreach (var scenario in corrections)
+        {
+            var required = Assert.Single(
+                scenario.ApprovedFacts.Where(f => f.Policy == FactPolicy.MustExpress));
+            var supersession = Assert.Single(scenario.Superseded);
+
+            Assert.NotEmpty(required.Anchors);
+            Assert.All(required.Anchors,
+                a => Assert.Contains(a, required.Text, StringComparison.OrdinalIgnoreCase));
+
+            var discriminator = Assert.Single(supersession.DiscriminatingTokens);
+            Assert.Contains(scenario.ForbiddenTokens,
+                t => t.Equals(discriminator, StringComparison.OrdinalIgnoreCase));
+
+            // The token that marks the stale claim must not appear in the correct one.
+            Assert.DoesNotContain(discriminator, required.Text, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]
     public void AnIdentifierIsRequiredVerbatim()
     {
-        var procedure = Build().First(s => s.FamilyId == "b5");
-        Assert.Contains("release-prod.sh", procedure.RequiredTokens);
+        var procedures = Build().Where(s => s.FamilyId == "b5").ToList();
+        Assert.NotEmpty(procedures);
 
-        Assert.False(Assert.Single(
-                DeterministicChecks.Run(procedure, "It uses the production release script now."),
-                c => c.Name == "required-tokens")
-            .Passed);
-        Assert.True(Assert.Single(
-                DeterministicChecks.Run(procedure, "It runs release-prod.sh now."),
-                c => c.Name == "required-tokens")
-            .Passed);
+        foreach (var procedure in procedures)
+        {
+            var token = Assert.Single(procedure.RequiredTokens);
+
+            // Paraphrasing an identifier is a defect, and only here.
+            Assert.False(Assert.Single(
+                    DeterministicChecks.Run(procedure, "It uses the usual one now."),
+                    c => c.Name == "required-tokens")
+                .Passed);
+            Assert.True(Assert.Single(
+                    DeterministicChecks.Run(procedure, $"It runs {token} now."),
+                    c => c.Name == "required-tokens")
+                .Passed);
+        }
     }
 
     // ---- the stratum the pilot deleted ----------------------------------------------------------
@@ -76,24 +98,30 @@ public class MouthFactoryV2Tests
         // 171 of 178 b3 units were rejected for this exact reply, because the stale text "the
         // meeting is on Thursday" contributed the word "meeting" to the forbidden list. The
         // corrections stratum ended the pilot with zero accepted rows.
-        var scenario = Correction();
+        foreach (var scenario in Build().Where(s => s.FamilyId == "b3"))
+        {
+            var current = Assert.Single(scenario.Superseded).CurrentText;
+            var check = Assert.Single(
+                DeterministicChecks.Run(scenario, "Right - " + current + ". Thanks for the correction."),
+                c => c.Name == "no-stale-resurrection");
 
-        var check = Assert.Single(
-            DeterministicChecks.Run(scenario, "The meeting is on Tuesday. Thanks for the correction."),
-            c => c.Name == "no-stale-resurrection");
-
-        Assert.True(check.Passed);
+            Assert.True(check.Passed, current);
+        }
     }
 
     [Fact]
-    public void RestatingTheStaleDayIsStillAResurrection()
+    public void RestatingTheStaleValueIsStillAResurrection()
     {
-        var check = Assert.Single(
-            DeterministicChecks.Run(Correction(), "Meeting is Thursday as far as I know."),
-            c => c.Name == "no-stale-resurrection");
+        foreach (var scenario in Build().Where(s => s.FamilyId == "b3"))
+        {
+            var stale = Assert.Single(scenario.Superseded);
+            var check = Assert.Single(
+                DeterministicChecks.Run(scenario, "It is " + stale.StaleText + ", as far as I know."),
+                c => c.Name == "no-stale-resurrection");
 
-        Assert.False(check.Passed);
-        Assert.Equal("stale-resurrection", check.Code);
+            Assert.False(check.Passed);
+            Assert.Equal("stale-resurrection", check.Code);
+        }
     }
 
     [Fact]
