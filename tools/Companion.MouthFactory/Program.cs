@@ -20,6 +20,8 @@ var rows = int.TryParse(ArgValue("--rows"), out var r) ? r : 1200;
 var seed = long.TryParse(ArgValue("--seed"), out var s) ? s : 20260826;
 var variants = int.TryParse(ArgValue("--variants"), out var v) ? v : 2;
 var families = ArgValue("--families")?.Split(',', StringSplitOptions.RemoveEmptyEntries);
+var targetAccepted = int.TryParse(ArgValue("--target-accepted"), out var ta) ? ta : (int?)null;
+var maxUnits = int.TryParse(ArgValue("--max-units"), out var mu) ? mu : (int?)null;
 
 switch (command)
 {
@@ -48,6 +50,13 @@ switch (command)
               --seed <n>         run seed (default 20260826)
               --variants <n>     targets per scenario (default 2)
               --families a1,b3   restrict to named families
+
+            corpus size
+              --rows N           candidate UNITS attempted (scenario x variant). Unchanged.
+              --target-accepted N  stop once N rows have been ACCEPTED. Resumable: counts what
+                                   earlier runs already accepted.
+              --max-units N        hard ceiling on units attempted, so an unreachable target
+                                   stops instead of consuming the corpus.
             """);
         return 0;
 }
@@ -94,6 +103,27 @@ async Task<int> GenerateAsync(bool dryRun)
         return 2;
     }
 
+    // Preflight before any unattended run. A wedged GPU runner answers /api/version happily and
+    // hangs on generation, so only a real test completion detects it.
+    if (!dryRun)
+    {
+        using var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(300) };
+        var writerModel = Environment.GetEnvironmentVariable("MOUTH_WRITER_MODEL")!;
+        var writerEndpoint = Environment.GetEnvironmentVariable("MOUTH_WRITER_ENDPOINT")
+                             ?? "http://localhost:11434/v1";
+        var health = await OllamaPreflight.CheckAsync(probe, writerEndpoint, writerModel);
+        if (!health.Healthy)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("PREFLIGHT FAILED: " + health.Detail);
+            if (health.Action is { } act)
+                Console.Error.WriteLine("  -> " + act);
+            Console.Error.WriteLine("Refusing to generate. No job was killed.");
+            return 3;
+        }
+        Console.WriteLine("preflight  " + health.Detail);
+    }
+
     var pipeline = new FactoryPipeline(
         roleRouter ?? new RoleRouter(new Dictionary<Role, IRoleClient>()),
         ledger, store, new Deduplicator(), source);
@@ -108,6 +138,8 @@ async Task<int> GenerateAsync(bool dryRun)
         OutputDirectory = output,
         TargetsPerScenario = variants,
         DryRun = dryRun,
+        TargetAccepted = targetAccepted,
+        MaxUnits = maxUnits,
     });
 
     File.WriteAllText(
@@ -368,8 +400,15 @@ List<string> PriorCorpusTargets()
 
 void Report(PipelineResult result)
 {
-    Console.WriteLine($"scenarios       {result.ScenariosBuilt}");
+    Console.WriteLine($"stop reason     {result.StopReason}");
+    Console.WriteLine($"scenarios       {result.ScenariosBuilt}  (unsatisfiable, not attempted: {result.Unsatisfiable})");
+    Console.WriteLine($"units attempted {result.UnitsAttempted}");
     Console.WriteLine($"candidates      {result.CandidatesGenerated}");
+    var denom = Math.Max(1, result.UnitsAttempted);
+    Console.WriteLine($"  deterministic pass  {result.Accepted + result.ManualReview}/{denom}"
+                      + $" ({(result.Accepted + result.ManualReview) / (double)denom:P1})");
+    Console.WriteLine($"  critic accepted     {result.Accepted}/{denom} ({result.Accepted / (double)denom:P1})");
+    Console.WriteLine($"  manual review       {result.ManualReview}/{denom} ({result.ManualReview / (double)denom:P1})");
     Console.WriteLine($"accepted        {result.Accepted}");
     Console.WriteLine($"rejected        {result.Rejected}");
     Console.WriteLine($"manual review   {result.ManualReview}");

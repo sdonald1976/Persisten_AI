@@ -103,23 +103,68 @@ public class MouthFactoryTests
     // ---- stop condition: required facts must not silently disappear --------------------------------
 
     [Fact]
-    public void AMustExpressFactThatWentMissingIsRejected()
+    public void AParaphraseIsNotAnOmission()
     {
-        var scenario = Scenario();
-        var checks = DeterministicChecks.Run(scenario, "Yeah, all sorted.");
+        // The defect this replaces: the check demanded that half the fact's content words
+        // survive, while the teacher rules demand "in fresh words. Never copy their wording."
+        // Every must-state rejection measured in the 7B run was a paraphrase, not an omission.
+        var scenario = Scenario();   // MUST: "the second build finished"
 
-        var omission = Assert.Single(checks, c => c.Name == "must-state-present");
-        Assert.False(omission.Passed);
-        Assert.Equal("must-state-omission", omission.Code);
+        foreach (var paraphrase in new[]
+                 {
+                     "The other file is ready.",
+                     "Yep - it came through on the second go.",
+                     "That one is sorted now.",
+                 })
+        {
+            var checks = DeterministicChecks.Run(scenario, paraphrase);
+            Assert.DoesNotContain(checks, c => !c.Passed && c.Code == "must-state-omission");
+            Assert.DoesNotContain(checks, c => !c.Passed && c.Code == "must-state-anchor-missing");
+        }
     }
 
     [Fact]
-    public void AMustExpressFactExpressedInFreshWordsPasses()
+    public void ANonParaphrasableAnchorIsStillCheckedDeterministically()
     {
-        var scenario = Scenario();
-        var checks = DeterministicChecks.Run(scenario, "The second build finished a moment ago.");
+        // Identifiers, values and names cannot be reworded away, so they stay a string test.
+        var scenario = Scenario() with
+        {
+            ApprovedFacts =
+            [
+                new ApprovedFact
+                {
+                    Id = "f1", Text = "the meeting moved to Tuesday the 14th",
+                    Policy = FactPolicy.MustExpress, Anchors = ["Tuesday", "14th"],
+                },
+            ],
+        };
 
-        Assert.True(Assert.Single(checks, c => c.Name == "must-state-present").Passed);
+        Assert.False(Assert.Single(
+            DeterministicChecks.Run(scenario, "It shifted to some point next week."),
+            c => c.Name == "must-state-anchors").Passed);
+
+        Assert.True(Assert.Single(
+            DeterministicChecks.Run(scenario, "Shifted to Tuesday the 14th, if that still works."),
+            c => c.Name == "must-state-anchors").Passed);
+    }
+
+    [Fact]
+    public void SemanticOmissionIsRoutedToTheCriticNotRejectedDeterministically()
+    {
+        // "Yeah, all sorted." genuinely omits the required point - but deciding that is a
+        // semantic judgement, and the deterministic stage deliberately no longer guesses.
+        var checks = DeterministicChecks.Run(Scenario(), "Yeah, all sorted.");
+
+        Assert.DoesNotContain(checks, c => !c.Passed && c.Kind == CheckKind.Deterministic);
+    }
+
+    [Fact]
+    public void AnEmptyReplyStillFailsWhenObligationsExist()
+    {
+        // The one lexical-free floor worth keeping: silence cannot convey an obligation.
+        Assert.False(Assert.Single(
+            DeterministicChecks.Run(Scenario(), "   "),
+            c => c.Name == "must-state-nonempty").Passed);
     }
 
     // ---- stop condition: forbidden / unsupported claims must not pass -------------------------------
@@ -785,6 +830,206 @@ public class MouthFactoryTests
         var plan = FamilySplitter.Plan(scenarios, hardFamilies: hardFamilies);
 
         Assert.All(hardFamilies, f => Assert.Equal("hard", plan.FamilyToSplit[f]));
+    }
+
+    // ---- satisfiability ---------------------------------------------------------------------
+
+    [Fact]
+    public void AScenarioWithNothingToBeAboutIsUnsatisfiable()
+    {
+        // No expressible item, no correction, no unknown, no ambiguity, no permitted question,
+        // no frame, and a user turn carrying nothing. Every compliant reply would be contentless.
+        var barren = Scenario() with
+        {
+            ApprovedFacts = [],
+            UserMessage = "any news?",
+            History = [new Turn { Role = "user", Text = "and?" }],
+        };
+
+        var result = ScenarioSatisfiability.Check(barren);
+
+        Assert.False(result.Satisfiable);
+        Assert.Equal("unsatisfiable", result.Code);
+    }
+
+    [Fact]
+    public void AContentfulUserTurnMakesAnItemlessScenarioSatisfiable()
+    {
+        // 127 of 730 frozen-corpus rows have no SAY items and question=none, and every one has a
+        // real target - because the act is exercised against a user message that carries
+        // something. "I got the promotion!" can be acknowledged; "any news?" cannot.
+        var scenario = Scenario() with
+        {
+            ApprovedFacts = [],
+            UserMessage = "I got the promotion!",
+            History = [],
+        };
+
+        Assert.True(ScenarioSatisfiability.Check(scenario).Satisfiable);
+    }
+
+    [Fact]
+    public void APermittedQuestionOrAFrameOrACorrectionIsEnough()
+    {
+        var barren = Scenario() with { ApprovedFacts = [], UserMessage = "and?", History = [] };
+        Assert.False(ScenarioSatisfiability.Check(barren).Satisfiable);
+
+        Assert.True(ScenarioSatisfiability.Check(barren with
+        {
+            Question = new QuestionPolicySpec { Policy = "may_ask", Text = "which one?" },
+        }).Satisfiable);
+
+        Assert.True(ScenarioSatisfiability.Check(barren with
+        {
+            Frame = new FrameState { Transition = "continue", SceneRef = "scene-01" },
+        }).Satisfiable);
+
+        Assert.True(ScenarioSatisfiability.Check(barren with
+        {
+            Superseded =
+            [
+                new Supersession
+                {
+                    StaleText = "Thursday", CurrentText = "Tuesday", Kind = CorrectionKind.Temporal,
+                },
+            ],
+        }).Satisfiable);
+    }
+
+    [Fact]
+    public void BackgroundOnlyContentDoesNotMakeAScenarioSatisfiable()
+    {
+        // It may colour tone and must NOT surface, so it is not something to be about.
+        var scenario = Scenario() with
+        {
+            ApprovedFacts =
+            [
+                new ApprovedFact
+                {
+                    Id = "f1", Text = "the neighbour complained", Policy = FactPolicy.BackgroundOnly,
+                },
+            ],
+            UserMessage = "and?",
+            History = [],
+        };
+
+        Assert.False(ScenarioSatisfiability.Check(scenario).Satisfiable);
+    }
+
+    [Fact]
+    public async Task UnsatisfiableScenariosNeverReachAWriterAndDoNotCountAgainstAcceptance()
+    {
+        using var temp = new TempDir();
+        var barren = Scenario() with
+        {
+            Id = "barren-0001", ScenarioFamilyId = "barren-fam",
+            ApprovedFacts = [], UserMessage = "and?", History = [],
+        };
+        var source = new CountingSource();
+
+        var result = await RunAsync(temp.Path, [barren], source);
+
+        Assert.Equal(0, source.Calls);
+        Assert.Equal(1, result.Unsatisfiable);
+        Assert.Equal(0, result.UnitsAttempted);
+    }
+
+    // ---- bounded stops ------------------------------------------------------------------------
+
+    [Fact]
+    public async Task TargetAcceptedStopsOnceEnoughRowsAreAccepted()
+    {
+        using var temp = new TempDir();
+        var scenarios = new ScenarioGenerator(5).Generate(Curriculum.Find("b1")!, 20).ToList();
+
+        var result = await Bounded(temp.Path, scenarios, targetAccepted: 3, maxUnits: null);
+
+        Assert.Equal("target-reached", result.StopReason);
+        Assert.True(result.Accepted >= 3, "stopped before reaching the target");
+        Assert.True(result.UnitsAttempted < scenarios.Count * 2, "did not stop early");
+    }
+
+    [Fact]
+    public async Task MaxUnitsStopsSafelyWhenTheTargetIsUnreachable()
+    {
+        using var temp = new TempDir();
+        var scenarios = new ScenarioGenerator(5).Generate(Curriculum.Find("b1")!, 20).ToList();
+
+        var result = await Bounded(temp.Path, scenarios, targetAccepted: 10_000, maxUnits: 6);
+
+        Assert.Equal("unit-ceiling", result.StopReason);
+        Assert.Equal(6, result.UnitsAttempted);
+    }
+
+    [Fact]
+    public async Task TargetAcceptedCountsRowsAlreadyAcceptedByAnEarlierRun()
+    {
+        // Resumability: a target is about the corpus, not about this process.
+        using var temp = new TempDir();
+        var scenarios = new ScenarioGenerator(5).Generate(Curriculum.Find("b1")!, 20).ToList();
+
+        await Bounded(temp.Path, scenarios, targetAccepted: 3, maxUnits: null);
+        var second = await Bounded(temp.Path, scenarios, targetAccepted: 3, maxUnits: null);
+
+        Assert.Equal("target-reached", second.StopReason);
+        Assert.Equal(0, second.UnitsAttempted);
+    }
+
+    // ---- critic audit floors --------------------------------------------------------------------
+
+    [Fact]
+    public async Task UniversalRejectionNoLongerPassesTheAsymmetryAudit()
+    {
+        // The vacuous pass: the 3B naturalness critic rejected 100% of every register, so every
+        // delta was 0 and parity reported PASS on a critic that discriminated nothing.
+        var report = await CriticAsymmetry.AuditAsync(
+            MatchedPairs.Build(), (_, _, _) => Task.FromResult(true));
+
+        Assert.Equal(0, report.WorstDelta);        // perfectly even-handed...
+        Assert.False(report.CriticAcceptable);     // ...and still unusable
+        Assert.Contains(report.Failures, f => f.Contains("vacuous", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ACriticBelowTheSensitivityFloorMayNotGate()
+    {
+        var report = await CriticAsymmetry.AuditAsync(
+            MatchedPairs.Build(), (_, _, _) => Task.FromResult(false));
+        var measured = report with { Sensitivity = 0.20, Specificity = 0.90 };
+
+        Assert.True(report.CriticAcceptable);       // parity alone would have allowed it
+        Assert.False(measured.CriticAcceptable);
+        Assert.Contains(measured.Failures, f => f.Contains("sensitivity", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ACriticBelowTheSpecificityFloorMayNotGate()
+    {
+        // The repaired 3B faithfulness critic: it accepted every known-bad fixture.
+        var report = await CriticAsymmetry.AuditAsync(
+            MatchedPairs.Build(), (_, _, _) => Task.FromResult(false));
+        var measured = report with { Sensitivity = 1.00, Specificity = 0.00 };
+
+        Assert.False(measured.CriticAcceptable);
+        Assert.Contains(measured.Failures, f => f.Contains("specificity", StringComparison.Ordinal));
+    }
+
+    private static Task<PipelineResult> Bounded(
+        string directory, IReadOnlyList<ScenarioTruth> scenarios, int? targetAccepted, int? maxUnits)
+    {
+        var pipeline = new FactoryPipeline(
+            new RoleRouter(new Dictionary<Role, IRoleClient>()),
+            JobLedger.Open(Path.Combine(directory, "ledger.jsonl")),
+            new RowStore(Path.Combine(directory, "rows")),
+            new Deduplicator(),
+            new CountingSource());
+        return pipeline.RunAsync(scenarios, new PipelineOptions
+        {
+            OutputDirectory = directory,
+            TargetsPerScenario = 2,
+            TargetAccepted = targetAccepted,
+            MaxUnits = maxUnits,
+        });
     }
 
     // ---- helpers -------------------------------------------------------------------------------------------------------

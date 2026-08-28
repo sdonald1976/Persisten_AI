@@ -13,6 +13,22 @@ public sealed record PipelineOptions
 
     /// <summary>Rows per family for this run. Corpus size is configuration, never architecture.</summary>
     public IReadOnlyDictionary<string, int>? FamilyCounts { get; init; }
+
+    /// <summary>
+    /// Stop once this many rows have been ACCEPTED. Null means run every unit.
+    ///
+    /// This is the unit people actually mean by "a 1500-row pilot". `--rows` has always meant
+    /// candidate units attempted, and it keeps meaning exactly that - nothing here reinterprets
+    /// it - but a target expressed in accepted rows cannot be met by a unit count, because the
+    /// acceptance rate is what the run is measuring.
+    /// </summary>
+    public int? TargetAccepted { get; init; }
+
+    /// <summary>
+    /// Hard ceiling on units attempted, so a target that cannot be reached stops rather than
+    /// consuming the whole corpus. Reaching it is a reported outcome, not a silent truncation.
+    /// </summary>
+    public int? MaxUnits { get; init; }
 }
 
 public sealed record PipelineResult
@@ -25,6 +41,18 @@ public sealed record PipelineResult
     public required IReadOnlyList<ScenarioTruth> Scenarios { get; init; }
     public required IReadOnlyList<(TrainingRow Row, TrainingRowMetadata Meta)> AcceptedRows { get; init; }
     public required IReadOnlyDictionary<string, int> RejectionCodes { get; init; }
+
+    /// <summary>
+    /// Scenarios dropped before generation because no compliant reply could exist. They are a
+    /// construction failure, not a writer failure, and are excluded from every acceptance rate.
+    /// </summary>
+    public required int Unsatisfiable { get; init; }
+
+    /// <summary>Units actually attempted: satisfiable scenarios x variants.</summary>
+    public required int UnitsAttempted { get; init; }
+
+    /// <summary>Why the run ended: "complete", "target-reached", or "unit-ceiling".</summary>
+    public required string StopReason { get; init; }
 }
 
 /// <summary>
@@ -52,8 +80,27 @@ public sealed class FactoryPipeline(
         void CountRejection(string code)
             => rejectionCodes[code] = rejectionCodes.GetValueOrDefault(code) + 1;
 
+        var unsatisfiable = 0;
+        var unitsAttempted = 0;
+        var stopReason = "complete";
+
         foreach (var scenario in scenarios)
         {
+            // 0. Satisfiability, before anything else. A scenario with nothing to be about
+            //    cannot produce a compliant reply, so sending it to a writer measures the
+            //    writer against an impossible task and counts the result against it.
+            var sat = ScenarioSatisfiability.Check(scenario);
+            if (!sat.Satisfiable)
+            {
+                unsatisfiable++;
+                ledger.Record(new LedgerEntry
+                {
+                    ScenarioId = scenario.Id, VariantIndex = 0, State = LedgerState.Failed,
+                    FailureCode = sat.Code, Detail = sat.Detail, CompletedAtUtc = Timestamp(),
+                });
+                continue;
+            }
+
             // 1. schema + Plan/4 + audience + render eligibility, before anything is generated.
             var (plan, failure) = PlanConstruction.Build(scenario);
             if (plan is null)
@@ -74,6 +121,21 @@ public sealed class FactoryPipeline(
                 if (ledger.ShouldSkip(scenario.Id, variant))
                     continue;                                    // resumed: already terminal
 
+                // Both stops are checked against work ALREADY LEDGERED, so a resumed run counts
+                // what a previous run accepted and neither double-counts nor restarts.
+                if (options.TargetAccepted is { } target
+                    && ledger.Count(LedgerState.Accepted) >= target)
+                {
+                    stopReason = "target-reached";
+                    goto finished;
+                }
+                if (options.MaxUnits is { } ceiling && unitsAttempted >= ceiling)
+                {
+                    stopReason = "unit-ceiling";
+                    goto finished;
+                }
+
+                unitsAttempted++;
                 if (options.DryRun)
                 {
                     generated++;
@@ -168,6 +230,7 @@ public sealed class FactoryPipeline(
             }
         }
 
+        finished:
         return new PipelineResult
         {
             ScenariosBuilt = scenarios.Count,
@@ -178,6 +241,9 @@ public sealed class FactoryPipeline(
             Scenarios = scenarios,
             AcceptedRows = accepted,
             RejectionCodes = rejectionCodes,
+            Unsatisfiable = unsatisfiable,
+            UnitsAttempted = unitsAttempted,
+            StopReason = stopReason,
         };
     }
 

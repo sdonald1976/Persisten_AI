@@ -68,14 +68,31 @@ public static class DeterministicChecks
         Check("forbidden-tokens", leakedTokens.Count == 0, "forbidden-token-leak",
             string.Join(", ", leakedTokens));
 
-        // ---- 4. structured proposition comparison ----------------------------------------------
-        // must_express facts have to survive into the utterance. Surface forms are supplied by the
-        // scenario so this is a structural check with stated evidence, not a keyword guess.
-        var omitted = scenario.ApprovedFacts
-            .Where(f => f.Policy == FactPolicy.MustExpress)
-            .Where(f => !Expressed(lower, f.Text, scenario, f.Id))
+        // ---- 4. must-state: ANCHORS only -------------------------------------------------------
+        // This deliberately no longer requires lexical overlap with the fact's own wording. The
+        // old rule demanded that half the fact's content words survive, while the teacher rules
+        // demand the opposite - "convey each one, in fresh words. Never copy their wording." A
+        // correct paraphrase was being logged as an omission: "the thing you asked about is
+        // ready" answered by "The other file is ready" was rejected, and every must-state
+        // rejection measured in the 7B run was a paraphrase rather than an omission.
+        //
+        // What survives here is what genuinely CANNOT be paraphrased: identifiers, values,
+        // names, quoted terms - declared per fact as Anchors, or scenario-wide as RequiredTokens.
+        // Whether an ordinary proposition was conveyed is a semantic question, and it is routed
+        // to the faithfulness stage rather than decided by a string test.
+        var missingAnchors = scenario.ApprovedFacts
+            .Where(f => f.Policy == FactPolicy.MustExpress && f.Anchors.Count > 0)
+            .Where(f => f.Anchors.Any(a => !target.Contains(a, StringComparison.OrdinalIgnoreCase)))
             .Select(f => f.Id).ToList();
-        Check("must-state-present", omitted.Count == 0, "must-state-omission", string.Join(", ", omitted));
+        Check("must-state-anchors", missingAnchors.Count == 0, "must-state-anchor-missing",
+            string.Join(", ", missingAnchors));
+
+        // An utterance that says nothing at all cannot have conveyed an obligation. This is the
+        // one lexical-free floor worth keeping: it catches silence, not paraphrase.
+        var obligations = scenario.ApprovedFacts.Count(f => f.Policy == FactPolicy.MustExpress);
+        Check("must-state-nonempty",
+            obligations == 0 || target.Trim().Length > 0,
+            "must-state-omission", "obligations exist but the reply is empty");
 
         var prohibited = scenario.ProhibitedPropositions
             .Where(p => Asserts(lower, p)).ToList();
@@ -190,28 +207,6 @@ public static class DeterministicChecks
 
     private static int WordCount(string text)
         => text.Split([' ', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries).Length;
-
-    /// <summary>
-    /// Whether a must-express fact made it into the utterance in ANY wording. Surface forms
-    /// supplied by the scenario are authoritative; otherwise the content words of the fact must
-    /// substantially appear, which is the strongest mechanical proxy available and is why the
-    /// naturalness critic still gets a paraphrase vote afterwards.
-    /// </summary>
-    private static bool Expressed(string lower, string factText, ScenarioTruth scenario, string factId)
-    {
-        var declared = scenario.ExpectedPropositions
-            .Where(p => p.Subject == factId || p.SurfaceForms.Count > 0)
-            .SelectMany(p => p.SurfaceForms)
-            .ToList();
-        if (declared.Count > 0 && ContainsAny(lower, declared))
-            return true;
-
-        var content = Fragments(factText);
-        if (content.Count == 0)
-            return true;
-        var hits = content.Count(f => lower.Contains(f, StringComparison.Ordinal));
-        return hits * 2 >= content.Count;          // at least half the content words survived
-    }
 
     private static bool Asserts(string lower, Proposition p)
         => p.SurfaceForms.Count > 0

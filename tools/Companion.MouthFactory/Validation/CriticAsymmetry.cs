@@ -36,10 +36,62 @@ public sealed record AsymmetryReport
     public double WorstDelta => Deltas.Values.DefaultIfEmpty(0).Max();
 
     /// <summary>
-    /// The critic may be used only if no register is rejected materially more than neutral. A
-    /// critic that fails this is recalibrated or replaced — the MATERIAL is never removed.
+    /// Sensitivity and specificity on labelled fixtures, supplied by the caller. Parity alone
+    /// cannot establish that a critic is usable — see <see cref="CriticAcceptable"/>.
     /// </summary>
-    public bool CriticAcceptable => WorstDelta <= Ceiling;
+    public double Sensitivity { get; init; } = double.NaN;
+
+    public double Specificity { get; init; } = double.NaN;
+
+    /// <summary>Minimum share of KNOWN-GOOD rows a critic must accept before it may gate.</summary>
+    public const double SensitivityFloor = 0.80;
+
+    /// <summary>Minimum share of KNOWN-BAD rows it must reject.</summary>
+    public const double SpecificityFloor = 0.50;
+
+    /// <summary>
+    /// Whether the neutral baseline itself is informative. A critic that rejects nearly
+    /// everything has a neutral rejection rate near 1, and then EVERY delta is 0 and parity
+    /// passes vacuously — which is exactly what the 3B naturalness critic did: 100% rejection
+    /// across all five registers, reported as PASS.
+    /// </summary>
+    public bool BaselineInformative => Baseline.RejectionRate <= 0.60;
+
+    /// <summary>
+    /// A critic may gate rows only if it is even-handed AND actually discriminating.
+    ///
+    /// Parity is necessary and nowhere near sufficient. Universal rejection is perfectly
+    /// even-handed and completely useless, so the floors below are what make this a real test:
+    /// the neutral baseline must leave room to detect asymmetry, and where labelled fixtures
+    /// were supplied the critic must clear both floors.
+    /// </summary>
+    public bool CriticAcceptable =>
+        WorstDelta <= Ceiling
+        && BaselineInformative
+        && (double.IsNaN(Sensitivity) || Sensitivity >= SensitivityFloor)
+        && (double.IsNaN(Specificity) || Specificity >= SpecificityFloor);
+
+    /// <summary>Why it was refused, for a report that has to say more than "false".</summary>
+    public IReadOnlyList<string> Failures
+    {
+        get
+        {
+            var why = new List<string>();
+            if (WorstDelta > Ceiling)
+                why.Add($"content asymmetry {WorstDelta:P1} exceeds the {Ceiling:P0} ceiling "
+                        + $"({string.Join(", ", OffendingVariants)})");
+            if (!BaselineInformative)
+                why.Add($"neutral baseline rejects {Baseline.RejectionRate:P0} - parity is "
+                        + "vacuous at this rate, the critic discriminates nothing");
+            if (!double.IsNaN(Sensitivity) && Sensitivity < SensitivityFloor)
+                why.Add($"sensitivity {Sensitivity:P0} below the {SensitivityFloor:P0} floor "
+                        + "- it rejects known-good rows");
+            if (!double.IsNaN(Specificity) && Specificity < SpecificityFloor)
+                why.Add($"specificity {Specificity:P0} below the {SpecificityFloor:P0} floor "
+                        + "- it accepts known-bad rows");
+            return why;
+        }
+    }
 
     public IReadOnlyList<ContentVariant> OffendingVariants =>
         Deltas.Where(kv => kv.Value > Ceiling).Select(kv => kv.Key).ToList();

@@ -29,20 +29,81 @@ namespace Companion.MouthFactory.Generation;
 public sealed class ModelTargetSource(RoleRouter roles, long runSeed) : ITargetSource
 {
     /// <summary>
-    /// Critic instructions say nothing about subject matter. They ask about faithfulness to the
-    /// plan and about whether the line reads like a person — never whether it is appropriate,
-    /// tasteful or safe, because those questions are how a corpus loses its A6 and A7 strata.
+    /// LINGUISTIC QUALITY ONLY. The previous prompt asked whether a line "sounds like a real
+    /// person", and a 3B judge read that as licence to grade politeness, completeness and
+    /// taste: it rejected 12 of 15 natural human lines, called "Build is done." incomplete and
+    /// badly punctuated, and failed a profane line for "inappropriate and offensive language"
+    /// while being told in the same breath that subject matter is never a reason to fail.
+    ///
+    /// The question is narrowed to what a language judge is for, licences are stated AS
+    /// licences rather than as exceptions, and the non-criteria are enumerated - a general
+    /// instruct model supplies them itself otherwise.
     /// </summary>
     private const string NaturalnessSystem =
-        "You judge whether a line of dialogue sounds like a real person speaking, or like an AI "
-        + "assistant. Judge ONLY rhythm, word choice and naturalness. Subject matter is NEVER a "
-        + "reason to fail a line: intimacy, profanity, darkness and violence in fiction are "
-        + "register, not defects. Reply with JSON: {\"natural\": true|false, \"why\": \"...\"}.";
+        """
+        You judge ONE thing: does this line read as fluent, idiomatic human speech?
 
+        FAIL it only for linguistic defects:
+        - broken grammar or syntax a fluent speaker would not produce
+        - garbled, incoherent or self-contradicting phrasing
+        - stiff corporate or assistant register ("I would be happy to assist you with that")
+        - mechanical repetition, or a sentence that reads as generated boilerplate
+
+        PASS it in all of these. They are licensed and are NOT defects:
+        - very short replies and sentence fragments. "Done." and "Build is done." are natural.
+        - profanity, crudeness, explicit sexual language
+        - romance, flirtation, intimacy
+        - dark, violent or disturbing content in fiction
+        - blunt, cold, sarcastic, skeptical or impolite tone
+        - deliberate vagueness, evasion, or declining to elaborate
+        - saying less than you think the situation warrants
+
+        You are NOT judging politeness, appropriateness, safety, helpfulness, completeness,
+        whether it answers fully, or whether you like it. Subject matter is NEVER a reason to
+        fail a line.
+
+        Reply with JSON only: {"natural": true|false, "why": "..."}
+        """;
+
+    /// <summary>
+    /// MEANING ONLY, with the whole plan in view.
+    ///
+    /// The previous version received only the must-express and must-not-express texts, then
+    /// asked whether the reply said "nothing beyond" them. Every optional item, permitted
+    /// question and licensed register choice therefore read as unsupported: it falsely
+    /// rejected 5 of 9 compliant fixtures, and the causes were exactly the fields it was
+    /// never given.
+    /// </summary>
     private const string FaithfulnessSystem =
-        "You judge whether a reply expresses the meaning it was told to express, and nothing "
-        + "beyond it. Judge ONLY meaning. Subject matter is NEVER a reason to fail a reply. "
-        + "Reply with JSON: {\"faithful\": true|false, \"why\": \"...\"}.";
+        """
+        You judge whether a reply is FAITHFUL to a plan already decided. Judge meaning only.
+
+        FAIL it only for these:
+        - a REQUIRED point is missing (it may be reworded freely; only its meaning must survive)
+        - a FORBIDDEN point is stated, hinted at, or explained
+        - BACKGROUND content surfaces as a claim rather than merely colouring the tone
+        - it asserts a specific fact nobody supplied: a detail, name, number, cause or
+          relationship invented to fill a gap
+        - it resolves something marked AMBIGUOUS instead of leaving it open
+        - a question is asked when the question policy forbids one, or none is asked when the
+          policy requires one
+        - it claims a shared memory, a physical experience, or a real-life fact about the user
+          that nothing licenses. Inside an active FICTION FRAME invented scene content IS
+          licensed and must not be failed.
+
+        PASS it in all of these:
+        - OPTIONAL points used, partly used, or ignored. Using one is licensed, never a fault.
+        - the required meaning conveyed in completely fresh wording. Paraphrase is REQUIRED of
+          the writer; matching the plan phrasing is not expected and copying it is worse.
+        - register that is blunt, warm, profane, sexual, dark, terse or expansive as permitted
+        - saying less than you would have, or declining to elaborate
+        - a permitted question
+
+        You are NOT judging style, tone, politeness, appropriateness, subject matter, or
+        whether it is a good reply. Those are licensed by the register and never your concern.
+
+        Reply with JSON only: {"faithful": true|false, "why": "..."}
+        """;
 
     /// <summary>
     /// The plan-obedience rules a teacher needs and the mouth will eventually internalise. Kept
@@ -177,15 +238,76 @@ public sealed class ModelTargetSource(RoleRouter roles, long runSeed) : ITargetS
     }
 
     /// <summary>
-    /// What the faithfulness critic is told the reply had to convey. Structure only — the
-    /// scenario's hidden state never becomes part of any training row.
+    /// Everything the faithfulness critic needs to judge, and nothing it does not.
+    ///
+    /// The old version sent must-express and must-not-express alone, which is why it failed
+    /// compliant rows: an optional item it had never heard of looked like invention, a
+    /// permitted question looked like an unrequested one, and a licensed register looked like
+    /// a liberty. Each section below exists because its absence produced a measured false
+    /// rejection.
+    ///
+    /// Still excluded, deliberately: seeds, model identity, check history, hard-case tagging
+    /// and anything else about how the row was made. The critic judges the reply against the
+    /// plan, not the row against the factory.
     /// </summary>
     private static string Describe(ScenarioTruth scenario)
     {
-        var must = scenario.ApprovedFacts.Where(f => f.Policy == FactPolicy.MustExpress).Select(f => f.Text);
-        var never = scenario.ApprovedFacts.Where(f => f.Policy == FactPolicy.MustNotExpress).Select(f => f.Text);
-        return "MUST CONVEY:\n" + string.Join("\n", must.DefaultIfEmpty("(nothing specific)"))
-               + "\nMUST NOT STATE:\n" + string.Join("\n", never.DefaultIfEmpty("(nothing)"));
+        var sb = new System.Text.StringBuilder();
+
+        void Section(string header, IEnumerable<string> lines, string empty)
+        {
+            var list = lines.ToList();
+            sb.AppendLine(header + ":");
+            if (list.Count == 0)
+                sb.AppendLine("  " + empty);
+            else
+                foreach (var line in list)
+                    sb.AppendLine("  - " + line);
+        }
+
+        Section("REQUIRED - the meaning must survive, in any wording",
+            scenario.ApprovedFacts.Where(f => f.Policy == FactPolicy.MustExpress).Select(f => f.Text),
+            "(nothing required)");
+
+        Section("OPTIONAL - licensed. Using these is never a fault",
+            scenario.ApprovedFacts.Where(f => f.Policy == FactPolicy.MayExpress).Select(f => f.Text),
+            "(none)");
+
+        Section("BACKGROUND - may colour tone; must not surface as a claim",
+            scenario.ApprovedFacts.Where(f => f.Policy == FactPolicy.BackgroundOnly).Select(f => f.Text),
+            "(none)");
+
+        Section("FORBIDDEN - must not be stated, hinted at or explained",
+            scenario.ApprovedFacts.Where(f => f.Policy == FactPolicy.MustNotExpress).Select(f => f.Text)
+                .Concat(scenario.Superseded.Select(x => x.StaleText + " (superseded)")),
+            "(none)");
+
+        Section("MUST ADMIT NOT KNOWING", scenario.EpistemicUnknowns, "(none)");
+        Section("KEEP AMBIGUOUS - do not resolve", scenario.IntentionalAmbiguities, "(none)");
+
+        var q = scenario.Question.Policy.ToLowerInvariant();
+        sb.AppendLine("QUESTION POLICY:");
+        sb.AppendLine("  " + q switch
+        {
+            "must_ask" => "a question is REQUIRED: " + (scenario.Question.Text ?? ""),
+            "may_ask" => "a question is PERMITTED but not required: " + (scenario.Question.Text ?? ""),
+            _ => "no question may be asked",
+        });
+
+        var r = scenario.Register;
+        sb.AppendLine("REGISTER PERMITTED:");
+        sb.AppendLine("  warmth=" + r.Warmth + " bluntness=" + r.Bluntness
+            + " playfulness=" + r.Playfulness + " teasing=" + r.Teasing
+            + " intensity=" + r.Intensity + " verbosity=" + r.Verbosity
+            + " profanity=" + r.Profanity);
+
+        sb.AppendLine("FICTION FRAME:");
+        sb.AppendLine("  " + (scenario.Frame is { } f
+            ? "ACTIVE (" + f.Transition + "). Invented scene content is LICENSED; only a "
+              + "crossing into a real-world claim about the user is a fault."
+            : "none - this is a real conversation"));
+
+        return sb.ToString();
     }
 
     private static string Truncate(string text) => text.Length <= 300 ? text : text[..300];

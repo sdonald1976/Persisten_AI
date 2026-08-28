@@ -158,6 +158,17 @@ public sealed record ApprovedFact
 
     /// <summary>Which participant the fact is about, for identity/entity consistency checks.</summary>
     public string? SubjectParticipantId { get; init; }
+
+    /// <summary>
+    /// Wording that CANNOT be paraphrased away: identifiers, values, proper names, quoted terms,
+    /// exact dates. When present, every anchor must appear verbatim and that is checked
+    /// deterministically.
+    ///
+    /// Empty is the normal case. An ordinary proposition is expressible in any wording — we
+    /// instruct the writer to use fresh words — so its presence is a SEMANTIC question and
+    /// belongs to the faithfulness stage, not to a string test.
+    /// </summary>
+    public IReadOnlyList<string> Anchors { get; init; } = [];
 }
 
 /// <summary>
