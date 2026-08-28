@@ -178,6 +178,19 @@ public sealed class ModelTargetSource(RoleRouter roles, long runSeed) : ITargetS
                 Role.FaithfulnessCritic, FaithfulnessSystem, "faithful",
                 Describe(scenario) + "\n\nREPLY:\n" + target, ct));
 
+        // A SECOND, independently-modelled faithfulness judge on the same evidence.
+        //
+        // Measured need: on the 11 negatives the deterministic gate does NOT catch, no
+        // single locally-available judge distinct from the writer cleared 50% specificity
+        // - the best managed 36%. Two of them ANDed reach 55% at no cost in sensitivity,
+        // because their false accepts do not coincide. Acceptance requires every critic to
+        // pass, so this is an AND by construction, and a disagreement routes the row to
+        // manual review rather than into the corpus.
+        if (roles.Has(Role.AdversarialCritic))
+            results.Add(await AskAsync(
+                Role.AdversarialCritic, FaithfulnessSystem, "faithful",
+                Describe(scenario) + "\n\nREPLY:\n" + target, ct));
+
         if (roles.Has(Role.NaturalnessCritic))
             results.Add(await AskAsync(
                 Role.NaturalnessCritic, NaturalnessSystem, "natural",

@@ -1032,6 +1032,98 @@ public class MouthFactoryTests
         });
     }
 
+    // ---- role independence ----------------------------------------------------------------------
+
+    [Fact]
+    public void AGatingCriticMayNotShareTheWritersModel()
+    {
+        // The configuration the controlled comparison actually ran. RoleRouter permitted it:
+        // it guards ROLES - the writer role cannot be passed to CriticiseAsync - and says nothing
+        // about which weights back a slot. Two proper role slots over one model is what it saw.
+        var collision = new Dictionary<Role, string>
+        {
+            [Role.TargetWriter] = "qwen2.5:14b-instruct",
+            [Role.FaithfulnessCritic] = "qwen2.5:14b-instruct",
+            [Role.NaturalnessCritic] = "qwen2.5:14b-instruct",
+        };
+
+        var violations = RoleIndependence.Check(collision);
+
+        Assert.Equal(2, violations.Count);
+        Assert.All(violations, v => Assert.Equal("writer-is-judge", v.Code));
+    }
+
+    [Fact]
+    public void AnImplicitLatestTagDoesNotSlipACollisionPast()
+    {
+        var violations = RoleIndependence.Check(new Dictionary<Role, string>
+        {
+            [Role.TargetWriter] = "qwen2.5:14b-instruct",
+            [Role.FaithfulnessCritic] = "qwen2.5:14b-instruct:latest",
+        });
+
+        Assert.Single(violations);
+    }
+
+    [Fact]
+    public void DistinctJudgesAreAccepted()
+    {
+        // The audited pilot configuration: a 14B writer, two independently-modelled faithfulness
+        // judges, and a third distinct naturalness judge.
+        var violations = RoleIndependence.Check(new Dictionary<Role, string>
+        {
+            [Role.TargetWriter] = "qwen2.5:14b-instruct",
+            [Role.FaithfulnessCritic] = "qwen3:8b",
+            [Role.AdversarialCritic] = "qwen2.5:7b-instruct",
+            [Role.NaturalnessCritic] = "llama3.1:8b",
+        });
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void CriticsSharingAModelWithEachOtherAreReportedButNotRefused()
+    {
+        // Neither is marking its own homework, so this is not a violation - but their agreement
+        // is correlated rather than independent, and a report that stayed silent would imply
+        // two votes where there is really one.
+        var models = new Dictionary<Role, string>
+        {
+            [Role.TargetWriter] = "qwen2.5:14b-instruct",
+            [Role.FaithfulnessCritic] = "qwen3:8b",
+            [Role.AdversarialCritic] = "qwen3:8b",
+        };
+
+        Assert.Empty(RoleIndependence.Check(models));
+        Assert.Single(RoleIndependence.CorrelatedCritics(models));
+    }
+
+    [Fact]
+    public void AWriterWithNoConfiguredCriticsCollidesWithNothing()
+    {
+        Assert.Empty(RoleIndependence.Check(new Dictionary<Role, string>
+        {
+            [Role.TargetWriter] = "qwen2.5:14b-instruct",
+        }));
+    }
+
+    [Fact]
+    public async Task RoleRouterStillForbidsOneInvocationDoingBoth()
+    {
+        // The guarantee RoleIndependence does NOT replace: whatever the models are, a single
+        // invocation can never both write a target and judge it.
+        var router = new RoleRouter(new Dictionary<Role, IRoleClient>
+        {
+            [Role.TargetWriter] = new StubClient("a reply"),
+            [Role.FaithfulnessCritic] = new StubClient("{\"faithful\":true}"),
+        });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => router.CriticiseAsync(
+            new RoleRequest { Role = Role.TargetWriter, System = "s", User = "u", Seed = 1 }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => router.WriteTargetAsync(
+            new RoleRequest { Role = Role.FaithfulnessCritic, System = "s", User = "u", Seed = 1 }));
+    }
+
     // ---- helpers -------------------------------------------------------------------------------------------------------
 
     private static ScenarioTruth Scenario() => new()

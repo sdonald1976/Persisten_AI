@@ -103,6 +103,22 @@ async Task<int> GenerateAsync(bool dryRun)
         return 2;
     }
 
+    // Role independence, before anything is generated. RoleRouter guarantees one invocation
+    // never both writes and approves; it says nothing about which weights back each slot, and a
+    // gating critic sharing the writer's model is marking its own homework.
+    var roleModels = RoleModels();
+    var violations = RoleIndependence.Check(roleModels);
+    if (violations.Count > 0 && !dryRun)
+    {
+        Console.Error.WriteLine();
+        foreach (var v in violations)
+            Console.Error.WriteLine("ROLE INDEPENDENCE: " + v.Detail);
+        Console.Error.WriteLine("Refusing to generate gated rows.");
+        return 4;
+    }
+    foreach (var note in RoleIndependence.CorrelatedCritics(roleModels))
+        Console.WriteLine("note      " + note);
+
     // Preflight before any unattended run. A wedged GPU runner answers /api/version happily and
     // hangs on generation, so only a real test completion detects it.
     if (!dryRun)
@@ -341,6 +357,24 @@ RoleRouter? BuildRoles(out string description)
 
     description = described.Count == 0 ? "(none configured)" : string.Join("  ", described);
     return clients.ContainsKey(Role.TargetWriter) ? new RoleRouter(clients) : null;
+}
+
+/// <summary>Role -> configured model identifier, for the independence check.</summary>
+Dictionary<Role, string> RoleModels()
+{
+    var map = new Dictionary<Role, string>();
+    foreach (var (role, prefix) in new[]
+             {
+                 (Role.TargetWriter, "WRITER"), (Role.FaithfulnessCritic, "FAITHFULNESS"),
+                 (Role.NaturalnessCritic, "NATURALNESS"), (Role.StyleCritic, "STYLE"),
+                 (Role.AdversarialCritic, "ADVERSARIAL"),
+             })
+    {
+        var model = Environment.GetEnvironmentVariable($"MOUTH_{prefix}_MODEL");
+        if (!string.IsNullOrWhiteSpace(model))
+            map[role] = model;
+    }
+    return map;
 }
 
 Dictionary<string, string> RoleDescription()
