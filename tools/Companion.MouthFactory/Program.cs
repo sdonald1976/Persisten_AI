@@ -88,6 +88,25 @@ async Task<int> GenerateAsync(bool dryRun)
         .SelectMany(f => generator.Generate(f, counts[f.Id]))
         .ToList();
 
+    // What each deterministic gate will actually have to look at, BEFORE any model is called.
+    // A gate reading a field nothing populates reports zero failures and reads as approval; the
+    // pilot published a pass rate over three such gates and it took the finished corpus to notice.
+    var coverage = CheckCoverage.Measure(scenarios);
+    Console.WriteLine("\ndeterministic gate coverage");
+    foreach (var row in coverage.Rows.OrderBy(r => r.Status, StringComparer.Ordinal)
+                 .ThenBy(r => r.Check, StringComparer.Ordinal))
+        Console.WriteLine($"  {row.Status,-8}{row.Check,-26}{row.Scenarios,6} scenarios supply data");
+    if (!coverage.Ok)
+    {
+        Console.Error.WriteLine();
+        foreach (var row in coverage.Missing)
+            Console.Error.WriteLine(
+                $"COVERAGE: '{row.Check}' has no data in any of the {scenarios.Count} scenarios "
+                + "built. The gate would run and enforce nothing.");
+        Console.Error.WriteLine("Refusing to generate against gates that cannot fire.");
+        return 5;
+    }
+
     Directory.CreateDirectory(output);
     var ledger = JobLedger.Open(Path.Combine(output, "ledger.jsonl"));
     var store = new RowStore(Path.Combine(output, "rows"));
@@ -158,9 +177,10 @@ async Task<int> GenerateAsync(bool dryRun)
     {
         var criticRoles = new[] { Role.FaithfulnessCritic, Role.AdversarialCritic, Role.NaturalnessCritic }
             .Where(r => roleRouter!.Has(r)).Select(r => r.ToString()).ToList();
+        var quota = new AcceptanceQuota(QuestionPolicyMix.FrozenRun1);
         var staged = new StagedPipeline(
             source, CandidateStore.Open(Path.Combine(output, "candidates.jsonl")),
-            store, new Deduplicator(), criticRoles);
+            store, new Deduplicator(), criticRoles, quota);
         var sr = await staged.RunAsync(scenarios, new PipelineOptions
         {
             OutputDirectory = output, TargetsPerScenario = variants,
@@ -190,6 +210,8 @@ async Task<int> GenerateAsync(bool dryRun)
             foreach (var (code, count) in sr.RejectionCodes.OrderByDescending(kv => kv.Value))
                 Console.WriteLine($"  {count,6}  {code}");
         }
+
+        ReportCorpus(store, scenarios, quota);
         return sr.Accepted == 0 ? 1 : 0;
     }
 
@@ -520,6 +542,89 @@ void Report(PipelineResult result)
             Console.WriteLine($"  {count,6}  {bucket}");
         Console.WriteLine($"\nrepeated openings   {distribution.RepeatedOpeningShare:P1}");
     }
+}
+
+/// <summary>
+/// What the ACCEPTED corpus actually looks like — the only distribution that gets trained on.
+///
+/// Each figure here answers a specific pilot finding: the question mix was steered at the
+/// scenario level and delivered something else; 684 rejections were duplicate targets; and
+/// openings were diverse across the corpus while converging hard inside each family.
+/// </summary>
+void ReportCorpus(RowStore store, List<ScenarioTruth> scenarios, AcceptanceQuota quota)
+{
+    var accepted = store.ReadRows(Disposition.Accepted).ToList();
+    var meta = store.ReadMetadata(Disposition.Accepted).ToList();
+    if (accepted.Count == 0)
+        return;
+
+    var byId = scenarios.ToDictionary(s => s.Id, StringComparer.Ordinal);
+
+    Console.WriteLine();
+    Console.WriteLine("accepted question policy   (target = frozen run-1)");
+    foreach (var policy in new[] { "none", "must_ask", "may_ask" })
+    {
+        var n = quota.AcceptedIn(policy);
+        Console.WriteLine($"  {policy,-10}{n,6}{n / (double)Math.Max(1, quota.Total),9:P1}"
+                          + $"   target {quota.TargetShare(policy),7:P1}");
+    }
+
+    // Unique-target yield: how much of the accepted corpus is distinct text. A second variant
+    // that reproduces the first is budget spent for nothing.
+    var distinct = accepted.Select(a => Normalise(a.Target))
+        .ToHashSet(StringComparer.Ordinal).Count;
+    Console.WriteLine();
+    Console.WriteLine($"unique-target yield        {distinct}/{accepted.Count} "
+                      + $"({distinct / (double)accepted.Count:P1}) distinct accepted targets");
+    var multi = meta.GroupBy(m => m.ScenarioId, StringComparer.Ordinal).Count(g => g.Count() > 1);
+    Console.WriteLine($"  scenarios with >1 accepted target {multi}");
+
+    // Within-family opening diversity. Corpus-wide diversity hid this in the pilot: 425 distinct
+    // openings over 1,528 rows looked healthy while one family repeated a single opening 104 times.
+    Console.WriteLine();
+    Console.WriteLine("within-family opening diversity");
+    var families = meta
+        .GroupBy(m => m.FamilyId, StringComparer.Ordinal)
+        .Select(g => new
+        {
+            Family = g.Key,
+            Rows = g.Count(),
+            Distinct = g.Select(m => m.Opening ?? "").ToHashSet(StringComparer.OrdinalIgnoreCase).Count,
+        })
+        .Select(x => new { x.Family, x.Rows, x.Distinct, Ratio = x.Distinct / (double)x.Rows })
+        .OrderBy(x => x.Ratio)
+        .ToList();
+    foreach (var f in families.Take(8))
+        Console.WriteLine($"  {f.Family,-6}{f.Distinct,5}/{f.Rows,-6}{f.Ratio,8:P1} distinct openings");
+    if (families.Count > 0)
+        Console.WriteLine($"  {"median",-6}{families[families.Count / 2].Ratio,19:P1}");
+
+    // Must-express density against the frozen anchor the generator draws from.
+    var densities = meta
+        .Select(m => byId.TryGetValue(m.ScenarioId, out var sc) ? sc : null)
+        .Where(sc => sc is not null)
+        .GroupBy(sc => sc!.ApprovedFacts.Count(f => f.Policy == FactPolicy.MustExpress))
+        .ToDictionary(g => g.Key, g => g.Count());
+    var totalDensity = densities.Values.Sum();
+    Console.WriteLine();
+    Console.WriteLine("must-express density       (target = frozen run-1)");
+    foreach (var (count, share) in new[] { (0, 0.174), (1, 0.638), (2, 0.158), (3, 0.030) })
+    {
+        var n = densities.GetValueOrDefault(count);
+        Console.WriteLine($"  {count} must  {n,6}{n / (double)Math.Max(1, totalDensity),9:P1}"
+                          + $"   target {share,7:P1}");
+    }
+
+    var split = meta.GroupBy(m => m.Split ?? "(unassigned)", StringComparer.Ordinal)
+        .OrderBy(g => g.Key, StringComparer.Ordinal);
+    Console.WriteLine();
+    Console.WriteLine("split assignment");
+    foreach (var g in split)
+        Console.WriteLine($"  {g.Key,-14}{g.Count(),6}");
+
+    static string Normalise(string text)
+        => string.Join(' ', text.ToLowerInvariant()
+            .Split([' ', '\n', '\t', '\r'], StringSplitOptions.RemoveEmptyEntries));
 }
 
 string? ArgValue(string name)

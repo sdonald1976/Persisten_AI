@@ -869,15 +869,25 @@ public class MouthFactoryTests
     }
 
     [Fact]
-    public void APermittedQuestionOrAFrameOrACorrectionIsEnough()
+    public void APermittedQuestionAloneIsNotSomethingToSay()
     {
+        // Permission to ask is not content. This used to satisfy the check on its own, and it is
+        // where the pilot's evasive rows came from: a plan obliging nothing, over a turn raising
+        // nothing, with a question licensed produced "Are you looking for a quick summary of what
+        // we were discussing?" - which passes every gate and teaches deferral.
         var barren = Scenario() with { ApprovedFacts = [], UserMessage = "and?", History = [] };
         Assert.False(ScenarioSatisfiability.Check(barren).Satisfiable);
 
-        Assert.True(ScenarioSatisfiability.Check(barren with
+        Assert.False(ScenarioSatisfiability.Check(barren with
         {
             Question = new QuestionPolicySpec { Policy = "may_ask", Text = "which one?" },
         }).Satisfiable);
+    }
+
+    [Fact]
+    public void AFrameOrACorrectionIsEnough()
+    {
+        var barren = Scenario() with { ApprovedFacts = [], UserMessage = "and?", History = [] };
 
         Assert.True(ScenarioSatisfiability.Check(barren with
         {

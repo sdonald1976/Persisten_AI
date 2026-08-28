@@ -185,6 +185,24 @@ public sealed record Supersession
 
     /// <summary>What kind of correction this was — the regression labels are counted per kind.</summary>
     public required CorrectionKind Kind { get; init; }
+
+    /// <summary>
+    /// The tokens that mark the STALE claim and appear in no correct reply. "Thursday", when
+    /// Thursday was corrected to Tuesday.
+    ///
+    /// This exists because the alternative destroyed a whole stratum. Resurrection used to be
+    /// detected by taking every content word of the stale text, and "the meeting is on Thursday"
+    /// contributes <em>meeting</em> as well as <em>Thursday</em> — so the correct reply, "The
+    /// meeting is on Tuesday", was rejected for resurrecting the fact it had just corrected. In
+    /// the 1,500-row pilot that rejected 171 of 178 b3 units and left the corrections stratum
+    /// with zero accepted rows, every rejection a false positive.
+    ///
+    /// A correction is one of the few places exact surface genuinely matters — a day name cannot
+    /// be paraphrased — so the discriminating token is declared rather than derived. Empty falls
+    /// back to the old derivation, which is correct only when the stale text shares no vocabulary
+    /// with its replacement.
+    /// </summary>
+    public IReadOnlyList<string> DiscriminatingTokens { get; init; } = [];
 }
 
 public enum CorrectionKind { Identity, Temporal, Entity, Topic, Attribution, Other }

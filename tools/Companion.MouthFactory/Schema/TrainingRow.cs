@@ -107,6 +107,33 @@ public sealed record CheckResult
     public double? Score { get; init; }
 
     public required CheckKind Kind { get; init; }
+
+    /// <summary>
+    /// Whether the check actually decided anything.
+    ///
+    /// <see cref="CheckStatus.Inactive"/> exists because a passing check and a check with nothing
+    /// to look at are indistinguishable in a boolean, and the 1,500-row pilot published a 40.6%
+    /// deterministic pass rate in which three gates had contributed nothing: must-state-anchors,
+    /// required-tokens and forbidden-tokens each ran 4,352 times, failed zero times, and read a
+    /// field the generator never populated. Each recorded a pass it had not earned.
+    ///
+    /// An inactive check still never rejects — <see cref="Passed"/> stays true so gating logic is
+    /// unchanged — but it is counted apart, so "no failures" and "no data" can no longer be read
+    /// as the same result.
+    /// </summary>
+    public CheckStatus Status { get; init; } = CheckStatus.Ran;
+}
+
+/// <summary>Did the check have applicable data? Reported; never a rejection reason by itself.</summary>
+public enum CheckStatus
+{
+    /// <summary>The check had data and decided. <see cref="CheckResult.Passed"/> is its verdict.</summary>
+    Ran,
+
+    /// <summary>
+    /// Configured, reached, and given nothing to check. Not a pass — an abstention.
+    /// </summary>
+    Inactive,
 }
 
 /// <summary>

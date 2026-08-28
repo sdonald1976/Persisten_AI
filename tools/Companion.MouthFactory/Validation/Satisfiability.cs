@@ -57,24 +57,36 @@ public static class ScenarioSatisfiability
         var hasUnknown = scenario.EpistemicUnknowns.Count > 0;
         var hasAmbiguity = scenario.IntentionalAmbiguities.Count > 0;
 
-        // 3. A licensed question is itself a speech act with content.
-        var mayAsk = !scenario.Question.Policy.Equals("none", StringComparison.OrdinalIgnoreCase);
-
-        // 4. A fiction frame licenses invented scene content (R5 §5).
+        // 3. A fiction frame licenses invented scene content (R5 §5).
         var hasFrame = scenario.Frame is not null;
 
-        // 5. Otherwise the conversation must carry something to respond to. This is the case the
-        //    frozen corpus relies on, and the one the factory was failing to provide.
+        // 4. The conversation carries something to respond to. This is the case the frozen corpus
+        //    relies on, and the one the factory was failing to provide.
         var conversational = HasContent(scenario.UserMessage)
                              || scenario.History.Any(t => HasContent(t.Text));
 
-        if (speakable || hasCorrection || hasUnknown || hasAmbiguity || mayAsk || hasFrame || conversational)
+        // A required item makes the turn answerable on its own: there is something that must be
+        // said, and saying it is a complete reply.
+        var required = scenario.ApprovedFacts.Any(f => f.Policy == FactPolicy.MustExpress);
+        if (required || hasCorrection || hasUnknown || hasAmbiguity || hasFrame || conversational)
             return SatisfiabilityResult.Ok;
 
+        // Everything below here is a plan that obliges nothing over a turn that raises nothing.
+        //
+        // A licensed question used to satisfy this check on its own, and that was the loophole:
+        // permission to ask is not something to say. Those scenarios produced exactly the rows the
+        // pilot then had to report — "Are you looking for a quick summary of what we were
+        // discussing?" against a plan with no facts and a user turn reading "any news?". A quarter
+        // of the accepted rows on fact-free plans were non-answers of that shape, and a corpus
+        // that contains them teaches deferral as a competent reply.
+        //
+        // An optional item does not rescue it either. Optional means the writer may decline it, so
+        // a plan carrying only optional items still permits a contentless reply.
+        _ = speakable;
         return new SatisfiabilityResult(false, "unsatisfiable",
-            "no expressible item, no correction, unknown or ambiguity, no permitted question, "
-            + "no frame, and nothing substantive in the conversation to respond to - every "
-            + "compliant reply would be contentless");
+            "nothing required to say, no correction, unknown or ambiguity, no frame, and nothing "
+            + "substantive in the conversation to react to - every compliant reply would be "
+            + "evasion");
     }
 
     /// <summary>

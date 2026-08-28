@@ -90,6 +90,43 @@ public sealed record QuestionPolicyMix(double Forbidden, double AskRequired, dou
 }
 
 /// <summary>
+/// How many must-express items a plan carries, as a distribution.
+///
+/// PROVENANCE, from the same hash-verified artifact the question mix comes from:
+/// <c>training/renderer/dataset/train-200.jsonl</c>, sha256 de7a093d…, the dataset named in
+/// <c>freeze-run1c.json</c> and verified against its recorded hash. In plan/2 the SITUATION
+/// section holds the items the reply must convey, so counting its entries over all 730 rows gives:
+///
+///   0 must items   127 / 730   17.4%
+///   1 must item    466 / 730   63.8%
+///   2 must items   115 / 730   15.8%
+///   3 must items    22 / 730    3.0%
+///
+/// The pilot delivered 29.9% of unframed accepted rows carrying any must item at all, against the
+/// frozen 82.6%. That gap is where the corpus went wrong: a plan obliging nothing cannot be
+/// disobeyed, so the gates had nothing to enforce and the writer filled the space with invention
+/// and deferral. The number is read from the frozen corpus rather than chosen, because the last
+/// two times a distribution here was chosen it was wrong in the same direction.
+/// </summary>
+public sealed record MustCountMix(double None, double One, double Two, double Three)
+{
+    public static readonly MustCountMix FrozenRun1 = new(0.174, 0.638, 0.158, 0.030);
+
+    /// <summary>How many must items a uniform draw in [0,1) selects.</summary>
+    public int Select(double roll)
+    {
+        var total = None + One + Two + Three;
+        if (total <= 0)
+            return 1;
+        var scaled = roll * total;
+        return scaled < None ? 0
+            : scaled < None + One ? 1
+            : scaled < None + One + Two ? 2
+            : 3;
+    }
+}
+
+/// <summary>
 /// Builds scenario truth deterministically from a family and a seed.
 ///
 /// Deterministic on purpose: the same (family, index, seed) produces the same scenario id and the
@@ -101,9 +138,11 @@ public sealed record QuestionPolicyMix(double Forbidden, double AskRequired, dou
 /// afterwards; what it may never do is change the structure, because the structure is what the
 /// deterministic evaluators check against.
 /// </summary>
-public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = null)
+public sealed class ScenarioGenerator(
+    long runSeed, QuestionPolicyMix? mix = null, MustCountMix? mustMix = null)
 {
     private readonly QuestionPolicyMix _mix = mix ?? QuestionPolicyMix.FrozenRun1;
+    private readonly MustCountMix _mustMix = mustMix ?? MustCountMix.FrozenRun1;
 
     private static readonly Participant User =
         new() { Id = "usr-scott", Name = "Scott", Kind = ParticipantKind.User, Pronouns = "he/him" };
@@ -176,11 +215,33 @@ public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = nul
             ? FrameFor(family.Id, history.Count, rng)
             : null;
 
-        var supplied = SuppliedContent(family.Id, rng);
-        var userMessage = UserMessageFor(family.Id, rng);
-        // Layer A has no ambiguities or unknowns of its own, so a drawn question is generic by
-        // construction - which is exactly what an ordinary conversational turn looks like.
-        var (question, source, hard) = ChooseQuestion(family, rng, [], [], userMessage);
+        // A concrete situation, not a fact and a prompt drawn independently. The user message and
+        // the facts come from the same event, so the turn has a subject and a reply that wanders
+        // off it is wrong rather than merely unlicensed.
+        // How many must-express items, drawn from the frozen corpus rather than chosen.
+        var wanted = _mustMix.Select(rng.NextDouble());
+
+        // A zero-must turn is drawn from the acknowledgement pool, where the USER supplies the
+        // content. Zeroing a plan over a situation whose facts were the only thing to say leaves
+        // nothing to react to, which is how the pilot produced a quarter of its fact-free rows as
+        // non-answers. Fiction keeps its own pool: a frame is content in itself.
+        var pool = wanted == 0 && family.Layer == CurriculumLayer.A && frame is null
+            ? Situations.Acknowledgements
+            : Situations.ForFamily(family.Id);
+
+        // Draw from situations rich enough to carry the required count, rather than truncating the
+        // draw to whatever the chosen situation happens to hold. Truncating silently collapsed
+        // every two- and three-item plan into a one-item plan: the frozen corpus puts 18.8% of its
+        // rows at two or more, and truncation delivered 5.1%.
+        var rich = pool.Where(s => s.Facts.Count >= wanted).ToList();
+        var situation = rich.Count > 0
+            ? rich[rng.Next(rich.Count)]
+            : pool.OrderByDescending(s => s.Facts.Count).First();
+
+        var facts = BuildFacts(situation, Math.Min(wanted, situation.Facts.Count), rng);
+
+        var (question, source, hard) = ChooseQuestion(
+            family, rng, situation.AmbiguityItems, situation.UnknownItems, situation.UserMessage);
 
         return new ScenarioTruth
         {
@@ -189,23 +250,60 @@ public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = nul
             ScenarioFamilyId = familyId,
             Layer = CurriculumLayer.A,
             Participants = [User, Companion],
-            ApprovedFacts = supplied is null ? [] :
-            [
-                new ApprovedFact
-                {
-                    Id = "f1", Text = supplied, Policy = FactPolicy.MayExpress,
-                },
-            ],
+            ApprovedFacts = facts,
+            EpistemicUnknowns = situation.UnknownItems,
+            IntentionalAmbiguities = situation.AmbiguityItems,
             History = history,
-            UserMessage = userMessage,
+            UserMessage = situation.UserMessage,
             Register = register,
             Question = question,
             QuestionPolicySource = source,
             HardCase = hard,
             Frame = frame,
+            RequiredTokens = situation.ExactTokens,
             SourceFamilyId = $"generated/{family.Id}",
             Seed = seed,
         };
+    }
+
+    /// <summary>
+    /// Turn a situation into approved facts: <paramref name="mustCount"/> of them required, one
+    /// more offered as optional where the situation has a spare, and its background carried
+    /// through as background.
+    ///
+    /// Optional items are deliberately sparse. The frozen corpus attaches a PALETTE to 12.9% of
+    /// its rows, and the pilot's 41.2% may-only plans are most of what went wrong: an optional
+    /// item obliges nothing, so a plan carrying only optional items is a plan with no content the
+    /// writer has to honour.
+    /// </summary>
+    private static IReadOnlyList<ApprovedFact> BuildFacts(
+        Situation situation, int mustCount, Random rng)
+    {
+        var facts = new List<ApprovedFact>();
+        var n = 0;
+
+        foreach (var fact in situation.Facts.Take(mustCount))
+            facts.Add(new ApprovedFact
+            {
+                Id = $"f{++n}", Text = fact.Text, Policy = FactPolicy.MustExpress,
+                Anchors = fact.Anchors,
+            });
+
+        var spare = situation.Facts.Skip(mustCount).FirstOrDefault();
+        if (spare is not null && rng.NextDouble() < 0.129)
+            facts.Add(new ApprovedFact
+            {
+                Id = $"f{++n}", Text = spare.Text, Policy = FactPolicy.MayExpress,
+                Anchors = spare.Anchors,
+            });
+
+        foreach (var background in situation.BackgroundItems)
+            facts.Add(new ApprovedFact
+            {
+                Id = $"f{++n}", Text = background, Policy = FactPolicy.BackgroundOnly,
+            });
+
+        return facts;
     }
 
     /// <summary>
@@ -221,12 +319,20 @@ public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = nul
         var unknowns = new List<string>();
         var ambiguities = new List<string>();
         var prohibited = new List<Proposition>();
+        var requiredTokens = new List<string>();
+        var forbiddenTokens = new List<string>();
         FrameState? frame = null;
+
+        // Every Layer B family states the user turn its structure answers. Layer B teaches the
+        // protocol, but a control composition still has to sit on a conversation that has a
+        // subject - the pilot proved that a plan without one gets answered from nowhere.
+        string? userMessage = null;
 
         switch (family.Id)
         {
             case "b1":
-                facts.Add(new ApprovedFact { Id = "f1", Text = "the second build finished", Policy = FactPolicy.MustExpress });
+                userMessage = "did the rebuild go through?";
+                facts.Add(new ApprovedFact { Id = "f1", Text = "the second build finished clean", Policy = FactPolicy.MustExpress });
                 facts.Add(new ApprovedFact { Id = "f2", Text = "the cat knocked over the mug", Policy = FactPolicy.MayExpress });
                 facts.Add(new ApprovedFact { Id = "f3", Text = "the neighbour complained about the noise", Policy = FactPolicy.BackgroundOnly });
                 facts.Add(new ApprovedFact { Id = "f4", Text = "the invoice is overdue", Policy = FactPolicy.MustNotExpress });
@@ -239,12 +345,24 @@ public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = nul
                 break;
 
             case "b3":
+                // A correction turn. The corrected day is the one thing here that cannot be
+                // paraphrased, so it is both the anchor of the required fact and - in its stale
+                // form - the discriminating token that marks a resurrection. Declaring both is
+                // what keeps "The meeting is on Tuesday" from being read as saying Thursday.
+                userMessage = "wait, no - it's Tuesday, not Thursday.";
+                facts.Add(new ApprovedFact
+                {
+                    Id = "f1", Text = "the meeting is on Tuesday",
+                    Policy = FactPolicy.MustExpress, Anchors = ["Tuesday"],
+                });
                 superseded.Add(new Supersession
                 {
                     StaleText = "the meeting is on Thursday",
                     CurrentText = "the meeting is on Tuesday",
                     Kind = CorrectionKind.Temporal,
+                    DiscriminatingTokens = ["thursday"],
                 });
+                forbiddenTokens.Add("Thursday");
                 prohibited.Add(new Proposition
                 {
                     Subject = "meeting", Predicate = "on", Object = "Thursday",
@@ -254,11 +372,26 @@ public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = nul
                 break;
 
             case "b2":
+                userMessage = "are we clear to ship?";
                 facts.Add(new ApprovedFact { Id = "f1", Text = "the deployment is waiting on approval", Policy = FactPolicy.MustExpress });
                 break;
 
+            case "b5":
+                // Tool and procedure inputs: an identifier the reply must reproduce exactly. This
+                // is the case RequiredTokens exists for, and paraphrasing it would be a defect
+                // rather than the fresh wording every other fact is asked for.
+                userMessage = "which script does the release use now?";
+                facts.Add(new ApprovedFact
+                {
+                    Id = "f1", Text = "the release runs release-prod.sh now",
+                    Policy = FactPolicy.MustExpress, Anchors = ["release-prod.sh"],
+                });
+                requiredTokens.Add("release-prod.sh");
+                break;
+
             case "b6":
-                facts.Add(new ApprovedFact { Id = "f1", Text = "the parcel arrived", Policy = FactPolicy.MustExpress });
+                userMessage = "did anything turn up while I was out?";
+                facts.Add(new ApprovedFact { Id = "f1", Text = "the parcel arrived just after eleven", Policy = FactPolicy.MustExpress });
                 facts.Add(new ApprovedFact { Id = "f2", Text = "the courier wore a blue jacket", Policy = FactPolicy.BackgroundOnly });
                 prohibited.Add(new Proposition
                 {
@@ -269,7 +402,8 @@ public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = nul
 
             case "b8":
                 // The no-frame half of R5 §5: no invented biography when no frame is declared.
-                facts.Add(new ApprovedFact { Id = "f1", Text = "you asked about the weekend", Policy = FactPolicy.MustExpress });
+                userMessage = "what do you reckon I should do this weekend?";
+                facts.Add(new ApprovedFact { Id = "f1", Text = "nothing is in the diary this weekend", Policy = FactPolicy.MustExpress });
                 prohibited.Add(new Proposition
                 {
                     Subject = "scott", Predicate = "has", Object = "an allotment",
@@ -279,6 +413,7 @@ public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = nul
                 break;
 
             case "b9":
+                userMessage = "how did the suite do overnight?";
                 facts.Add(new ApprovedFact { Id = "f1", Text = "the test suite passed", Policy = FactPolicy.MustExpress });
                 facts.Add(new ApprovedFact { Id = "f2", Text = "the disk is nearly full", Policy = FactPolicy.MustExpress });
                 facts.Add(new ApprovedFact { Id = "f3", Text = "the backup ran overnight", Policy = FactPolicy.MayExpress });
@@ -296,12 +431,22 @@ public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = nul
                 break;
 
             default:
-                facts.Add(new ApprovedFact { Id = "f1", Text = "the thing you asked about is ready", Policy = FactPolicy.MustExpress });
-                ambiguities.Add("which of the two files");
+                // b4, b7 and anything added later: a real situation rather than the placeholder
+                // "the thing you asked about is ready", which was too vague to state or to check -
+                // 29 of the pilot's accepted rows answered it without saying anything was ready.
+                var pool = Situations.ForFamily(family.Id);
+                var situation = pool[rng.Next(pool.Count)];
+                userMessage = situation.UserMessage;
+                facts.AddRange(BuildFacts(situation, Math.Min(1, situation.Facts.Count), rng));
+                ambiguities.AddRange(situation.AmbiguityItems);
+                unknowns.AddRange(situation.UnknownItems);
+                requiredTokens.AddRange(situation.ExactTokens);
                 break;
         }
 
-        var userMessage = UserMessageFor(family.Id, rng);
+        if (family.Id == "b11")
+            userMessage ??= FictionPrompts[rng.Next(FictionPrompts.Length)];
+        userMessage ??= UserMessageFor(family.Id, rng);
         var (question, source, hard) = ChooseQuestion(
             family, rng, ambiguities, unknowns, userMessage);
 
@@ -324,6 +469,8 @@ public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = nul
             QuestionPolicySource = source,
             HardCase = hard,
             Frame = frame,
+            RequiredTokens = requiredTokens,
+            ForbiddenTokens = forbiddenTokens,
             SourceFamilyId = $"generated/{family.Id}",
             Seed = seed,
         };
@@ -369,10 +516,16 @@ public sealed class ScenarioGenerator(long runSeed, QuestionPolicyMix? mix = nul
         if (policy != "none" && text is null)
             policy = "none";                       // nothing coherent to ask: do not invent one
 
-        // A forbidden question is HARD when the scenario pulls toward asking: an unresolved
-        // ambiguity, an admitted unknown, or a user turn that is itself a question.
-        var hard = policy == "none"
-                   && (ambiguities.Count > 0 || unknowns.Count > 0 || userMessage.Contains('?'));
+        // A forbidden question is HARD when the scenario genuinely pulls toward asking: an
+        // unresolved ambiguity, or something the plan must admit it does not know.
+        //
+        // A user turn that is itself a question used to count too. That was calibrated against
+        // scenarios whose user messages were bland fragments, and it stopped meaning anything once
+        // every situation opens with a real question — "did the loaf work out?" answered without a
+        // question back is an ordinary turn, not a difficult one. Left in, it tagged half the
+        // corpus hard and would have routed half of it into the hard split, away from training.
+        var hard = policy == "none" && (ambiguities.Count > 0 || unknowns.Count > 0);
+        _ = userMessage;
 
         return (new QuestionPolicySpec { Policy = policy, Text = text }, "mix", hard);
     }

@@ -39,25 +39,37 @@ public static class FamilySplitter
 
         var assignment = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var family in families)
-        {
-            if (hardFamilies?.Contains(family) == true)
-            {
-                assignment[family] = "hard";
-                continue;
-            }
-
-            // Deterministic per family: stable across runs, machines and orderings.
-            var bucket = Bucket(family);
-            assignment[family] = bucket < validationShare ? "validation"
-                : bucket < validationShare + testShare ? "test"
-                : "train";
-        }
+            assignment[family] = Assign(
+                family, hardFamilies?.Contains(family) == true, validationShare, testShare);
 
         return new SplitPlan
         {
             FamilyToSplit = assignment,
             UnseenCompositions = SelectUnseen(scenarios),
         };
+    }
+
+    /// <summary>
+    /// Which split one scenario family belongs to.
+    ///
+    /// A pure function of the family id, which is what lets it run at WRITE time rather than at
+    /// export time: a row can be given its split the moment it is accepted, with no need to see
+    /// the rest of the corpus, and it will get the same answer on any machine and in any run.
+    ///
+    /// The pilot deferred this to export and shipped 1,528 accepted rows with split = null, none
+    /// of them eligible for export until a separate pass ran. Assigning here makes an unsplit row
+    /// impossible rather than merely unlikely.
+    /// </summary>
+    public static string Assign(
+        string scenarioFamilyId, bool hardCase,
+        double validationShare = 0.10, double testShare = 0.10)
+    {
+        if (hardCase)
+            return "hard";
+        var bucket = Bucket(scenarioFamilyId);
+        return bucket < validationShare ? "validation"
+            : bucket < validationShare + testShare ? "test"
+            : "train";
     }
 
     /// <summary>

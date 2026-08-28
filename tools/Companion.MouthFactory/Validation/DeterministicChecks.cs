@@ -57,16 +57,38 @@ public static partial class DeterministicChecks
                 Detail = passed ? null : detail, Kind = CheckKind.Deterministic,
             });
 
-        // ---- 3. exact required / forbidden tokens ---------------------------------------------
-        var missingTokens = scenario.RequiredTokens
-            .Where(t => !target.Contains(t, StringComparison.OrdinalIgnoreCase)).ToList();
-        Check("required-tokens", missingTokens.Count == 0, "missing-required-token",
-            string.Join(", ", missingTokens));
+        // A check that was reached and given nothing to look at. It never rejects, and it is
+        // never counted as a pass: see CheckStatus.Inactive for what that concealed.
+        void Inactive(string name, string why)
+            => results.Add(new CheckResult
+            {
+                Name = name, Passed = true, Kind = CheckKind.Deterministic,
+                Status = CheckStatus.Inactive, Detail = why,
+            });
 
-        var leakedTokens = scenario.ForbiddenTokens
-            .Where(t => target.Contains(t, StringComparison.OrdinalIgnoreCase)).ToList();
-        Check("forbidden-tokens", leakedTokens.Count == 0, "forbidden-token-leak",
-            string.Join(", ", leakedTokens));
+        // ---- 3. exact required / forbidden tokens ---------------------------------------------
+        // Both are legitimately empty on most scenarios: exact surface matters for identifiers,
+        // day names and quoted terms, and for nothing else. Empty is therefore INACTIVE rather
+        // than a pass, so a run in which no scenario ever declared one is visible as such.
+        if (scenario.RequiredTokens.Count == 0)
+            Inactive("required-tokens", "scenario declares no exact-surface tokens");
+        else
+        {
+            var missingTokens = scenario.RequiredTokens
+                .Where(t => !target.Contains(t, StringComparison.OrdinalIgnoreCase)).ToList();
+            Check("required-tokens", missingTokens.Count == 0, "missing-required-token",
+                string.Join(", ", missingTokens));
+        }
+
+        if (scenario.ForbiddenTokens.Count == 0)
+            Inactive("forbidden-tokens", "scenario declares no forbidden exact tokens");
+        else
+        {
+            var leakedTokens = scenario.ForbiddenTokens
+                .Where(t => target.Contains(t, StringComparison.OrdinalIgnoreCase)).ToList();
+            Check("forbidden-tokens", leakedTokens.Count == 0, "forbidden-token-leak",
+                string.Join(", ", leakedTokens));
+        }
 
         // ---- 4. must-state: ANCHORS only -------------------------------------------------------
         // This deliberately no longer requires lexical overlap with the fact's own wording. The
@@ -80,12 +102,18 @@ public static partial class DeterministicChecks
         // names, quoted terms - declared per fact as Anchors, or scenario-wide as RequiredTokens.
         // Whether an ordinary proposition was conveyed is a semantic question, and it is routed
         // to the faithfulness stage rather than decided by a string test.
-        var missingAnchors = scenario.ApprovedFacts
-            .Where(f => f.Policy == FactPolicy.MustExpress && f.Anchors.Count > 0)
-            .Where(f => f.Anchors.Any(a => !target.Contains(a, StringComparison.OrdinalIgnoreCase)))
-            .Select(f => f.Id).ToList();
-        Check("must-state-anchors", missingAnchors.Count == 0, "must-state-anchor-missing",
-            string.Join(", ", missingAnchors));
+        var anchored = scenario.ApprovedFacts
+            .Where(f => f.Policy == FactPolicy.MustExpress && f.Anchors.Count > 0).ToList();
+        if (anchored.Count == 0)
+            Inactive("must-state-anchors", "no required fact declares an anchor");
+        else
+        {
+            var missingAnchors = anchored
+                .Where(f => f.Anchors.Any(a => !target.Contains(a, StringComparison.OrdinalIgnoreCase)))
+                .Select(f => f.Id).ToList();
+            Check("must-state-anchors", missingAnchors.Count == 0, "must-state-anchor-missing",
+                string.Join(", ", missingAnchors));
+        }
 
         // An utterance that says nothing at all cannot have conveyed an obligation. This is the
         // one lexical-free floor worth keeping: it catches silence, not paraphrase.
@@ -99,9 +127,19 @@ public static partial class DeterministicChecks
         Check("no-unsupported-claims", prohibited.Count == 0, "unsupported-claim",
             string.Join(", ", prohibited.Select(p => $"{p.Subject}/{p.Predicate}")));
 
-        // must_not_express content, and stale facts a correction replaced, must not resurrect.
+        // Stale facts a correction replaced must not resurrect.
+        //
+        // Detected on the DISCRIMINATING tokens — the words that mark the stale claim and appear
+        // in no correct reply — not on every content word of the stale text. Deriving them from
+        // the prose meant "the meeting is on Thursday" forbade the word "meeting", so the correct
+        // reply "The meeting is on Tuesday" was rejected for resurrecting what it had corrected:
+        // 171 of 178 b3 units in the pilot, and the stratum ended with zero accepted rows.
+        //
+        // Where no tokens are declared the old derivation stands, minus any word the CURRENT text
+        // also uses. Shared vocabulary is what a correction is made of, and it can never be
+        // evidence that the correction failed.
         var resurrected = scenario.Superseded
-            .Where(s => ContainsAny(lower, Fragments(s.StaleText))).ToList();
+            .Where(s => ContainsAny(lower, StaleMarkers(s))).ToList();
         Check("no-stale-resurrection", resurrected.Count == 0, "stale-resurrection",
             string.Join(", ", resurrected.Select(s => s.Kind.ToString())));
 
@@ -236,6 +274,22 @@ public static partial class DeterministicChecks
 
     private static int WordCount(string text)
         => text.Split([' ', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries).Length;
+
+    /// <summary>
+    /// What marks a stale claim, and nothing a correct reply is entitled to say.
+    ///
+    /// Declared tokens win outright. Otherwise the stale text's content words minus the current
+    /// text's: a word the correction itself uses cannot be the evidence that the correction was
+    /// ignored.
+    /// </summary>
+    private static IReadOnlyList<string> StaleMarkers(Supersession s)
+    {
+        if (s.DiscriminatingTokens.Count > 0)
+            return s.DiscriminatingTokens;
+
+        var current = Fragments(s.CurrentText).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Fragments(s.StaleText).Where(w => !current.Contains(w)).ToList();
+    }
 
     private static bool Asserts(string lower, Proposition p)
         => p.SurfaceForms.Count > 0

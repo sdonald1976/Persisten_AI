@@ -90,6 +90,11 @@ public sealed class ModelTargetSource(RoleRouter roles, long runSeed) : ITargetS
         - it claims a shared memory, a physical experience, or a real-life fact about the user
           that nothing licenses. Inside an active FICTION FRAME invented scene content IS
           licensed and must not be failed.
+        - IT IS NOT ABOUT WHAT THE USER RAISED. The reply must respond to THE MESSAGE shown
+          below. A reply that answers some other question, reports some other event, or
+          describes a situation the conversation never raised is unfaithful EVEN IF the plan
+          required nothing. "How did the meeting go?" answered with news about a printer is a
+          fail; so is a printer question answered with news about a meeting.
 
         PASS it in all of these:
         - OPTIONAL points used, partly used, or ignored. Using one is licensed, never a fault.
@@ -303,9 +308,32 @@ public sealed class ModelTargetSource(RoleRouter roles, long runSeed) : ITargetS
     /// and anything else about how the row was made. The critic judges the reply against the
     /// plan, not the row against the factory.
     /// </summary>
+    /// <summary>
+    /// The critic's view of a scenario, exposed so a test can assert what it does and does not
+    /// contain. What reaches a judge is a contract, and it was wrong in a way nothing caught.
+    /// </summary>
+    public static string DescribeForTest(ScenarioTruth scenario) => Describe(scenario);
+
     private static string Describe(ScenarioTruth scenario)
     {
         var sb = new System.Text.StringBuilder();
+
+        // The turn being answered, FIRST, because without it "is this reply faithful" cannot be
+        // asked at all. The pilot's critics never saw it: a plan reading "the printer jammed
+        // again" was answered with a narrated meeting and every judge passed it, because nothing
+        // in front of them said what the user had asked. Topical grounding is the one faithfulness
+        // question that survives an empty plan, and it was the missing one.
+        var recent = scenario.History.TakeLast(4).ToList();
+        if (recent.Count > 0)
+        {
+            sb.AppendLine("RECENT CONVERSATION:");
+            foreach (var turn in recent)
+                sb.AppendLine("  " + (turn.Role == "user" ? "Them: " : "Her: ") + turn.Text);
+        }
+
+        sb.AppendLine("THE MESSAGE BEING ANSWERED:");
+        sb.AppendLine("  " + scenario.UserMessage);
+        sb.AppendLine();
 
         void Section(string header, IEnumerable<string> lines, string empty)
         {

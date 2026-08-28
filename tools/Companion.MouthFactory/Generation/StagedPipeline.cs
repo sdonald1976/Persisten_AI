@@ -1,3 +1,4 @@
+using Companion.MouthFactory.Export;
 using Companion.MouthFactory.Schema;
 using Companion.MouthFactory.Validation;
 
@@ -42,7 +43,8 @@ public sealed class StagedPipeline(
     CandidateStore candidates,
     RowStore rows,
     Deduplicator dedup,
-    IReadOnlyList<string> requiredCritics)
+    IReadOnlyList<string> requiredCritics,
+    AcceptanceQuota? quota = null)
 {
     public async Task<StagedResult> RunAsync(
         IReadOnlyList<ScenarioTruth> scenarios, PipelineOptions options,
@@ -67,7 +69,9 @@ public sealed class StagedPipeline(
                 unsatisfiable++;
                 continue;
             }
-            for (var v = 0; v < options.TargetsPerScenario; v++)
+            // Variants are spent where wording genuinely varies, not handed out per scenario.
+            var wanted = VariantPolicy.For(scenario, options.TargetsPerScenario);
+            for (var v = 0; v < wanted; v++)
             {
                 var existing = candidates.Find($"{scenario.Id}#{v}");
                 if (existing is null)
@@ -75,6 +79,12 @@ public sealed class StagedPipeline(
                 // A durably stored candidate is NEVER regenerated - pending or terminal.
             }
         }
+
+        // Rows already accepted by an earlier run count toward the mix this one is steering.
+        if (quota is not null)
+            foreach (var accepted in candidates.All.Where(c => c.State == CandidateState.Accepted))
+                if (byId.TryGetValue(accepted.ScenarioId, out var sc))
+                    quota.Record(sc.Question.Policy);
 
         var next = 0;
         while (true)
@@ -103,6 +113,16 @@ public sealed class StagedPipeline(
             // ---- STAGE 1: write a bounded batch, one model loaded once ------------------------
             if (haveWork)
             {
+                // Draw the next batch from whichever question policy the ACCEPTED corpus is
+                // furthest behind on. Rejection is not uniform across policies, so leaving the
+                // queue in generation order delivers a different mix than it attempts.
+                if (quota is not null && next < queue.Count)
+                {
+                    var tail = quota.Prioritise(queue.GetRange(next, queue.Count - next), x => x.Scenario);
+                    queue.RemoveRange(next, queue.Count - next);
+                    queue.AddRange(tail);
+                }
+
                 var room = options.MaxUnits is { } cap ? Math.Max(0, cap - units) : int.MaxValue;
                 var take = Math.Min(Math.Min(batchSize, queue.Count - next), room);
                 if (take > 0)
@@ -193,6 +213,9 @@ public sealed class StagedPipeline(
                     UpdatedUtc = Now(),
                 };
                 candidates.Write(settled);
+                if (state == CandidateState.Accepted && quota is not null
+                    && byId.TryGetValue(settled.ScenarioId, out var accepted))
+                    quota.Record(accepted.Question.Policy);
                 rows.Append(
                     state == CandidateState.Accepted ? Disposition.Accepted : Disposition.ManualReview,
                     settled.Row,
@@ -274,7 +297,15 @@ public sealed class StagedPipeline(
             });
 
         var hard = checks.Where(c => c.Kind == CheckKind.Deterministic && !c.Passed).ToList();
-        var withChecks = metadata! with { Checks = checks };
+
+        // The split is decided here, from the scenario family alone, so a row is never written
+        // without one. The pilot deferred it to export and produced 1,528 accepted rows with a
+        // null split - none of them exportable until a later pass filled it in.
+        var withChecks = metadata! with
+        {
+            Checks = checks,
+            Split = FamilySplitter.Assign(scenario.ScenarioFamilyId, scenario.HardCase),
+        };
 
         if (hard.Count > 0)
         {
