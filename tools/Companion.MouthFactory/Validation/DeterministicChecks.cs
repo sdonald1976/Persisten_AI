@@ -20,7 +20,7 @@ namespace Companion.MouthFactory.Validation;
 ///   * Every failure carries a machine-readable code, never critic prose, and lands in metadata
 ///     rather than anywhere near the target.
 /// </summary>
-public static class DeterministicChecks
+public static partial class DeterministicChecks
 {
     /// <summary>Openers the base model reaches for. Counted, not banned — density is the signal.</summary>
     private static readonly string[] AssistantCliches =
@@ -111,6 +111,35 @@ public static class DeterministicChecks
             .Select(f => f.Id).ToList();
         Check("no-forbidden-content", forbiddenFacts.Count == 0, "forbidden-content-leak",
             string.Join(", ", forbiddenFacts));
+
+        // ---- unsupported numerals ------------------------------------------------------------
+        // An EXACT, high-precision case worth taking off the critics: a quantity in the reply
+        // that appears nowhere in the plan or the conversation was invented. "several tests
+        // failed" answered by "Seventeen tests failed" is unsupported by construction, and
+        // every judge audited accepted it.
+        //
+        // This is not the discarded lexical-overlap rule wearing a hat. That rule asked
+        // whether a PARAPHRASE preserved enough of a proposition, which is semantic and was
+        // wrong to decide by string matching. This asks whether a specific token the plan
+        // never supplied has appeared, which is exactly what a string test is for.
+        //
+        // Skipped inside a fiction frame, where invented detail is licensed.
+        if (scenario.Frame is null && scenario.ApprovedFacts.Count > 0)
+        {
+            var supplied = string.Join(" ",
+                scenario.ApprovedFacts.Select(f => f.Text)
+                    .Concat(scenario.Superseded.Select(x => x.CurrentText))
+                    .Concat(scenario.Superseded.Select(x => x.StaleText))
+                    .Concat(scenario.EpistemicUnknowns)
+                    .Concat(scenario.History.Select(t => t.Text))
+                    .Append(scenario.UserMessage)
+                    .Append(scenario.Question.Text ?? "")).ToLowerInvariant();
+
+            var invented = Numerals(lower).Where(n => !supplied.Contains(n, StringComparison.Ordinal))
+                .Distinct().ToList();
+            Check("no-unsupported-numerals", invented.Count == 0, "unsupported-numeral",
+                string.Join(", ", invented));
+        }
 
         // ---- ambiguity preservation --------------------------------------------------------------
         // The failure is silently CHOOSING. An ambiguity is preserved if none of its resolutions
@@ -215,6 +244,31 @@ public static class DeterministicChecks
 
     private static bool ContainsAny(string lower, IEnumerable<string> needles)
         => needles.Any(n => n.Length > 0 && lower.Contains(n.ToLowerInvariant(), StringComparison.Ordinal));
+
+    /// <summary>
+    /// Quantities a reply asserts: digit strings and the number words a companion actually
+    /// says. Deliberately excludes vague quantifiers - "a couple", "several", "a few" assert
+    /// no specific number and are exactly what a faithful paraphrase of an unspecified
+    /// quantity looks like.
+    /// </summary>
+    private static IEnumerable<string> Numerals(string lower)
+    {
+        foreach (Match m in Digits().Matches(lower))
+            yield return m.Value;
+        foreach (var w in NumberWords)
+            if (Regex.IsMatch(lower, @"\b" + w + @"\b"))
+                yield return w;
+    }
+
+    private static readonly string[] NumberWords =
+    [
+        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+        "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+        "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "hundred", "thousand",
+    ];
+
+    [GeneratedRegex(@"\b\d+(?:[.,]\d+)?\b", RegexOptions.Compiled)]
+    private static partial Regex Digits();
 
     private static readonly HashSet<string> Stopwords = new(StringComparer.OrdinalIgnoreCase)
     {

@@ -22,6 +22,8 @@ var variants = int.TryParse(ArgValue("--variants"), out var v) ? v : 2;
 var families = ArgValue("--families")?.Split(',', StringSplitOptions.RemoveEmptyEntries);
 var targetAccepted = int.TryParse(ArgValue("--target-accepted"), out var ta) ? ta : (int?)null;
 var maxUnits = int.TryParse(ArgValue("--max-units"), out var mu) ? mu : (int?)null;
+var batchSize = int.TryParse(ArgValue("--batch"), out var bs) ? bs : 64;
+var interleaved = Array.IndexOf(args, "--interleaved") >= 0;
 
 switch (command)
 {
@@ -148,6 +150,48 @@ async Task<int> GenerateAsync(bool dryRun)
                       + $"variants={variants}  seed={seed}");
     Console.WriteLine($"roles     {roleDescription}");
     Console.WriteLine($"output    {output}\n");
+
+    // Stage-batched by default: one model loaded per stage instead of a reload between
+    // almost every call. --interleaved keeps the original schedule for comparison; both
+    // produce identical dispositions, which the tests pin.
+    if (!dryRun && !interleaved)
+    {
+        var criticRoles = new[] { Role.FaithfulnessCritic, Role.AdversarialCritic, Role.NaturalnessCritic }
+            .Where(r => roleRouter!.Has(r)).Select(r => r.ToString()).ToList();
+        var staged = new StagedPipeline(
+            source, CandidateStore.Open(Path.Combine(output, "candidates.jsonl")),
+            store, new Deduplicator(), criticRoles);
+        var sr = await staged.RunAsync(scenarios, new PipelineOptions
+        {
+            OutputDirectory = output, TargetsPerScenario = variants,
+            TargetAccepted = targetAccepted, MaxUnits = maxUnits,
+        }, batchSize);
+
+        File.WriteAllText(Path.Combine(output, "scenarios.jsonl"),
+            string.Join(Environment.NewLine,
+                scenarios.Select(sc => JsonSerializer.Serialize(sc, Web())))
+            + Environment.NewLine);
+
+        Console.WriteLine($"stop reason     {sr.StopReason}   rounds {sr.Rounds}");
+        Console.WriteLine($"scenarios       {scenarios.Count}  (unsatisfiable: {sr.Unsatisfiable})");
+        Console.WriteLine($"units attempted {sr.UnitsAttempted}");
+        Console.WriteLine($"model loads     {sr.ModelLoads}   writer calls {sr.WriterCalls}   critic calls {sr.CriticCalls}");
+        var d = Math.Max(1, sr.UnitsAttempted);
+        Console.WriteLine($"  deterministic pass  {sr.Accepted + sr.ManualReview}/{d} ({(sr.Accepted + sr.ManualReview) / (double)d:P1})");
+        Console.WriteLine($"  critic accepted     {sr.Accepted}/{d} ({sr.Accepted / (double)d:P1})");
+        Console.WriteLine($"  manual review       {sr.ManualReview}/{d} ({sr.ManualReview / (double)d:P1})");
+        Console.WriteLine($"rejected        {sr.Rejected}");
+        foreach (var drifted in sr.DriftDetected.Take(5))
+            Console.WriteLine($"  DRIFT {drifted}");
+        if (sr.RejectionCodes.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("rejection reasons");
+            foreach (var (code, count) in sr.RejectionCodes.OrderByDescending(kv => kv.Value))
+                Console.WriteLine($"  {count,6}  {code}");
+        }
+        return sr.Accepted == 0 ? 1 : 0;
+    }
 
     var result = await pipeline.RunAsync(scenarios, new PipelineOptions
     {
@@ -504,4 +548,8 @@ file sealed class UnavailableTargetSource : ITargetSource
     public Task<IReadOnlyList<CheckResult>> CriticiseAsync(
         ScenarioTruth scenario, string target, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<CheckResult>>([]);
+
+    public Task<CriticVerdict> CriticiseOneAsync(
+        string role, ScenarioTruth scenario, string target, CancellationToken ct = default)
+        => throw new InvalidOperationException("dry-run must not criticise");
 }

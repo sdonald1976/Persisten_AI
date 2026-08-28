@@ -267,10 +267,23 @@ public sealed record TargetCandidate(
 /// </summary>
 public interface ITargetSource
 {
+    /// <summary>
+    /// <paramref name="attemptSeed"/> is a SEED SALT, not the variant index: callers vary it
+    /// per retry so a second attempt draws differently. The variant a row belongs to comes
+    /// from the caller, not from here.
+    /// </summary>
     Task<TargetCandidate> WriteAsync(
-        ScenarioTruth scenario, global::Companion.PlanV3.PlanV3 plan, int variant,
+        ScenarioTruth scenario, global::Companion.PlanV3.PlanV3 plan, int attemptSeed,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<CheckResult>> CriticiseAsync(
         ScenarioTruth scenario, string target, CancellationToken ct = default);
+
+    /// <summary>
+    /// One critic role only. Stage batching needs this: a stage loads a single judge and
+    /// runs it over a whole batch, which is impossible if the only entry point invokes
+    /// every configured critic at once.
+    /// </summary>
+    Task<CriticVerdict> CriticiseOneAsync(
+        string role, ScenarioTruth scenario, string target, CancellationToken ct = default);
 }

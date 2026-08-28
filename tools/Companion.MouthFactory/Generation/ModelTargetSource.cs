@@ -131,7 +131,7 @@ public sealed class ModelTargetSource(RoleRouter roles, long runSeed) : ITargetS
         """;
 
     public async Task<TargetCandidate> WriteAsync(
-        ScenarioTruth scenario, global::Companion.PlanV3.PlanV3 plan, int variant,
+        ScenarioTruth scenario, global::Companion.PlanV3.PlanV3 plan, int attemptSeed,
         CancellationToken ct = default)
     {
         var user = scenario.Participants.First(p => p.Kind == ParticipantKind.User);
@@ -143,8 +143,8 @@ public sealed class ModelTargetSource(RoleRouter roles, long runSeed) : ITargetS
             scenario.History.Select(t => (t.Role, t.Text)).ToList(),
             scenario.UserMessage, user.Name, companion.Name);
 
-        // Variant-specific seed: several valid targets for one plan, each reproducible.
-        var seed = unchecked(runSeed * 131 + scenario.Seed * 17 + variant);
+        // Attempt-specific seed: several valid targets for one plan, each reproducible.
+        var seed = unchecked(runSeed * 131 + scenario.Seed * 17 + attemptSeed);
         var request = new RoleRequest
         {
             Role = Role.TargetWriter,
@@ -198,6 +198,46 @@ public sealed class ModelTargetSource(RoleRouter roles, long runSeed) : ITargetS
 
         return results;
     }
+
+    /// <summary>
+    /// One role, one verdict. The staged pipeline calls this so a single judge can be
+    /// loaded once and run over an entire batch; the interleaved path keeps using
+    /// CriticiseAsync. Both share AskAsync, so the two schedules cannot drift in what
+    /// they actually ask a critic.
+    /// </summary>
+    public async Task<CriticVerdict> CriticiseOneAsync(
+        string role, ScenarioTruth scenario, string target, CancellationToken ct = default)
+    {
+        var parsed = Enum.Parse<Role>(role);
+        var (system, field, user) = parsed switch
+        {
+            Role.NaturalnessCritic => (
+                NaturalnessSystem, "natural", "REPLY:\n" + target),
+            _ => (
+                FaithfulnessSystem, "faithful",
+                Describe(scenario) + "\n\nREPLY:\n" + target),
+        };
+
+        var check = await AskAsync(parsed, system, field, user, ct);
+        return new CriticVerdict
+        {
+            Role = role,
+            Model = Environment.GetEnvironmentVariable(EnvFor(parsed)) ?? "(unknown)",
+            Passed = check.Passed,
+            Code = check.Code,
+            Detail = check.Detail,
+            AtUtc = DateTimeOffset.UtcNow.ToString("O"),
+        };
+    }
+
+    private static string EnvFor(Role role) => role switch
+    {
+        Role.FaithfulnessCritic => "MOUTH_FAITHFULNESS_MODEL",
+        Role.NaturalnessCritic => "MOUTH_NATURALNESS_MODEL",
+        Role.AdversarialCritic => "MOUTH_ADVERSARIAL_MODEL",
+        Role.StyleCritic => "MOUTH_STYLE_MODEL",
+        _ => "MOUTH_WRITER_MODEL",
+    };
 
     private async Task<CheckResult> AskAsync(
         Role role, string system, string field, string user, CancellationToken ct)

@@ -1124,6 +1124,150 @@ public class MouthFactoryTests
             new RoleRequest { Role = Role.FaithfulnessCritic, System = "s", User = "u", Seed = 1 }));
     }
 
+    // ---- unsupported numerals -------------------------------------------------------------------
+
+    [Fact]
+    public void AQuantityThePlanNeverSuppliedIsRejected()
+    {
+        // Every judge audited accepted "Seventeen tests failed" against "several tests failed".
+        // It is unsupported by construction, and a token the plan never supplied is exactly what
+        // a string test can decide.
+        var scenario = Scenario() with
+        {
+            ApprovedFacts =
+            [
+                new ApprovedFact
+                {
+                    Id = "f1", Text = "several tests failed", Policy = FactPolicy.MustExpress,
+                },
+            ],
+        };
+
+        var check = Assert.Single(
+            DeterministicChecks.Run(scenario, "Seventeen tests failed."),
+            c => c.Name == "no-unsupported-numerals");
+
+        Assert.False(check.Passed);
+        Assert.Equal("unsupported-numeral", check.Code);
+    }
+
+    [Fact]
+    public void AQuantityThePlanDidSupplyIsFine()
+    {
+        var scenario = Scenario() with
+        {
+            ApprovedFacts =
+            [
+                new ApprovedFact
+                {
+                    Id = "f1", Text = "17 tests failed", Policy = FactPolicy.MustExpress,
+                },
+            ],
+        };
+
+        Assert.True(Assert.Single(
+            DeterministicChecks.Run(scenario, "17 of them went red."),
+            c => c.Name == "no-unsupported-numerals").Passed);
+    }
+
+    [Fact]
+    public void VagueQuantifiersAreNotNumerals()
+    {
+        // "a couple" and "a few" assert no specific number - they are what a faithful paraphrase
+        // of an unspecified quantity looks like, and flagging them would recreate the very
+        // paraphrase-punishing behaviour that was just removed.
+        var scenario = Scenario() with
+        {
+            ApprovedFacts =
+            [
+                new ApprovedFact
+                {
+                    Id = "f1", Text = "several tests failed", Policy = FactPolicy.MustExpress,
+                },
+            ],
+        };
+
+        foreach (var target in new[]
+                 {
+                     "A couple of them went red.",
+                     "A few failed, nothing dramatic.",
+                     "Some tests failed.",
+                 })
+        {
+            Assert.True(Assert.Single(
+                DeterministicChecks.Run(scenario, target),
+                c => c.Name == "no-unsupported-numerals").Passed, target);
+        }
+    }
+
+    [Fact]
+    public void ANumberFromTheConversationCountsAsSupplied()
+    {
+        var scenario = Scenario() with
+        {
+            ApprovedFacts =
+            [
+                new ApprovedFact
+                {
+                    Id = "f1", Text = "the tests finished", Policy = FactPolicy.MustExpress,
+                },
+            ],
+            History = [new Turn { Role = "user", Text = "did all 17 of them run?" }],
+        };
+
+        Assert.True(Assert.Single(
+            DeterministicChecks.Run(scenario, "All 17 ran, yes."),
+            c => c.Name == "no-unsupported-numerals").Passed);
+    }
+
+    [Fact]
+    public void InventedDetailInsideAFictionFrameIsLicensed()
+    {
+        // R5 §5: invented scene content is the exercise. The check does not run inside a frame.
+        var scenario = Scenario() with
+        {
+            Frame = new FrameState { Transition = "continue", SceneRef = "scene-01" },
+        };
+
+        Assert.DoesNotContain(
+            DeterministicChecks.Run(scenario, "Three lanterns gutter out along the wall."),
+            c => c.Name == "no-unsupported-numerals");
+    }
+
+    [Fact]
+    public void ADeclaredProhibitedPropositionIsCaughtDeterministically()
+    {
+        // fabricated-biography survives every judge audited. Production's b8 family declares the
+        // surface forms, and that declaration is what makes it mechanically catchable - which is
+        // why an anti-hallucination scenario without declared prohibitions is under-specified.
+        var scenario = Scenario() with
+        {
+            ApprovedFacts =
+            [
+                new ApprovedFact
+                {
+                    Id = "f1", Text = "you asked about the weekend", Policy = FactPolicy.MustExpress,
+                },
+            ],
+            ProhibitedPropositions =
+            [
+                new Proposition
+                {
+                    Subject = "scott", Predicate = "has", Object = "an allotment",
+                    SurfaceForms = ["allotment", "your garden", "your greenhouse"],
+                    Reason = "invented biography without a frame",
+                },
+            ],
+        };
+
+        var check = Assert.Single(
+            DeterministicChecks.Run(
+                scenario, "For the weekend - you could get down to that allotment of yours."),
+            c => c.Name == "no-unsupported-claims");
+
+        Assert.False(check.Passed);
+    }
+
     // ---- helpers -------------------------------------------------------------------------------------------------------
 
     private static ScenarioTruth Scenario() => new()
@@ -1171,24 +1315,42 @@ public class MouthFactoryTests
         public int Calls { get; private set; }
 
         public Task<TargetCandidate> WriteAsync(
-            ScenarioTruth scenario, global::Companion.PlanV3.PlanV3 plan, int variant,
+            ScenarioTruth scenario, global::Companion.PlanV3.PlanV3 plan, int attemptSeed,
             CancellationToken ct = default)
         {
             Calls++;
             var facts = string.Join(" ",
                 scenario.ApprovedFacts.Where(f => f.Policy == FactPolicy.MustExpress).Select(f => f.Text));
             return Task.FromResult(new TargetCandidate(
-                $"{facts} — {scenario.Id} v{variant}.".Trim(' ', '—'),
+                $"{facts} — {Tag(scenario.Id, attemptSeed)}.".Trim(' ', '—'),
                 new GenerationProvenance
                 {
                     Role = "TargetWriter", Model = "fixture", Endpoint = "fixture",
-                    PromptVersion = "1.0", Seed = variant, Attempt = 1, PromptHash = "fixture",
+                    PromptVersion = "1.0", Seed = attemptSeed, Attempt = 1, PromptHash = "fixture",
                 }));
         }
+
+
+        /// <summary>
+        /// A stable per-scenario tag with no digits in it. Digits would read as a quantity the
+        /// plan never supplied; identical text across scenarios would read as a duplicate. Both
+        /// are correct rejections of a lazy fixture, so the fixture stops being lazy.
+        /// </summary>
+        private static string Tag(string scenarioId, int attemptSeed)
+            => new string(scenarioId.Select(c => char.IsDigit(c) ? (char)('g' + (c - '0')) : c).ToArray())
+               + (attemptSeed % 2 == 1 ? "-odd" : "-even");
 
         public Task<IReadOnlyList<CheckResult>> CriticiseAsync(
             ScenarioTruth scenario, string target, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<CheckResult>>([]);
+
+        public Task<CriticVerdict> CriticiseOneAsync(
+            string role, ScenarioTruth scenario, string target, CancellationToken ct = default)
+            => Task.FromResult(new CriticVerdict
+            {
+                Role = role, Model = "fixture", Passed = true,
+                AtUtc = "2026-08-28T00:00:00Z",
+            });
     }
 
     private sealed class StubClient(string reply) : IRoleClient
