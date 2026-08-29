@@ -23,7 +23,13 @@ public static class Exports
     {
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, $"{name}.jsonl");
-        using var writer = new StreamWriter(path, append: false, Encoding.UTF8);
+        // LF, explicitly. WriteLine defaults to Environment.NewLine, which would make the corpus
+        // - and therefore every hash in SHA256SUMS - depend on the operating system that wrote it.
+        // "the same pool yields the same corpus on any machine" has to be true of the bytes.
+        using var writer = new StreamWriter(path, append: false, Encoding.UTF8)
+        {
+            NewLine = "\n",
+        };
         foreach (var row in rows)
             writer.WriteLine(JsonSerializer.Serialize(row, Json));
         return path;

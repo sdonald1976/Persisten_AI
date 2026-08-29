@@ -46,3 +46,14 @@ renderer/runs/*/*.md
 !renderer/runs/run-1a/adapter-final/
 !renderer/runs/run-1b/adapter-final/
 !renderer/runs/run-1c/adapter-final/
+
+# Exception: the Run-2 mouth corpus, for the same reason the renderer corpus is versioned.
+# A frozen artifact that exists on one machine cannot be frozen - SHA256SUMS is a promise
+# nobody can check unless the files it names travel with it. The accepted pool and the
+# scenarios are here too, because selection.json records WHICH rows were chosen and the
+# hash of the pool they came from: without the pool, that hash proves nothing.
+# The 240MB candidate ledger stays machine-local; it is the working store, not the result.
+!mouth/dataset/mouth-v2-*.jsonl
+!mouth/dataset/scenarios.jsonl
+!mouth/dataset/accepted.rows.jsonl
+!mouth/dataset/accepted.metadata.jsonl

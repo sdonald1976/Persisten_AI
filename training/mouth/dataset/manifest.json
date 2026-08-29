@@ -1,0 +1,260 @@
+{
+  "runId": "run2-freeze-20260826",
+  "startedUtc": "2026-08-29T19:15:35.3525700\u002B00:00",
+  "schemaVersion": "scenario/1.0",
+  "rowSchemaVersion": "training-row/1.0",
+  "promptFormatVersion": "mouth-prompt/4.0",
+  "repoCommit": "(unrecorded)",
+  "roles": {},
+  "generated": 3629,
+  "accepted": 2000,
+  "rejected": 7239,
+  "manualReview": 1132,
+  "sources": [
+    {
+      "familyId": "generated/a1",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 188,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a2",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 103,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a3",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 103,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a4",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 101,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a5",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 134,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a6a",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 79,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a6b",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 89,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a6c",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 97,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a6d",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 75,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a6e",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 61,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a6f",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 60,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a7a",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 130,
+      "complete": true
+    },
+    {
+      "familyId": "generated/a7b",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 122,
+      "complete": true
+    },
+    {
+      "familyId": "generated/b1",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 41,
+      "complete": true
+    },
+    {
+      "familyId": "generated/b11",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 129,
+      "complete": true
+    },
+    {
+      "familyId": "generated/b2",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 17,
+      "complete": true
+    },
+    {
+      "familyId": "generated/b3",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 110,
+      "complete": true
+    },
+    {
+      "familyId": "generated/b4",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 128,
+      "complete": true
+    },
+    {
+      "familyId": "generated/b5",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 62,
+      "complete": true
+    },
+    {
+      "familyId": "generated/b6",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 32,
+      "complete": true
+    },
+    {
+      "familyId": "generated/b7",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 50,
+      "complete": true
+    },
+    {
+      "familyId": "generated/b8",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 54,
+      "complete": true
+    },
+    {
+      "familyId": "generated/b9",
+      "origin": "generated",
+      "revision": "seed=20260826;format=mouth-prompt/4.0",
+      "license": "generated-in-house",
+      "permittedUse": "unrestricted internal training use",
+      "transformations": "constructed from scenario truth; rendered via MouthPromptV4",
+      "rowCount": 35,
+      "complete": true
+    }
+  ],
+  "exportHashes": {
+    "mouth-v2-test.jsonl": "4d2e899281a3a85b75cf6dc8d5e3987204fa7e9af1ec8ced5ac6ca86474b181a",
+    "mouth-v2-test.parquet": "b3e191c197b7f4837f1dddf33887c3c11106055e61e3be21899d90300dc4b668",
+    "mouth-v2-train.jsonl": "529328e98c0d39267dc163cde90860ee900e15d6d7f1f8786ed54edcbaeb928b",
+    "mouth-v2-train.parquet": "ee8cfe6dc426cb529c381031a368ef390178191ab362279507d29f25749cfdcc",
+    "mouth-v2-validation.jsonl": "686729eb91f87a0865a98f905dce5c82d11be8af3bdb81ceaa443ad1b5fccc79",
+    "mouth-v2-validation.parquet": "08549785917a01a4996da7d5982354ee099690208a2a13c9dc9355d0506f4b9a",
+    "mouth-v2-hard-eval.jsonl": "3fda2a49b913cd1664ff199120324e174b024a08d0675b1e18292cabf7c3498e",
+    "mouth-v2-hard-eval.parquet": "fee259765955231c23f774854e58af2f7a5b0113e5008ed17edd9f7158e2725d"
+  },
+  "knownLimitations": [
+    "Corpus size is provisional until the RTX 5070 probe fixes base, sequence length and rank.",
+    "MouthPromptV4 defines the plan/4 inference format; no production path serves it yet.",
+    "The export is a balanced subset of a larger accepted pool. Every unselected row remains in the candidate store; none was discarded."
+  ]
+}

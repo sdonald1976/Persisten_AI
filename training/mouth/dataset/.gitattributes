@@ -1,0 +1,8 @@
+# Byte-exact, always. SHA256SUMS is computed over these files as they are written, so any
+# line-ending translation on checkout would make every hash in it fail to verify - which
+# teaches whoever checks a freeze to ignore a mismatch. -text disables that translation.
+*.jsonl -text
+*.parquet -text binary
+SHA256SUMS -text
+selection.json -text
+manifest.json -text

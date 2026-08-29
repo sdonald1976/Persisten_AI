@@ -405,10 +405,11 @@ async Task<int> CriticAuditAsync()
 async Task<int> FreezeAsync()
 {
     var store = new RowStore(Path.Combine(output, "rows"));
-    var accepted = store.ReadRows(Disposition.Accepted).ToList();
-    var metadata = store.ReadMetadata(Disposition.Accepted).ToList();
+    var allRows = store.ReadRows(Disposition.Accepted).ToList();
+    var allMeta = store.ReadMetadata(Disposition.Accepted)
+        .ToDictionary(m => m.Id, StringComparer.Ordinal);
     var manualReview = store.ReadRows(Disposition.ManualReview).Count();
-    if (accepted.Count == 0)
+    if (allRows.Count == 0)
     {
         Console.Error.WriteLine("no accepted rows; run the generation first");
         return 1;
@@ -422,27 +423,92 @@ async Task<int> FreezeAsync()
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal)
         : [];
 
-    // The quota is recomputed from the corpus on disk rather than trusted from the run, so the
-    // freeze gate measures the artifact it is about to hash.
+    // The candidate pool is the accepted MAIN rows. Hard cases are exported separately for
+    // evaluation and are never counted in the training mixture.
+    var hardIds = allMeta.Values
+        .Where(m => string.Equals(m.Split, "hard", StringComparison.Ordinal))
+        .Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
+
+    var pool = allMeta.Values
+        .Where(m => !hardIds.Contains(m.Id) && scenarios.ContainsKey(m.ScenarioId))
+        .Select(m =>
+        {
+            var sc = scenarios[m.ScenarioId];
+            return new CorpusSelection.Candidate(
+                m.Id, m.FamilyId, sc.Question.Policy,
+                !sc.ApprovedFacts.Any(f => f.Policy == FactPolicy.MustExpress),
+                m.Opening ?? "", m.Split ?? "train");
+        })
+        .OrderBy(c => c.Id, StringComparer.Ordinal)
+        .ToList();
+
+    var request = new SelectionRequest
+    {
+        TotalRows = 2000,
+        PolicyTargets = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["none"] = 1266, ["must_ask"] = 428, ["may_ask"] = 306,
+        },
+        NoMustRows = 348,
+        MinimumRows = 1500,
+    };
+
+    Console.WriteLine();
+    Console.WriteLine($"candidate pool           {pool.Count} accepted main rows, "
+                      + $"{hardIds.Count} hard held for evaluation");
+
+    var selection = CorpusSelection.Select(pool, request, seed);
+    if (!selection.Feasible)
+    {
+        var largest = CorpusSelection.LargestFeasible(pool, request);
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("SELECTION INFEASIBLE - conflicting constraints:");
+        foreach (var conflict in selection.Conflicts)
+            Console.Error.WriteLine("  " + conflict);
+        Console.Error.WriteLine();
+        Console.Error.WriteLine(largest >= request.MinimumRows
+            ? $"Largest feasible corpus in the requested proportions: {largest} rows."
+            : $"Largest feasible corpus is {largest} rows, below the {request.MinimumRows} floor.");
+        Console.Error.WriteLine("Nothing was exported and nothing was frozen.");
+        return 1;
+    }
+
+    var selectedIds = selection.SelectedIds.ToHashSet(StringComparer.Ordinal);
+    var accepted = allRows.Where(r => selectedIds.Contains(r.Id)).ToList();
+    var metadata = selection.SelectedIds.Select(id => allMeta[id]).ToList();
+
+    Console.WriteLine($"selected                 {accepted.Count} rows   "
+                      + $"algorithm {selection.Algorithm}   seed {selection.Seed}");
+    Console.WriteLine($"candidate pool hash      {selection.PoolHash}");
+    Console.WriteLine($"selection hash           {selection.SelectionHash}");
+    Console.WriteLine();
+    Console.WriteLine($"  {"family",-8}{"pool",6}{"distinct",10}{"cap",6}{"selected",10}{"ratio",9}");
+    foreach (var f in selection.Families)
+    {
+        var ratio = f.Selected == 0
+            ? 0
+            : Math.Min(f.Selected, f.DistinctOpenings) / (double)f.Selected;
+        Console.WriteLine(
+            $"  {f.Family,-8}{f.Pool,6}{f.DistinctOpenings,10}{f.Cap,6}{f.Selected,10}{ratio,9:P1}");
+    }
+
+    // The quota is recomputed over the SELECTED rows, so the freeze gate measures the artifact it
+    // is about to hash rather than the pool that artifact was drawn from.
     var quota = new AcceptanceQuota(QuestionPolicyMix.FrozenRun1);
     foreach (var meta in metadata)
         if (scenarios.TryGetValue(meta.ScenarioId, out var sc))
             quota.Record(sc);
 
     var coverage = CheckCoverage.Measure(scenarios.Values.ToList());
-
-    var paired = accepted
-        .Where(row => metadata.Any(m => m.Id == row.Id))
-        .Select(row => (Row: row, Meta: metadata.First(m => m.Id == row.Id)))
-        .ToList();
+    var paired = accepted.Select(row => (Row: row, Meta: allMeta[row.Id])).ToList();
     var contamination = Contamination.Search(paired, PriorCorpusTargets());
 
     var checks = AcceptanceReport.Evaluate(
         accepted, metadata, scenarios, quota, coverage, contamination, manualReview,
-        minimumRows: targetAccepted ?? 1500);
+        minimumRows: request.MinimumRows);
 
     Console.WriteLine();
-    Console.WriteLine("DECLARED ACCEPTANCE CONDITIONS");
+    Console.WriteLine("DECLARED ACCEPTANCE CONDITIONS (evaluated against the selected export)");
     Console.WriteLine();
     foreach (var check in checks)
         Console.WriteLine($"  {(check.Passed ? "PASS" : "FAIL"),-6}{check.Name,-46}{check.Detail}");
@@ -459,8 +525,117 @@ async Task<int> FreezeAsync()
         return 1;
     }
 
-    Console.WriteLine("All declared conditions hold. Exporting.");
-    return await ExportAsync();
+    Console.WriteLine("All declared conditions hold. Freezing.");
+    return await ExportSelectedAsync(paired, allRows, allMeta, hardIds, selection, checks);
+}
+
+/// <summary>
+/// Write the frozen corpus: the selected training rows by split, the hard cases apart for
+/// evaluation, and a manifest recording exactly which candidates were chosen and from what.
+/// </summary>
+async Task<int> ExportSelectedAsync(
+    List<(TrainingRow Row, TrainingRowMetadata Meta)> paired,
+    List<TrainingRow> allRows,
+    Dictionary<string, TrainingRowMetadata> allMeta,
+    HashSet<string> hardIds,
+    SelectionResult selection,
+    IReadOnlyList<AcceptanceCheck> checks)
+{
+    var exportDir = Path.Combine(output, "export");
+    var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
+    var store = new RowStore(Path.Combine(output, "rows"));
+
+    async Task WriteSplit(string name, List<TrainingRow> list)
+    {
+        var jsonl = Exports.WriteJsonl(exportDir, name, list);
+        var parquet = await Exports.WriteParquetAsync(exportDir, name, list);
+        hashes[Path.GetFileName(jsonl)] = Exports.Sha256OfFile(jsonl);
+        hashes[Path.GetFileName(parquet)] = Exports.Sha256OfFile(parquet);
+        Console.WriteLine($"  {name,-24}{list.Count,6} rows");
+    }
+
+    Console.WriteLine();
+    foreach (var group in paired
+                 .GroupBy(p => p.Meta.Split!, StringComparer.Ordinal)
+                 .OrderBy(g => g.Key, StringComparer.Ordinal))
+        await WriteSplit($"mouth-v2-{group.Key}", group.Select(g => g.Row).ToList());
+
+    // Hard cases: exported for evaluation, never part of the training mixture.
+    var hard = allRows.Where(r => hardIds.Contains(r.Id)).ToList();
+    if (hard.Count > 0)
+        await WriteSplit("mouth-v2-hard-eval", hard);
+
+    var manifest = new RunManifest
+    {
+        RunId = $"run2-freeze-{seed}",
+        StartedUtc = DateTimeOffset.UtcNow.ToString("O"),
+        SchemaVersion = ScenarioTruth.SchemaVersion,
+        RowSchemaVersion = TrainingRow.SchemaVersion,
+        PromptFormatVersion = MouthPromptV4.FormatVersion,
+        RepoCommit = Environment.GetEnvironmentVariable("MOUTH_FACTORY_COMMIT") ?? "(unrecorded)",
+        Roles = RoleDescription(),
+        Generated = allRows.Count,
+        Accepted = paired.Count,
+        Rejected = store.ReadRows(Disposition.Rejected).Count(),
+        ManualReview = store.ReadRows(Disposition.ManualReview).Count(),
+        Sources = SourceManifests(paired),
+        ExportHashes = hashes,
+        KnownLimitations =
+        [
+            "Corpus size is provisional until the RTX 5070 probe fixes base, sequence length and rank.",
+            "MouthPromptV4 defines the plan/4 inference format; no production path serves it yet.",
+            "The export is a balanced subset of a larger accepted pool. Every unselected row "
+            + "remains in the candidate store; none was discarded.",
+        ],
+    };
+    File.WriteAllText(
+        Path.Combine(exportDir, "manifest.json"),
+        JsonSerializer.Serialize(manifest, new JsonSerializerOptions(Web()) { WriteIndented = true }));
+
+    // Selection provenance, kept apart from the run manifest because it answers a different
+    // question: not how the rows were made, but which of them this corpus is.
+    var selectionManifest = new
+    {
+        algorithm = selection.Algorithm,
+        seed = selection.Seed,
+        candidatePoolHash = selection.PoolHash,
+        selectionHash = selection.SelectionHash,
+        poolRows = allMeta.Count - hardIds.Count,
+        selectedRows = selection.SelectedIds.Count,
+        hardEvalRows = hardIds.Count,
+        policyCounts = selection.PolicyCounts,
+        noMustSelected = selection.NoMustSelected,
+        families = selection.Families,
+        acceptanceConditions = checks.Select(c => new { c.Name, c.Passed, c.Detail }),
+        selectedCandidateIds = selection.SelectedIds,
+    };
+    var selectionPath = Path.Combine(exportDir, "selection.json");
+    File.WriteAllText(
+        selectionPath,
+        JsonSerializer.Serialize(
+            selectionManifest, new JsonSerializerOptions(Web()) { WriteIndented = true }));
+    hashes["selection.json"] = Exports.Sha256OfFile(selectionPath);
+
+    // manifest.json is deliberately NOT checksummed. It stamps the wall-clock freeze time, so its
+    // hash changes on every run while the corpus does not - and a checksum file that never
+    // reproduces teaches whoever verifies it to ignore a mismatch. SHA256SUMS covers exactly the
+    // artifacts that must be byte-identical when the same pool is selected again.
+
+    var hashPath = Path.Combine(exportDir, "SHA256SUMS");
+    // LF and the two-space separator sha256sum expects, so `sha256sum -c SHA256SUMS` verifies
+    // the freeze directly. Written with CRLF it parses filenames with a trailing carriage return
+    // and reports every file missing - a checksum file no standard tool can read is not one.
+    File.WriteAllText(
+        hashPath,
+        string.Concat(
+            hashes.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => kv.Value + "  " + kv.Key + "\n")));
+
+    Console.WriteLine();
+    Console.WriteLine($"manifest                 {Path.Combine(exportDir, "manifest.json")}");
+    Console.WriteLine($"selection                {selectionPath}");
+    Console.WriteLine($"hashes                   {hashPath}");
+    return 0;
 }
 
 // ---- helpers -----------------------------------------------------------------------------------
