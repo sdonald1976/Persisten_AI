@@ -34,6 +34,7 @@ switch (command)
     case "validate": return Validate();
     case "export": return await ExportAsync();
     case "critic-audit": return await CriticAuditAsync();
+    case "freeze": return await FreezeAsync();
     default:
         Console.WriteLine("""
             mouth-factory <command> [options]
@@ -45,6 +46,7 @@ switch (command)
               validate       re-run deterministic checks over accepted rows
               export         split, check contamination, write JSONL + Parquet + manifest
               critic-audit   matched-pair critic asymmetry audit
+              freeze         evaluate the declared acceptance conditions; export only if all pass
 
             options
               --out <dir>        output directory (default training/mouth-factory)
@@ -178,21 +180,34 @@ async Task<int> GenerateAsync(bool dryRun)
         var criticRoles = new[] { Role.FaithfulnessCritic, Role.AdversarialCritic, Role.NaturalnessCritic }
             .Where(r => roleRouter!.Has(r)).Select(r => r.ToString()).ToList();
         var quota = new AcceptanceQuota(QuestionPolicyMix.FrozenRun1);
+
+        // Replacement generation continues the deterministic index sequence past where the initial
+        // build stopped, so a short bucket can be filled without re-rolling anything.
+        var supply = new GeneratorScenarioSupply(generator, Curriculum.Families, counts);
         var staged = new StagedPipeline(
             source, CandidateStore.Open(Path.Combine(output, "candidates.jsonl")),
-            store, new Deduplicator(), criticRoles, quota);
+            store, new Deduplicator(), criticRoles, quota, supply);
         var sr = await staged.RunAsync(scenarios, new PipelineOptions
         {
             OutputDirectory = output, TargetsPerScenario = variants,
             TargetAccepted = targetAccepted, MaxUnits = maxUnits,
         }, batchSize);
 
+        // Every scenario the run touched, including replacements. The export resolves families
+        // and splits from this file, so a scenario that produced a row and is not written here is
+        // a row that cannot be exported.
+        var allScenarios = scenarios
+            .Concat(supply.Built)
+            .GroupBy(sc => sc.Id, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .ToList();
         File.WriteAllText(Path.Combine(output, "scenarios.jsonl"),
             string.Join(Environment.NewLine,
-                scenarios.Select(sc => JsonSerializer.Serialize(sc, Web())))
+                allScenarios.Select(sc => JsonSerializer.Serialize(sc, Web())))
             + Environment.NewLine);
 
         Console.WriteLine($"stop reason     {sr.StopReason}   rounds {sr.Rounds}");
+        Console.WriteLine($"replacements    {sr.ReplacementScenarios} scenarios generated to fill short quotas");
         Console.WriteLine($"scenarios       {scenarios.Count}  (unsatisfiable: {sr.Unsatisfiable})");
         Console.WriteLine($"units attempted {sr.UnitsAttempted}");
         Console.WriteLine($"model loads     {sr.ModelLoads}   writer calls {sr.WriterCalls}   critic calls {sr.CriticCalls}");
@@ -211,7 +226,7 @@ async Task<int> GenerateAsync(bool dryRun)
                 Console.WriteLine($"  {count,6}  {code}");
         }
 
-        ReportCorpus(store, scenarios, quota);
+        ReportCorpus(store, allScenarios, quota);
         return sr.Accepted == 0 ? 1 : 0;
     }
 
@@ -376,6 +391,76 @@ async Task<int> CriticAuditAsync()
         $"FAIL - {string.Join(", ", report.OffendingVariants)} exceed the ceiling. "
         + "Recalibrate or replace the critic. The material stays.");
     return 1;
+}
+
+
+/// <summary>
+/// The freeze gate. Evaluate every condition declared before the run; export only if all hold.
+///
+/// A failing condition ends the command. Nothing is redesigned, nothing is re-tuned, and no
+/// corpus is written — the failure IS the report. That rule exists because the two exploratory
+/// pilots both ended in a judgement about whether "close enough" was close enough, and a freeze
+/// candidate is precisely the run where that judgement is not available.
+/// </summary>
+async Task<int> FreezeAsync()
+{
+    var store = new RowStore(Path.Combine(output, "rows"));
+    var accepted = store.ReadRows(Disposition.Accepted).ToList();
+    var metadata = store.ReadMetadata(Disposition.Accepted).ToList();
+    var manualReview = store.ReadRows(Disposition.ManualReview).Count();
+    if (accepted.Count == 0)
+    {
+        Console.Error.WriteLine("no accepted rows; run the generation first");
+        return 1;
+    }
+
+    var scenarioPath = Path.Combine(output, "scenarios.jsonl");
+    var scenarios = File.Exists(scenarioPath)
+        ? File.ReadLines(scenarioPath).Where(l => l.Length > 0)
+            .Select(l => JsonSerializer.Deserialize<ScenarioTruth>(l, Web())!)
+            .GroupBy(sc => sc.Id, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal)
+        : [];
+
+    // The quota is recomputed from the corpus on disk rather than trusted from the run, so the
+    // freeze gate measures the artifact it is about to hash.
+    var quota = new AcceptanceQuota(QuestionPolicyMix.FrozenRun1);
+    foreach (var meta in metadata)
+        if (scenarios.TryGetValue(meta.ScenarioId, out var sc))
+            quota.Record(sc);
+
+    var coverage = CheckCoverage.Measure(scenarios.Values.ToList());
+
+    var paired = accepted
+        .Where(row => metadata.Any(m => m.Id == row.Id))
+        .Select(row => (Row: row, Meta: metadata.First(m => m.Id == row.Id)))
+        .ToList();
+    var contamination = Contamination.Search(paired, PriorCorpusTargets());
+
+    var checks = AcceptanceReport.Evaluate(
+        accepted, metadata, scenarios, quota, coverage, contamination, manualReview,
+        minimumRows: targetAccepted ?? 1500);
+
+    Console.WriteLine();
+    Console.WriteLine("DECLARED ACCEPTANCE CONDITIONS");
+    Console.WriteLine();
+    foreach (var check in checks)
+        Console.WriteLine($"  {(check.Passed ? "PASS" : "FAIL"),-6}{check.Name,-46}{check.Detail}");
+
+    var failed = checks.Where(c => !c.Passed).ToList();
+    Console.WriteLine();
+    if (failed.Count > 0)
+    {
+        Console.Error.WriteLine($"FREEZE REFUSED - {failed.Count} declared condition(s) failed:");
+        foreach (var f in failed)
+            Console.Error.WriteLine($"  {f.Name}: {f.Detail}");
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("Nothing was exported and nothing was frozen.");
+        return 1;
+    }
+
+    Console.WriteLine("All declared conditions hold. Exporting.");
+    return await ExportAsync();
 }
 
 // ---- helpers -----------------------------------------------------------------------------------

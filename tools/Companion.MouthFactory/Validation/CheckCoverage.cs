@@ -77,6 +77,9 @@ public static class CheckCoverage
         new("no-unsupported-numerals",
             s => s.Frame is null && s.ApprovedFacts.Count > 0, Required: true),
         new("no-invented-experience", s => s.Frame is null, Required: true),
+        new("no-empty-deferral",
+            s => s.Frame is null && !s.ApprovedFacts.Any(f => f.Policy == FactPolicy.MustExpress),
+            Required: true),
     ];
 
     public static CoverageReport Measure(IReadOnlyList<ScenarioTruth> scenarios)

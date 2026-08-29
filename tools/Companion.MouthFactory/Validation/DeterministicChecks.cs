@@ -179,6 +179,24 @@ public static partial class DeterministicChecks
                 string.Join(", ", invented));
         }
 
+        // ---- evasion on a plan that obliges nothing ------------------------------------------
+        // A zero-must plan is legitimate — 127 of the frozen corpus's 730 rows carry no required
+        // item — but only because the TURN carries something: "I got the promotion!" can be
+        // reacted to. What must not survive is the reply that reacts to nothing, and 24.7% of the
+        // first pilot's fact-free rows were exactly that: "still working through the details",
+        // "not much has changed", "give me a moment to pull it together".
+        //
+        // Matched against the WHOLE reply, not searched for inside it. A reply that defers and
+        // then says something real does not match, which is what keeps this from punishing an
+        // honest "I don't know yet, but the plumber comes Thursday". Inside a frame it does not
+        // run at all: a scene may legitimately linger.
+        if (scenario.Frame is null
+            && !scenario.ApprovedFacts.Any(f => f.Policy == FactPolicy.MustExpress))
+        {
+            Check("no-empty-deferral", !PureDeferral.IsMatch(target.Trim()),
+                "empty-deferral", "the whole reply defers and engages with nothing");
+        }
+
         // ---- ambiguity preservation --------------------------------------------------------------
         // The failure is silently CHOOSING. An ambiguity is preserved if none of its resolutions
         // is asserted outright.
@@ -238,6 +256,43 @@ public static partial class DeterministicChecks
 
         return results;
     }
+
+    /// <summary>
+    /// A reply that is nothing but deferral, end to end.
+    ///
+    /// Deliberately anchored and deliberately narrow. The alternative — searching for stall
+    /// phrases anywhere in the reply — would reject "Not much has changed, but the plumber can
+    /// come Thursday", which is a good row: it defers about one thing and answers about another.
+    /// Only a reply made entirely of these clauses engages with nothing.
+    /// </summary>
+    private static readonly Regex PureDeferral = new(
+        @"^\W*(?:(?:it'?s|i'?m|there'?s|we'?re|i)\s+)?"
+        + @"(?:" + StallClause + @")"
+        // A comma AND a conjunction is one join, not two: ", and I'll let you know" is a single
+        // continuation of the same deferral.
+        + @"(?:\s*,?\s*(?:and|but|though|so|then|-)?\s*"
+        + @"(?:(?:it'?s|i'?m|there'?s|we'?re|i|i'?ll)\s+)?(?:" + StallClause + @"))*"
+        + @"\W*$",
+        // NonBacktracking, not a timeout. The pattern nests a bounded quantifier inside a repeated
+        // alternation, which is the shape that backtracks badly on a near-miss - but bounding it in
+        // TIME made the gate non-deterministic: under parallel load it abstained, and a deferral
+        // walked through a gate that had passed the same input a moment earlier. A gate whose
+        // verdict depends on machine load is not a gate. This engine is linear-time by
+        // construction, so the same input always gets the same answer.
+        RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
+
+    private const string StallClause =
+        @"still (?:working|thinking|considering|mulling|chewing|going|at it|on it)(?:\s+\w+){0,4}"
+        + @"|not much has changed|nothing much has changed|no real change"
+        + @"|(?:no|nothing) (?:new|major|much|to report|yet)(?:\s+\w+){0,3}"
+        + @"|(?:there'?s )?no update(?:\s+\w+){0,3}"
+        + @"|(?:i'?ll )?let you know(?:\s+\w+){0,5}"
+        + @"|give me a (?:moment|minute|sec|second)(?:\s+\w+){0,4}"
+        + @"|(?:it'?s )?(?:still )?coming together(?:\s+\w+){0,3}"
+        + @"|(?:it'?s )?(?:still )?in the works(?:\s+\w+){0,3}"
+        + @"|(?:much )?the same as (?:before|last time|ever)"
+        + @"|hard to say(?:\s+\w+){0,3}"
+        + @"|not yet|soon|about how you'?d expect|same as ever|nothing to add";
 
     private static readonly Regex Profanity = new(
         @"\b(fuck\w*|shit\w*|cunt|bastard|bollocks|arsehole|asshole)\b",

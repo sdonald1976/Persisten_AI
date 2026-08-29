@@ -22,6 +22,12 @@ public sealed record StagedResult
     public required int WriterCalls { get; init; }
     public required int CriticCalls { get; init; }
     public required IReadOnlyList<string> DriftDetected { get; init; }
+
+    /// <summary>Scenarios built by replacement generation to fill a short quota bucket.</summary>
+    public int ReplacementScenarios { get; init; }
+
+    /// <summary>Whether every accepted-row quota finished inside the declared tolerance.</summary>
+    public bool QuotaSatisfied { get; init; }
 }
 
 /// <summary>
@@ -44,13 +50,15 @@ public sealed class StagedPipeline(
     RowStore rows,
     Deduplicator dedup,
     IReadOnlyList<string> requiredCritics,
-    AcceptanceQuota? quota = null)
+    AcceptanceQuota? quota = null,
+    IScenarioSupply? supply = null)
 {
     public async Task<StagedResult> RunAsync(
         IReadOnlyList<ScenarioTruth> scenarios, PipelineOptions options,
         int batchSize = 64, CancellationToken ct = default)
     {
         var byId = scenarios.ToDictionary(s => s.Id, StringComparer.Ordinal);
+        var replacements = 0;
         var rejectionCodes = new Dictionary<string, int>(StringComparer.Ordinal);
         var drift = new List<string>();
         int unsatisfiable = 0, units = 0, generated = 0, writerCalls = 0, criticCalls = 0;
@@ -84,13 +92,22 @@ public sealed class StagedPipeline(
         if (quota is not null)
             foreach (var accepted in candidates.All.Where(c => c.State == CandidateState.Accepted))
                 if (byId.TryGetValue(accepted.ScenarioId, out var sc))
-                    quota.Record(sc.Question.Policy);
+                    quota.Record(sc);
 
         var next = 0;
         while (true)
         {
-            if (options.TargetAccepted is { } target
-                && candidates.Count(CandidateState.Accepted) >= target)
+            // Done means BOTH: enough rows, and every bucket inside tolerance. A corpus of the
+            // right size in the wrong proportions is what the last two runs delivered.
+            //
+            // Only when something to satisfy was actually configured. With neither a row target
+            // nor a quota, both halves are vacuously true and the run would stop before doing
+            // any work at all.
+            var bounded = options.TargetAccepted is not null || quota is not null;
+            var rowsMet = options.TargetAccepted is not { } target
+                          || candidates.Count(CandidateState.Accepted) >= target;
+            var quotaMet = quota is null || quota.Satisfied();
+            if (bounded && rowsMet && quotaMet)
             {
                 stopReason = "target-reached";
                 break;
@@ -102,9 +119,38 @@ public sealed class StagedPipeline(
             }
 
             var pending = candidates.Pending();
+
+            // Replacement generation. Reordering can only redistribute what exists; once the queue
+            // is dry, a short bucket can only be filled by building more scenarios that feed it.
+            if (next >= queue.Count && pending.Count == 0 && quota is not null && supply is not null)
+            {
+                var short_ = quota.Deficient().FirstOrDefault();
+                var room = options.MaxUnits is { } cap ? cap - units : int.MaxValue;
+                if (short_ is not null && room > 0)
+                {
+                    // Ask for the shortfall with headroom, since most of what is generated will be
+                    // rejected by the very gate that created the shortfall.
+                    var ask = Math.Min(Math.Max(short_.Shortfall * 3, batchSize), Math.Max(1, room));
+                    var extra = supply.More(sc => quota.Feeds(short_, sc), ask);
+                    foreach (var scenario in extra)
+                    {
+                        if (!ScenarioSatisfiability.Check(scenario).Satisfiable)
+                            continue;
+                        byId[scenario.Id] = scenario;
+                        replacements++;
+                        for (var v = 0; v < VariantPolicy.For(scenario, options.TargetsPerScenario); v++)
+                            if (candidates.Find($"{scenario.Id}#{v}") is null)
+                                queue.Add((scenario, v));
+                    }
+                }
+            }
+
             var haveWork = next < queue.Count;
             if (!haveWork && pending.Count == 0)
+            {
+                stopReason = quota is null || quota.Satisfied() ? "complete" : "quota-unreachable";
                 break;
+            }
 
             rounds++;
             var before = candidates.Count(CandidateState.GeneratedPendingCritics)
@@ -215,7 +261,7 @@ public sealed class StagedPipeline(
                 candidates.Write(settled);
                 if (state == CandidateState.Accepted && quota is not null
                     && byId.TryGetValue(settled.ScenarioId, out var accepted))
-                    quota.Record(accepted.Question.Policy);
+                    quota.Record(accepted);
                 rows.Append(
                     state == CandidateState.Accepted ? Disposition.Accepted : Disposition.ManualReview,
                     settled.Row,
@@ -238,6 +284,8 @@ public sealed class StagedPipeline(
             WriterCalls = writerCalls,
             CriticCalls = criticCalls,
             DriftDetected = drift,
+            ReplacementScenarios = replacements,
+            QuotaSatisfied = quota is null || quota.Satisfied(),
         };
     }
 

@@ -390,7 +390,7 @@ public class MouthFactoryV2Tests
         // rejects forbidden rows and nothing compensated.
         var quota = new AcceptanceQuota(QuestionPolicyMix.FrozenRun1);
         for (var i = 0; i < 50; i++)
-            quota.Record("must_ask");
+            quota.Record(WithPolicy("must_ask", "seed" + i));
 
         Assert.True(quota.Deficit("none") > quota.Deficit("must_ask"));
 
