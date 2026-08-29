@@ -26,6 +26,8 @@ ROOT = Path(__file__).parent
 RUN_ID = "run-2"
 LOG = ROOT / "runs" / RUN_ID / "training-log.jsonl"
 MAX_RESTARTS = 60
+STALL_LIMIT = 4          # consecutive attempts with no progress before this is a real fault
+SETTLE_SECONDS = 45      # base wait after a failure; doubles while nothing progresses
 
 
 def finished():
@@ -67,6 +69,7 @@ def main():
     python = sys.executable
     trainer = str(ROOT / "train_run2.py")
 
+    stalled = 0
     for attempt in range(1, MAX_RESTARTS + 1):
         before = last_step()
         print(f"\n=== attempt {attempt} (from step {before}) ===", flush=True)
@@ -77,17 +80,27 @@ def main():
             return 0
 
         after = last_step()
-        if after <= before and attempt > 1:
-            # Two consecutive attempts with no progress is a real fault, not a driver reset.
-            note(event="supervisor-abort", attempt=attempt, step=after,
-                 reason="no progress between attempts")
-            print("no progress between attempts; stopping rather than looping")
+        if after <= before:
+            stalled += 1
+        else:
+            stalled = 0
+
+        # A driver that has just reset needs longer than a process does. Two attempts failed
+        # here with a bitsandbytes "initialization error" simply because they started twenty
+        # seconds after a TDR - the same optimizer initialised fine once the driver had settled.
+        # So no-progress is met with a longer wait before it is treated as a real fault.
+        if stalled >= STALL_LIMIT:
+            note(event="supervisor-abort", attempt=attempt, step=after, stalled=stalled,
+                 reason="no progress across %d consecutive attempts" % stalled)
+            print("no progress across %d attempts; stopping rather than looping" % stalled)
             return 1
 
+        backoff = SETTLE_SECONDS * (2 ** min(stalled, 3))
         note(event="supervisor-restart", attempt=attempt,
              stepBefore=before, stepAfter=after, exitCode=result.returncode,
+             stalled=stalled, backoffSec=backoff,
              reason="trainer exited without a terminal event")
-        time.sleep(20)   # let the driver settle before touching the GPU again
+        time.sleep(backoff)
 
     note(event="supervisor-exhausted", attempts=MAX_RESTARTS, step=last_step())
     return 1
