@@ -6,7 +6,10 @@
     "directory": "training/mouth/dataset",
     "train": "mouth-v2-train.jsonl",
     "validation": "mouth-v2-validation.jsonl",
-    "heldOut": ["mouth-v2-test.jsonl", "mouth-v2-hard-eval.jsonl"],
+    "heldOut": [
+      "mouth-v2-test.jsonl",
+      "mouth-v2-hard-eval.jsonl"
+    ],
     "promptFormat": "mouth-prompt/4.0",
     "rowSchema": "training-row/1.0",
     "candidatePoolHash": "65d87e9c2561ee3c4435203faad98acab8ed0e2f71e041d0bb4066e8fa63478e",
@@ -32,11 +35,18 @@
     "lora_dropout": 0.05,
     "bias": "none",
     "task_type": "CAUSAL_LM",
-    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj",
-                       "gate_proj", "up_proj", "down_proj"]
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ]
   },
   "training": {
-    "learning_rate": 1e-4,
+    "learning_rate": 0.0001,
     "lr_scheduler_type": "cosine",
     "warmup_ratio": 0.03,
     "num_train_epochs": 2,
@@ -45,7 +55,7 @@
     "max_seq_length": 1536,
     "gradient_checkpointing": true,
     "gradient_checkpointing_use_reentrant": false,
-    "optim": "paged_adamw_8bit",
+    "optim": "adamw_8bit",
     "seed": 20260829,
     "eval_steps": 20,
     "save_steps": 20,
@@ -83,17 +93,32 @@
       "run1cValue": 20260821,
       "run2Value": 20260829,
       "reason": "A distinct run gets a distinct seed, recorded here so the run is reproducible from this file alone."
+    },
+    {
+      "field": "optim",
+      "run1cValue": "paged_adamw_8bit",
+      "run2Value": "adamw_8bit",
+      "reason": "Same optimizer mathematically - 8-bit AdamW - without unified-memory offload. Paging exists to survive OOM on a small card: run-1 trained on a 6 GB GTX 1660 where it mattered, while this run peaks at 5.9 GB on a 12 GB RTX 5070, so it buys nothing here. It also stopped working. After the display driver reset mid-run, every subsequent attempt died in bitsandbytes' paged-memory path with an uncatchable C++ 'initialization error' - four supervised attempts with backoff to 360s, plus a direct probe with the real 4-bit model resident. The non-paged optimizer was verified over three steps on the same model in the same session and runs cleanly."
     }
   ],
   "evaluation": {
     "instrument": "tools/Companion.MouthFactory DeterministicChecks - the same frozen gate the corpus was built against",
-    "arms": ["base (untouched, prompted)", "run-1c adapter", "run-2 adapter"],
+    "arms": [
+      "base (untouched, prompted)",
+      "run-1c adapter",
+      "run-2 adapter"
+    ],
     "beforeTraining": "untouched base evaluated on validation and preserved",
     "afterCheckpointSelection": "one evaluation on mouth-v2-test and mouth-v2-hard-eval",
     "reported": [
-      "Plan/4 fidelity", "question-policy compliance", "unsupported claims",
-      "stale resurrection", "ambiguity preservation", "naturalness",
-      "repetition and opening diversity", "per-family regressions"
+      "Plan/4 fidelity",
+      "question-policy compliance",
+      "unsupported claims",
+      "stale resurrection",
+      "ambiguity preservation",
+      "naturalness",
+      "repetition and opening diversity",
+      "per-family regressions"
     ]
   },
   "knownCorpusDefect": {

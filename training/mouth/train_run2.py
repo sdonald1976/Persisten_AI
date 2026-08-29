@@ -160,7 +160,9 @@ def main():
     steps_per_epoch = math.ceil(len(train_ds) / ga)
     total_steps = steps_per_epoch * TCFG["num_train_epochs"]
     import bitsandbytes as bnb_opt
-    optimizer = bnb_opt.optim.PagedAdamW8bit(
+    optimizers = {"paged_adamw_8bit": bnb_opt.optim.PagedAdamW8bit,
+                  "adamw_8bit": bnb_opt.optim.AdamW8bit}
+    optimizer = optimizers[TCFG["optim"]](
         (p for p in model.parameters() if p.requires_grad), lr=TCFG["learning_rate"])
     scheduler = get_cosine_schedule_with_warmup(
         optimizer, int(total_steps * TCFG["warmup_ratio"]), total_steps)
