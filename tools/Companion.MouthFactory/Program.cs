@@ -35,6 +35,7 @@ switch (command)
     case "export": return await ExportAsync();
     case "critic-audit": return await CriticAuditAsync();
     case "freeze": return await FreezeAsync();
+    case "score": return Score();
     default:
         Console.WriteLine("""
             mouth-factory <command> [options]
@@ -47,6 +48,7 @@ switch (command)
               export         split, check contamination, write JSONL + Parquet + manifest
               critic-audit   matched-pair critic asymmetry audit
               freeze         evaluate the declared acceptance conditions; export only if all pass
+              score          score generated replies against scenario truth (--generations, --arm, --split)
 
             options
               --out <dir>        output directory (default training/mouth-factory)
@@ -637,6 +639,89 @@ async Task<int> ExportSelectedAsync(
     Console.WriteLine($"hashes                   {hashPath}");
     return 0;
 }
+
+
+/// <summary>
+/// Score one arm's generated replies against the scenario truth they were generated from.
+///
+/// The instrument is DeterministicChecks, unchanged from the one the corpus was frozen against.
+/// A separately-written evaluator would measure the gap between two implementations as readily as
+/// it measures the model.
+/// </summary>
+int Score()
+{
+    var generationsPath = ArgValue("--generations");
+    var arm = ArgValue("--arm") ?? "unnamed";
+    var split = ArgValue("--split") ?? "unknown";
+    if (generationsPath is null || !File.Exists(generationsPath))
+    {
+        Console.Error.WriteLine("--generations <file.jsonl> is required");
+        return 2;
+    }
+
+    var generations = File.ReadLines(generationsPath)
+        .Where(l => l.Trim().Length > 0)
+        .Select(l =>
+        {
+            using var doc = JsonDocument.Parse(l);
+            return new GenerationEvaluation.Generation(
+                doc.RootElement.GetProperty("id").GetString()!,
+                doc.RootElement.GetProperty("target").GetString() ?? "");
+        })
+        .ToList();
+
+    var datasetDir = ArgValue("--dataset")
+                     ?? Path.Combine(RepoRoot(), "training", "mouth", "dataset");
+    var metadata = ReadJsonl<TrainingRowMetadata>(Path.Combine(datasetDir, "accepted.metadata.jsonl"))
+        .GroupBy(m => m.Id, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    var scenarios = ReadJsonl<ScenarioTruth>(Path.Combine(datasetDir, "scenarios.jsonl"))
+        .GroupBy(sc => sc.Id, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+    var score = GenerationEvaluation.Score(arm, split, generations, metadata, scenarios);
+
+    Console.WriteLine();
+    Console.WriteLine($"ARM {score.Arm}   SPLIT {score.Split}   rows {score.Rows}");
+    Console.WriteLine($"  plan/4 clean          {score.Clean}/{score.Rows} ({score.CleanRate:P1})");
+    Console.WriteLine($"  opening diversity     {score.OpeningDiversity:P1}");
+    Console.WriteLine($"  distinct replies      {score.DistinctReplies:P1}");
+    Console.WriteLine($"  median words          {score.MedianWords}");
+    if (score.Failures.Count > 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  failures by check");
+        foreach (var (name, count) in score.Failures.OrderByDescending(kv => kv.Value))
+            Console.WriteLine($"    {count,5}  {name}");
+    }
+    Console.WriteLine();
+    Console.WriteLine("  clean rate by family");
+    foreach (var (family, v) in score.ByFamily.OrderBy(kv => kv.Value.Clean / (double)kv.Value.Rows))
+        Console.WriteLine($"    {family,-6}{v.Clean,4}/{v.Rows,-5}{v.Clean / (double)v.Rows,8:P1}");
+
+    var outPath = ArgValue("--out")
+                  ?? Path.Combine(Path.GetDirectoryName(generationsPath)!,
+                      $"score-{arm}-{split}.json");
+    File.WriteAllText(outPath, JsonSerializer.Serialize(
+        new
+        {
+            score.Arm, score.Split, score.Rows, score.Clean, score.CleanRate,
+            score.OpeningDiversity, score.DistinctReplies, score.MedianWords,
+            score.Failures,
+            byFamily = score.ByFamily.ToDictionary(
+                kv => kv.Key, kv => new { kv.Value.Clean, kv.Value.Rows }),
+        },
+        new JsonSerializerOptions(Web()) { WriteIndented = true }));
+    Console.WriteLine();
+    Console.WriteLine($"  -> {outPath}");
+    return 0;
+}
+
+List<T> ReadJsonl<T>(string path)
+    => File.Exists(path)
+        ? File.ReadLines(path).Where(l => l.Trim().Length > 0)
+            .Select(l => JsonSerializer.Deserialize<T>(l, Web())!).ToList()
+        : [];
 
 // ---- helpers -----------------------------------------------------------------------------------
 

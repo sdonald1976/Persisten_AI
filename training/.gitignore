@@ -57,3 +57,14 @@ renderer/runs/*/*.md
 !mouth/dataset/scenarios.jsonl
 !mouth/dataset/accepted.rows.jsonl
 !mouth/dataset/accepted.metadata.jsonl
+
+# Run-2 (the mouth). Same rule as the renderer: checkpoints and generations stay machine-local,
+# the final adapter travels with the repo because a result that exists on one machine is one
+# disk failure from never having happened. safetensors go through LFS, per the root .gitattributes.
+mouth/runs/
+mouth/evaluation/
+!mouth/runs/run-2/adapter-final/
+!mouth/runs/run-2/training-manifest.json
+!mouth/runs/run-2/training-log.jsonl
+!mouth/evaluation/score-*.json
+!mouth/evaluation/*.md
