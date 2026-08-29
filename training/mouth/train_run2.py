@@ -279,6 +279,14 @@ def main():
                        vramGb=round(torch.cuda.max_memory_allocated() / 2**30, 2))
                 running = 0.0
 
+            # Checkpoint BEFORE evaluating. The driver on this machine resets under sustained
+            # load - it did so mid-validation on the first attempt at this run, killing the
+            # process with exit code 0 and losing twenty steps that were already computed.
+            # Evaluation is the longest uninterrupted GPU burst in the loop, so saving after it
+            # means the most crash-prone moment is also the one holding the most unsaved work.
+            if step % TCFG["save_steps"] == 0:
+                save_state(step, epoch, str(step), best_val, best_step, since_improve)
+
             if step % TCFG["eval_steps"] == 0:
                 val = evaluate()
                 improved = val < best_val - TCFG["early_stopping_min_delta"]
@@ -295,9 +303,6 @@ def main():
                            bestVal=round(best_val, 4))
                     stopped_early = True
                     break
-
-            if step % TCFG["save_steps"] == 0:
-                save_state(step, epoch, str(step), best_val, best_step, since_improve)
 
     record(event="done", step=step, bestStep=best_step, bestVal=round(best_val, 4),
            earlyStopped=stopped_early)
