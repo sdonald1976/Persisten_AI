@@ -240,6 +240,81 @@ public class MouthFactoryV2Tests
         Assert.Equal(3, mix.Select(0.99));
     }
 
+    // ---- length is asked for in the proportions production uses -----------------------------------
+
+    [Fact]
+    public void ExpansiveIsRareAndNeverAskedForWithoutContent()
+    {
+        // 794 expansive scenarios produced 32 accepted rows - a 4.0% acceptance rate and 929
+        // verbosity rejections - because a quarter of the corpus was asked for 40+ words when the
+        // frozen corpus reaches 40 in 2.2% of its rows and runs a median of 15.
+        var scenarios = Build();
+        var expansive = scenarios
+            .Where(s => s.Register.Verbosity.Equals("expansive", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        Assert.InRange(expansive.Count / (double)scenarios.Count, 0.0, 0.05);
+        Assert.All(expansive, s => Assert.True(
+            s.ApprovedFacts.Count(f => f.Policy is FactPolicy.MustExpress or FactPolicy.MayExpress) >= 2,
+            s.Id + " asks for an expansive reply with nothing to expand on"));
+    }
+
+    [Fact]
+    public void TerseTracksTheFrozenShare()
+    {
+        // The frozen corpus says "terse" in 143 of 730 STYLE lines: 19.6%.
+        var scenarios = Build();
+        var terse = scenarios.Count(s =>
+            s.Register.Verbosity.Equals("terse", StringComparison.OrdinalIgnoreCase));
+
+        Assert.InRange(terse / (double)scenarios.Count, 0.15, 0.30);
+    }
+
+    [Fact]
+    public void TheExpansiveFloorSitsInsideWhatProductionProduces()
+    {
+        // p90 of the frozen corpus is 28 words and p95 is 33. A 30-word reply must therefore
+        // satisfy an expansive plan; the old 40-word floor was above the 95th percentile of
+        // every target production has ever written.
+        var scenario = Plain() with { Register = new RegisterControls { Verbosity = "expansive" } };
+        var thirtyWords = string.Join(' ', Enumerable.Repeat("word", 30));
+
+        Assert.True(Assert.Single(
+            DeterministicChecks.Run(scenario, thirtyWords),
+            c => c.Name == "verbosity").Passed);
+    }
+
+    [Fact]
+    public void RegisterVariesWithinAFamily()
+    {
+        // One fixed register per family is why all 122 accepted b9 rows opened with the same
+        // words - 0.8% distinct openings.
+        var b9 = Build().Where(s => s.FamilyId == "b9").ToList();
+        var registers = b9
+            .Select(s => (s.Register.Warmth, s.Register.Bluntness, s.Register.Verbosity,
+                s.Register.Playfulness))
+            .Distinct()
+            .Count();
+
+        Assert.True(registers > 5, $"b9 has only {registers} distinct registers");
+    }
+
+    [Fact]
+    public void FamilyRegisterConstraintsSurviveTheVariation()
+    {
+        var scenarios = Build();
+
+        // The values that DEFINE a stratum are not up for variation.
+        Assert.All(scenarios.Where(s => s.FamilyId == "a6d"),
+            s => Assert.Equal("encouraged", s.Register.Profanity));
+        Assert.All(scenarios.Where(s => s.FamilyId == "a6a"),
+            s => Assert.Equal("high", s.Register.Warmth));
+        Assert.All(scenarios.Where(s => s.FamilyId == "b4"),
+            s => Assert.Equal("high", s.Register.Bluntness));
+        Assert.All(scenarios.Where(s => s.FamilyId == "a3"),
+            s => Assert.Contains(s.Register.Verbosity, new[] { "terse", "expansive" }));
+    }
+
     // ---- 4. no-must plans need something to react to --------------------------------------------
 
     [Fact]

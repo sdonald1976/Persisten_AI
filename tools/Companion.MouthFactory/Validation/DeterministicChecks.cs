@@ -267,7 +267,12 @@ public static partial class DeterministicChecks
             "terse" => words <= 25,
             "short" => words <= 60,
             "conversational" => words <= 200,
-            "expansive" => words >= 40,
+
+            // 30, not 40. The frozen corpus runs median 15 words, p90 28, p95 33, and only 2.2%
+            // of its 730 rows reach 40 at all - so a 40-word floor sat above the 95th percentile
+            // of everything production has ever produced, and rejected 96% of the scenarios it
+            // was applied to. This asks for the top decile, which is what "expansive" should mean.
+            "expansive" => words >= 30,
             _ => true,
         };
     }

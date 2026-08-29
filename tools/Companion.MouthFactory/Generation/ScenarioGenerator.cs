@@ -210,7 +210,6 @@ public sealed class ScenarioGenerator(
         FamilySpec family, string id, string familyId, long seed,
         IReadOnlyList<Turn> history, Random rng)
     {
-        var register = RegisterFor(family.Id, rng);
         var frame = family.Id.StartsWith("a7", StringComparison.Ordinal)
             ? FrameFor(family.Id, history.Count, rng)
             : null;
@@ -239,6 +238,10 @@ public sealed class ScenarioGenerator(
             : pool.OrderByDescending(s => s.Facts.Count).First();
 
         var facts = BuildFacts(situation, Math.Min(wanted, situation.Facts.Count), rng);
+
+        // Register is drawn AFTER the facts, because how long a reply may be depends on how much
+        // it has to carry: a one-fact turn cannot fill an expansive reply without padding.
+        var register = RegisterFor(family.Id, rng, Expressible(facts));
 
         var (question, source, hard) = ChooseQuestion(
             family, rng, situation.AmbiguityItems, situation.UnknownItems, situation.UserMessage,
@@ -535,7 +538,7 @@ public sealed class ScenarioGenerator(
             ProhibitedPropositions = prohibited,
             History = history,
             UserMessage = userMessage,
-            Register = RegisterFor(family.Id, rng),
+            Register = RegisterFor(family.Id, rng, Expressible(facts)),
             Question = question,
             QuestionPolicySource = source,
             HardCase = hard,
@@ -701,7 +704,7 @@ public sealed class ScenarioGenerator(
     /// define a stratum are preserved exactly: a6d still always licenses profanity, b4 still
     /// carries mixed valence, a3 still sits at the verbosity extremes.
     /// </summary>
-    private static RegisterControls RegisterFor(string familyId, Random rng)
+    private static RegisterControls RegisterFor(string familyId, Random rng, int facts = 1)
     {
         var baseline = new RegisterControls
         {
@@ -711,7 +714,7 @@ public sealed class ScenarioGenerator(
             Teasing = Draw(rng, "off", "allowed", "invited"),
             Skepticism = Draw(rng, "open", "open", "on"),
             Intensity = Draw(rng, "even", "even", "raised"),
-            Verbosity = Draw(rng, "conversational", "conversational", "terse", "expansive"),
+            Verbosity = Verbosity(rng, facts),
             Profanity = Draw(rng, "neutral", "neutral", "neutral", "mirror-only"),
         };
 
@@ -733,7 +736,14 @@ public sealed class ScenarioGenerator(
                 Profanity = "encouraged", Warmth = "high", Intensity = "raised",
             },
             "a4" => baseline with { Playfulness = "full", Teasing = Draw(rng, "allowed", "invited") },
-            "a3" => baseline with { Verbosity = rng.NextDouble() < 0.5 ? "terse" : "expansive" },
+            // a3 teaches length control, so it deliberately sits at the extremes rather than
+            // drawing from the production mix. Expansive still requires something to expand on:
+            // the alternative is a plan that asks for thirty words about one fact, which is a
+            // request for padding and was rejected 96% of the time when it was allowed.
+            "a3" => baseline with
+            {
+                Verbosity = rng.NextDouble() < 0.5 || facts < 2 ? "terse" : "expansive",
+            },
             "b4" => baseline with
             {
                 Warmth = "high", Bluntness = "high", Skepticism = "on",
@@ -743,6 +753,38 @@ public sealed class ScenarioGenerator(
             _ => baseline,
         };
     }
+
+    /// <summary>
+    /// How long the reply is asked to be, in the proportions production actually uses.
+    ///
+    /// PROVENANCE, from the same hash-verified frozen corpus as the other two anchors. Across its
+    /// 730 rows the STYLE line says "short" 559 times and "terse" 143, and the targets themselves
+    /// run: median 15 words, p90 28, p95 33, with only 2.2% reaching 40.
+    ///
+    /// The first version of this drew expansive a quarter of the time, and that was invented
+    /// rather than read. It cost 929 verbosity rejections in one run - 794 expansive scenarios
+    /// produced 32 accepted rows, a 4.0% acceptance rate - because a 14B model answering "is there
+    /// tea going?" says twelve words, and no amount of asking makes forty of them honest.
+    ///
+    /// Expansive is also gated on having something to expand ON. A single fact cannot fill a long
+    /// reply without padding, and padding is the opposite of what this corpus teaches.
+    /// </summary>
+    private static string Verbosity(Random rng, int facts)
+    {
+        var roll = rng.NextDouble();
+        if (roll < 0.196)
+            return "terse";
+        if (roll < 0.218 && facts >= 2)
+            return "expansive";
+        return "conversational";
+    }
+
+    /// <summary>
+    /// Facts the reply is allowed to state. Background and forbidden items cannot fill a reply -
+    /// one may only colour its tone and the other must not appear at all.
+    /// </summary>
+    private static int Expressible(IEnumerable<ApprovedFact> facts)
+        => facts.Count(f => f.Policy is FactPolicy.MustExpress or FactPolicy.MayExpress);
 
     /// <summary>Uniform pick. Repeating a value in the list is how it is weighted.</summary>
     private static string Draw(Random rng, params string[] options)
