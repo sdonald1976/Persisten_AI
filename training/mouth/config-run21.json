@@ -1,0 +1,137 @@
+{
+  "runId": "run-2.1",
+  "status": "TRAINING",
+  "continuesFrom": {
+    "run": "run-2",
+    "checkpoint": "runs/run-2/adapter-final (checkpoint-180)",
+    "adapterSha256": "a86caf4ad829fef6a427d39066ac5a744cf563934df080c8190713b52cfa235d",
+    "note": "Weights are loaded trainable and moved, not frozen beside a new adapter. This is a correction to Run-2, not a second run."
+  },
+  "reason": "admit_unknown was serialized into the NEVER section, so a plan meaning 'admit you do not know X' reached the model as 'never mention X'. The serializer is fixed; this run teaches the composition under the corrected contract without overwriting what Run-2 learned.",
+  "protocolHash": "81c3a19acd48197818bb55030e1411e5e0a162ee925ed8ca1d4f0dc01e51085a",
+  "corpus": {
+    "directory": "dataset-v2.1/export",
+    "train": "mouth-v2.1-train.jsonl",
+    "validation": "mouth-v2.1-validation.jsonl",
+    "heldOut": [
+      "mouth-v2.1-test.jsonl",
+      "mouth-v2.1-hard-eval.jsonl"
+    ],
+    "note": "Reissued under the ADMIT contract. The original Run-2 freeze in dataset/ is immutable and untouched."
+  },
+  "supplement": {
+    "directory": "supplement",
+    "train": "mouth-sup-targeted-train.jsonl",
+    "validation": "mouth-sup-targeted-validation.jsonl",
+    "heldOut": [
+      "mouth-sup-targeted-test.jsonl"
+    ],
+    "composition": "question forbidden + admitted unknown + a known fact, across eight conversational acts"
+  },
+  "baseModel": {
+    "id": "Qwen/Qwen2.5-3B-Instruct",
+    "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "computeDtype": "float16",
+    "note": "Identical base and revision to run-1a/1b/1c. Holding the base fixed is what makes the Run-1c comparison a measurement of the corpus and the prompt format rather than of the weights underneath."
+  },
+  "quantization": {
+    "load_in_4bit": true,
+    "bnb_4bit_quant_type": "nf4",
+    "bnb_4bit_use_double_quant": true,
+    "bnb_4bit_compute_dtype": "float16"
+  },
+  "lora": {
+    "r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "bias": "none",
+    "task_type": "CAUSAL_LM",
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ]
+  },
+  "training": {
+    "learning_rate": 2e-05,
+    "lr_scheduler_type": "cosine",
+    "warmup_ratio": 0.03,
+    "num_train_epochs": 1,
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 8,
+    "max_seq_length": 1536,
+    "gradient_checkpointing": true,
+    "gradient_checkpointing_use_reentrant": false,
+    "optim": "adamw_8bit",
+    "seed": 20260831,
+    "eval_steps": 15,
+    "save_steps": 15,
+    "logging_steps": 5,
+    "early_stopping_patience_evals": 4,
+    "early_stopping_min_delta": 0.002,
+    "supplement_share": 0.15,
+    "supplement_share_ceiling": 0.25,
+    "main_validation_regression_allowance": 0.02,
+    "min_delta": 0.002
+  },
+  "deviationsFromRun2": [
+    {
+      "field": "learning_rate",
+      "run2Value": 0.0001,
+      "run21Value": 2e-05,
+      "reason": "Run-2 trained a zero-initialised adapter; this continues one that already works. Continuing at 1e-4 would move the weights further than a one-composition correction warrants and undo the run being corrected."
+    },
+    {
+      "field": "num_train_epochs",
+      "run2Value": 2,
+      "run21Value": 1,
+      "reason": "A bounded correction over a mixture that is 85% replay. A second epoch mostly re-teaches what the model already knows while giving the supplement four more passes at it."
+    },
+    {
+      "field": "supplement_share",
+      "run2Value": "n/a",
+      "run21Value": 0.15,
+      "reason": "94 supplement rows beside 1,616 replay rows is 5.5%, too dilute to learn from. Oversampling to ~15% makes it learnable; the 25% ceiling makes the run refuse rather than let the correction become the corpus."
+    },
+    {
+      "field": "checkpoint selection",
+      "run2Value": "lowest validation loss",
+      "run21Value": "targeted validation must improve AND main validation must not regress beyond 0.02",
+      "reason": "One validation set cannot distinguish a correction from a trade. A checkpoint that fixes the composition by damaging everything else would win on the targeted set alone."
+    }
+  ],
+  "evaluation": {
+    "arms": [
+      "run-2 (baseline, under the old contract)",
+      "run-2.1"
+    ],
+    "sets": [
+      "reissued test",
+      "reissued hard-eval",
+      "targeted supplement test",
+      "original 61-row hard-eval for reference only"
+    ],
+    "reported": [
+      "Plan/4 cleanliness",
+      "question compliance",
+      "admission",
+      "suppression",
+      "topical relevance",
+      "unsupported additions",
+      "ambiguity preservation",
+      "opening diversity",
+      "distinct replies",
+      "stock-closer frequency",
+      "median length",
+      "per-family regressions"
+    ]
+  },
+  "knownCorpusDefect": {
+    "issue": "The frozen JSONL files carry a UTF-8 BOM, so json.loads fails on the first line of each file for any reader that does not use utf-8-sig.",
+    "handling": "Readers here open with utf-8-sig. The corpus is approved and frozen at e07d9d5 and was NOT modified; this is recorded for the next freeze."
+  }
+}

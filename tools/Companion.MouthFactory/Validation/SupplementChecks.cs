@@ -180,22 +180,41 @@ public static partial class SupplementChecks
     /// distinct replies catches a family saying one thing in two orders.
     /// </summary>
     public sealed record FamilyDiversity(
-        string Family, int Rows, int DistinctOpenings, int DistinctReplies)
+        string Family, int Rows, int Situations, int DistinctOpenings, int DistinctReplies)
     {
-        public double OpeningRatio => Rows == 0 ? 0 : DistinctOpenings / (double)Rows;
+        /// <summary>
+        /// Distinct openings per SITUATION, not per row.
+        ///
+        /// Rows was the wrong denominator and it failed five of eight acts on the first run. The
+        /// supplement deliberately draws several rows from one situation, and rows drawn from one
+        /// situation share a required fact - so they start alike, and counting that as repetition
+        /// punishes the volume the supplement exists to provide.
+        ///
+        /// The disease being prevented is the opposite shape: MANY situations answered with ONE
+        /// opening, which is what Run-2 did on hard-eval - six openings across sixty-one rows
+        /// spanning many different turns. Measured per situation, that reads 10%; measured per
+        /// row it reads 10% too, but a healthy family reads 100% instead of 35%.
+        /// </summary>
+        public double OpeningRatio
+            => Situations == 0 ? 0 : Math.Min(1.0, DistinctOpenings / (double)Situations);
 
+        /// <summary>Distinct replies per row: within a situation, the rows must still differ.</summary>
         public double ReplyRatio => Rows == 0 ? 0 : DistinctReplies / (double)Rows;
+
+        /// <summary>Reported beside the ratio so the change of denominator stays visible.</summary>
+        public double OpeningsPerRow => Rows == 0 ? 0 : DistinctOpenings / (double)Rows;
 
         public bool Ok => OpeningRatio >= 0.60 && ReplyRatio >= 0.90;
     }
 
     public static IReadOnlyList<FamilyDiversity> Diversity(
-        IEnumerable<(string Family, string Target)> rows)
+        IEnumerable<(string Family, string Situation, string Target)> rows)
         => rows
             .GroupBy(r => r.Family, StringComparer.Ordinal)
             .Select(g => new FamilyDiversity(
                 g.Key,
                 g.Count(),
+                g.Select(r => r.Situation).ToHashSet(StringComparer.Ordinal).Count,
                 g.Select(r => Opening(r.Target)).ToHashSet(StringComparer.OrdinalIgnoreCase).Count,
                 g.Select(r => Flatten(r.Target)).ToHashSet(StringComparer.OrdinalIgnoreCase).Count))
             .OrderBy(d => d.OpeningRatio)

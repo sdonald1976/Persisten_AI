@@ -82,3 +82,9 @@ mouth/evaluation/**
 !mouth/dataset-v2.1/export/*.jsonl
 !mouth/dataset-v2.1/export/*.json
 !mouth/dataset-v2.1/export/SHA256SUMS
+
+# The Run-2.1 targeted supplement: small, additive, and versioned for the same reason the
+# corpora are - a frozen artifact that exists on one machine cannot be frozen.
+!mouth/supplement/*.jsonl
+!mouth/supplement/*.json
+!mouth/supplement/SHA256SUMS

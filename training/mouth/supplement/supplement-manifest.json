@@ -1,0 +1,138 @@
+{
+  "supplement": "run-2.1-targeted",
+  "schemaVersion": "supplement/1.0",
+  "promptFormat": "mouth-prompt/4.0",
+  "repoCommit": "0b178f96a59bc71a074a44410201ec677a8ebae5",
+  "seed": 20260826,
+  "composition": "question forbidden \u002B admitted unknown (sometimes with an ambiguity) \u002B a known fact",
+  "additive": "Run-2\u0027s frozen corpus is not read, rewritten or extended; its 61 hard-eval rows are untouched",
+  "splitAlgorithm": "supplement-act-stratified/1.0",
+  "splitsAssignedBeforeGeneration": true,
+  "acts": [
+    {
+      "family": "s1",
+      "act": "acknowledgement",
+      "situations": 6
+    },
+    {
+      "family": "s2",
+      "act": "explanation",
+      "situations": 6
+    },
+    {
+      "family": "s3",
+      "act": "reaction",
+      "situations": 6
+    },
+    {
+      "family": "s4",
+      "act": "summary",
+      "situations": 6
+    },
+    {
+      "family": "s5",
+      "act": "correction",
+      "situations": 6
+    },
+    {
+      "family": "s6",
+      "act": "practical",
+      "situations": 6
+    },
+    {
+      "family": "s7",
+      "act": "humour",
+      "situations": 6
+    },
+    {
+      "family": "s8",
+      "act": "fiction",
+      "situations": 6
+    }
+  ],
+  "acceptedByMainBattery": 213,
+  "acceptedBySupplementBar": 132,
+  "rejectedBySupplementBar": {
+    "unsupported-elaboration": 31,
+    "uncertainty-dropped": 57,
+    "off-topic": 1,
+    "empty-deferral": 5
+  },
+  "familyDiversity": [
+    {
+      "family": "s1",
+      "rows": 17,
+      "situations": 5,
+      "openingsPerSituation": 1,
+      "openingsPerRow": 0.35294117647058826,
+      "replies": 1
+    },
+    {
+      "family": "s2",
+      "rows": 24,
+      "situations": 6,
+      "openingsPerSituation": 1,
+      "openingsPerRow": 0.4166666666666667,
+      "replies": 1
+    },
+    {
+      "family": "s3",
+      "rows": 7,
+      "situations": 3,
+      "openingsPerSituation": 1,
+      "openingsPerRow": 0.5714285714285714,
+      "replies": 1
+    },
+    {
+      "family": "s4",
+      "rows": 26,
+      "situations": 6,
+      "openingsPerSituation": 1,
+      "openingsPerRow": 0.38461538461538464,
+      "replies": 1
+    },
+    {
+      "family": "s5",
+      "rows": 12,
+      "situations": 4,
+      "openingsPerSituation": 1,
+      "openingsPerRow": 0.6666666666666666,
+      "replies": 1
+    },
+    {
+      "family": "s6",
+      "rows": 17,
+      "situations": 6,
+      "openingsPerSituation": 1,
+      "openingsPerRow": 0.6470588235294118,
+      "replies": 1
+    },
+    {
+      "family": "s7",
+      "rows": 14,
+      "situations": 4,
+      "openingsPerSituation": 1,
+      "openingsPerRow": 0.5,
+      "replies": 1
+    },
+    {
+      "family": "s8",
+      "rows": 15,
+      "situations": 4,
+      "openingsPerSituation": 1,
+      "openingsPerRow": 0.7333333333333333,
+      "replies": 1
+    }
+  ],
+  "rowsBySplit": {
+    "targeted-test": 19,
+    "targeted-validation": 19,
+    "targeted-train": 94
+  },
+  "roles": {},
+  "exportHashes": {
+    "mouth-sup-targeted-test.jsonl": "3abdbe6b88023bb75806a57f02d8a49470094977e773d81ccdee8824998e8d7a",
+    "mouth-sup-targeted-train.jsonl": "fe66a45c44c29d79d69dce7d307a9e57da35920f364db789f8317ebf7fa6c54b",
+    "mouth-sup-targeted-validation.jsonl": "af3b74f986c0cca074665aa4d1e612052029cd7bf20685303d34f32282a168b5"
+  }
+}

@@ -986,11 +986,12 @@ int SupplementFreeze()
 
     // ---- family-level diversity, which no per-row check can see -------------------------------
     var diversity = SupplementChecks.Diversity(
-        kept.Select(k => (k.Meta.FamilyId, k.Row.Target)));
+        kept.Select(k => (k.Meta.FamilyId, k.Meta.ScenarioFamilyId, k.Row.Target)));
     Console.WriteLine();
-    Console.WriteLine($"  {"family",-8}{"rows",6}{"openings",11}{"replies",10}");
+    Console.WriteLine($"  {"family",-8}{"rows",6}{"situations",12}{"open/situ",11}{"open/row",10}{"replies",9}");
     foreach (var d in diversity)
-        Console.WriteLine($"  {d.Family,-8}{d.Rows,6}{d.OpeningRatio,10:P0}{d.ReplyRatio,10:P0}"
+        Console.WriteLine($"  {d.Family,-8}{d.Rows,6}{d.Situations,12}{d.OpeningRatio,10:P0}"
+                          + $"{d.OpeningsPerRow,10:P0}{d.ReplyRatio,9:P0}"
                           + (d.Ok ? "" : "   BELOW BAR"));
 
     var thin = diversity.Where(d => !d.Ok).ToList();
@@ -1033,7 +1034,10 @@ int SupplementFreeze()
         rejectedBySupplementBar = rejected,
         familyDiversity = diversity.Select(d => new
         {
-            d.Family, d.Rows, openings = d.OpeningRatio, replies = d.ReplyRatio,
+            d.Family, d.Rows, d.Situations,
+            openingsPerSituation = d.OpeningRatio,
+            openingsPerRow = d.OpeningsPerRow,
+            replies = d.ReplyRatio,
         }),
         rowsBySplit = kept.GroupBy(k => k.Split, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
