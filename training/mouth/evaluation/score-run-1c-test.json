@@ -1,0 +1,115 @@
+{
+  "arm": "run-1c",
+  "split": "test",
+  "rows": 171,
+  "clean": 123,
+  "cleanRate": 0.7192982456140351,
+  "openingDiversity": 0.5380116959064327,
+  "distinctReplies": 0.672514619883041,
+  "medianWords": 7,
+  "failures": {
+    "must-state-anchors": 13,
+    "verbosity": 3,
+    "question-policy": 31,
+    "no-forbidden-content": 1,
+    "forbidden-tokens": 1,
+    "no-unsupported-claims": 1,
+    "no-stale-resurrection": 1,
+    "required-tokens": 1
+  },
+  "byFamily": {
+    "a1": {
+      "clean": 11,
+      "rows": 15
+    },
+    "a2": {
+      "clean": 6,
+      "rows": 8
+    },
+    "a3": {
+      "clean": 6,
+      "rows": 10
+    },
+    "a4": {
+      "clean": 7,
+      "rows": 9
+    },
+    "a5": {
+      "clean": 9,
+      "rows": 10
+    },
+    "a6a": {
+      "clean": 4,
+      "rows": 9
+    },
+    "a6b": {
+      "clean": 4,
+      "rows": 7
+    },
+    "a6d": {
+      "clean": 6,
+      "rows": 7
+    },
+    "a7a": {
+      "clean": 11,
+      "rows": 13
+    },
+    "a6c": {
+      "clean": 4,
+      "rows": 4
+    },
+    "a7b": {
+      "clean": 11,
+      "rows": 15
+    },
+    "a6e": {
+      "clean": 3,
+      "rows": 6
+    },
+    "b1": {
+      "clean": 1,
+      "rows": 4
+    },
+    "b3": {
+      "clean": 6,
+      "rows": 7
+    },
+    "b4": {
+      "clean": 9,
+      "rows": 11
+    },
+    "b5": {
+      "clean": 3,
+      "rows": 4
+    },
+    "b6": {
+      "clean": 3,
+      "rows": 3
+    },
+    "b7": {
+      "clean": 5,
+      "rows": 5
+    },
+    "b11": {
+      "clean": 13,
+      "rows": 19
+    },
+    "b2": {
+      "clean": 0,
+      "rows": 1
+    },
+    "b8": {
+      "clean": 0,
+      "rows": 2
+    },
+    "b9": {
+      "clean": 0,
+      "rows": 1
+    },
+    "a6f": {
+      "clean": 1,
+      "rows": 1
+    }
+  },
+  "naturalness": 0.9824561403508771
+}

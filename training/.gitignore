@@ -61,10 +61,18 @@ renderer/runs/*/*.md
 # Run-2 (the mouth). Same rule as the renderer: checkpoints and generations stay machine-local,
 # the final adapter travels with the repo because a result that exists on one machine is one
 # disk failure from never having happened. safetensors go through LFS, per the root .gitattributes.
-mouth/runs/
-mouth/evaluation/
+# Excluding the DIRECTORY would make every negation below dead: git cannot re-include a file
+# whose parent directory is excluded. Exclude the contents instead, then re-admit what travels.
+mouth/runs/**
+mouth/evaluation/**
+!mouth/runs/
+!mouth/runs/run-2/
 !mouth/runs/run-2/adapter-final/
+!mouth/runs/run-2/adapter-final/**
 !mouth/runs/run-2/training-manifest.json
 !mouth/runs/run-2/training-log.jsonl
+!mouth/runs/run-2/metrics.json
+!mouth/runs/run-2/SHA256SUMS
+!mouth/evaluation/
 !mouth/evaluation/score-*.json
 !mouth/evaluation/*.md

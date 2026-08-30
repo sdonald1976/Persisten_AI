@@ -1,0 +1,64 @@
+{"event": "start", "resumeStep": 0, "resumeFidelity": "fresh start", "maxSeqLen": 1536, "totalSteps": 404, "seed": 20260829, "elapsedSec": 0.0}
+{"step": 0, "valLoss": 1.8108, "note": "pre-training adapter (zero-init)", "elapsedSec": 276.8}
+{"step": 5, "epoch": 0, "trainLoss": 1.8215, "lr": 4.166666666666667e-05, "vramGb": 5.93, "elapsedSec": 527.8}
+{"step": 10, "epoch": 0, "trainLoss": 1.389, "lr": 8.333333333333334e-05, "vramGb": 5.93, "elapsedSec": 949.9}
+{"step": 15, "epoch": 0, "trainLoss": 1.2404, "lr": 9.99855492892281e-05, "vramGb": 5.93, "elapsedSec": 1595.5}
+{"step": 20, "epoch": 0, "trainLoss": 1.0303, "lr": 9.989726963751682e-05, "vramGb": 5.93, "elapsedSec": 2074.1}
+{"step": 20, "epoch": 0, "valLoss": 1.0778, "bestVal": 1.0778, "bestStep": 20, "sinceImprove": 0, "improved": true, "elapsedSec": 4911.8}
+{"step": 25, "epoch": 0, "trainLoss": 1.0157, "lr": 9.97288800675814e-05, "vramGb": 5.93, "elapsedSec": 5246.9}
+{"step": 30, "epoch": 0, "trainLoss": 1.0627, "lr": 9.948065092837631e-05, "vramGb": 5.96, "elapsedSec": 5570.1}
+{"step": 35, "epoch": 0, "trainLoss": 1.1173, "lr": 9.915298075104735e-05, "vramGb": 5.96, "elapsedSec": 6070.9}
+{"step": 40, "epoch": 0, "trainLoss": 0.9961, "lr": 9.874639560909117e-05, "vramGb": 5.96, "elapsedSec": 6278.4}
+{"step": 40, "epoch": 0, "valLoss": 0.9607, "bestVal": 0.9607, "bestStep": 40, "sinceImprove": 0, "improved": true, "elapsedSec": 6519.8}
+{"step": 45, "epoch": 0, "trainLoss": 1.061, "lr": 9.826154827374578e-05, "vramGb": 5.96, "elapsedSec": 6805.0}
+{"step": 50, "epoch": 0, "trainLoss": 1.0713, "lr": 9.769921716596819e-05, "vramGb": 5.96, "elapsedSec": 7086.2}
+{"step": 55, "epoch": 0, "trainLoss": 0.9208, "lr": 9.706030510668202e-05, "vramGb": 5.96, "elapsedSec": 7431.1}
+{"step": 60, "epoch": 0, "trainLoss": 1.0112, "lr": 9.63458378673011e-05, "vramGb": 5.96, "elapsedSec": 7637.4}
+{"step": 60, "epoch": 0, "valLoss": 0.9104, "bestVal": 0.9104, "bestStep": 60, "sinceImprove": 0, "improved": true, "elapsedSec": 7870.0}
+{"step": 65, "epoch": 0, "trainLoss": 0.9823, "lr": 9.555696252285648e-05, "vramGb": 5.96, "elapsedSec": 8023.4}
+{"step": 70, "epoch": 0, "trainLoss": 0.8996, "lr": 9.469494561037098e-05, "vramGb": 6.09, "elapsedSec": 8297.3}
+{"step": 75, "epoch": 0, "trainLoss": 0.9081, "lr": 9.376117109543769e-05, "vramGb": 6.09, "elapsedSec": 8643.1}
+{"step": 80, "epoch": 0, "trainLoss": 0.9567, "lr": 9.275713815026731e-05, "vramGb": 6.09, "elapsedSec": 8891.0}
+{"step": 80, "epoch": 0, "valLoss": 0.8915, "bestVal": 0.8915, "bestStep": 80, "sinceImprove": 0, "improved": true, "elapsedSec": 9139.0}
+{"step": 85, "epoch": 0, "trainLoss": 0.9426, "lr": 9.168445874677167e-05, "vramGb": 6.09, "elapsedSec": 9495.3}
+{"step": 90, "epoch": 0, "trainLoss": 0.9844, "lr": 9.054485506854755e-05, "vramGb": 6.09, "elapsedSec": 9834.7}
+{"step": 95, "epoch": 0, "trainLoss": 0.9285, "lr": 8.934015674591609e-05, "vramGb": 6.09, "elapsedSec": 10082.7}
+{"step": 100, "epoch": 0, "trainLoss": 0.7984, "lr": 8.807229791845673e-05, "vramGb": 6.09, "elapsedSec": 10299.1}
+{"step": 100, "epoch": 0, "valLoss": 0.8654, "bestVal": 0.8654, "bestStep": 100, "sinceImprove": 0, "improved": true, "elapsedSec": 10544.6}
+{"step": 105, "epoch": 0, "trainLoss": 0.8451, "lr": 8.674331412975178e-05, "vramGb": 6.09, "elapsedSec": 10752.8}
+{"step": 110, "epoch": 0, "trainLoss": 0.7718, "lr": 8.535533905932738e-05, "vramGb": 6.09, "elapsedSec": 10961.9}
+{"step": 115, "epoch": 0, "trainLoss": 0.9732, "lr": 8.391060109703725e-05, "vramGb": 6.09, "elapsedSec": 11375.4}
+{"step": 120, "epoch": 0, "trainLoss": 0.8333, "lr": 8.241141976538943e-05, "vramGb": 6.09, "elapsedSec": 11673.2}
+{"step": 120, "epoch": 0, "valLoss": 0.8444, "bestVal": 0.8444, "bestStep": 120, "sinceImprove": 0, "improved": true, "elapsedSec": 11906.7}
+{"step": 125, "epoch": 0, "trainLoss": 0.8225, "lr": 8.086020199555979e-05, "vramGb": 6.09, "elapsedSec": 12167.2}
+{"step": 130, "epoch": 0, "trainLoss": 0.7853, "lr": 7.925943826307119e-05, "vramGb": 6.09, "elapsedSec": 12473.8}
+{"step": 135, "epoch": 0, "trainLoss": 0.8827, "lr": 7.761169858934238e-05, "vramGb": 6.09, "elapsedSec": 12738.5}
+{"step": 140, "epoch": 0, "trainLoss": 0.8485, "lr": 7.591962841552627e-05, "vramGb": 6.09, "elapsedSec": 12969.1}
+{"step": 140, "epoch": 0, "valLoss": 0.8352, "bestVal": 0.8352, "bestStep": 140, "sinceImprove": 0, "improved": true, "elapsedSec": 13245.1}
+{"step": 145, "epoch": 0, "trainLoss": 1.0005, "lr": 7.4185944355262e-05, "vramGb": 6.09, "elapsedSec": 13506.0}
+{"step": 150, "epoch": 0, "trainLoss": 0.9665, "lr": 7.241342983315985e-05, "vramGb": 6.09, "elapsedSec": 13743.3}
+{"step": 155, "epoch": 0, "trainLoss": 0.8303, "lr": 7.060493061602129e-05, "vramGb": 6.09, "elapsedSec": 13949.6}
+{"step": 160, "epoch": 0, "trainLoss": 0.9072, "lr": 6.876335024396872e-05, "vramGb": 6.09, "elapsedSec": 14291.7}
+{"step": 160, "epoch": 0, "valLoss": 0.8209, "bestVal": 0.8209, "bestStep": 160, "sinceImprove": 0, "improved": true, "elapsedSec": 14560.5}
+{"step": 165, "epoch": 0, "trainLoss": 0.9148, "lr": 6.689164536882059e-05, "vramGb": 6.09, "elapsedSec": 15054.4}
+{"step": 170, "epoch": 0, "trainLoss": 0.8649, "lr": 6.499282100719558e-05, "vramGb": 6.09, "elapsedSec": 15351.9}
+{"step": 175, "epoch": 0, "trainLoss": 0.7674, "lr": 6.306992571596741e-05, "vramGb": 6.09, "elapsedSec": 15630.7}
+{"step": 180, "epoch": 0, "trainLoss": 0.7745, "lr": 6.112604669781572e-05, "vramGb": 6.09, "elapsedSec": 15942.7}
+{"step": 180, "epoch": 0, "valLoss": 0.802, "bestVal": 0.802, "bestStep": 180, "sinceImprove": 0, "improved": true, "elapsedSec": 16218.7}
+{"step": 185, "epoch": 0, "trainLoss": 0.8661, "lr": 5.916430484473149e-05, "vramGb": 6.09, "elapsedSec": 16528.0}
+{"step": 190, "epoch": 0, "trainLoss": 0.7839, "lr": 5.718784972743409e-05, "vramGb": 6.09, "elapsedSec": 16782.3}
+{"step": 195, "epoch": 0, "trainLoss": 0.9426, "lr": 5.51998545387449e-05, "vramGb": 6.09, "elapsedSec": 17243.5}
+{"step": 200, "epoch": 0, "trainLoss": 0.8994, "lr": 5.320351099903565e-05, "vramGb": 6.09, "elapsedSec": 17510.1}
+{"step": 200, "epoch": 0, "valLoss": 0.8034, "bestVal": 0.802, "bestStep": 180, "sinceImprove": 1, "improved": false, "elapsedSec": 17784.9}
+{"step": 205, "epoch": 1, "trainLoss": 0.7441, "lr": 5.120202423193084e-05, "vramGb": 6.09, "elapsedSec": 18146.6}
+{"step": 210, "epoch": 1, "trainLoss": 0.7161, "lr": 4.919860761849132e-05, "vramGb": 6.09, "elapsedSec": 18433.8}
+{"step": 215, "epoch": 1, "trainLoss": 0.6555, "lr": 4.7196477638140404e-05, "vramGb": 6.09, "elapsedSec": 18619.4}
+{"step": 220, "epoch": 1, "trainLoss": 0.6197, "lr": 4.5198848704615914e-05, "vramGb": 6.09, "elapsedSec": 18957.5}
+{"step": 220, "epoch": 1, "valLoss": 0.8018, "bestVal": 0.802, "bestStep": 180, "sinceImprove": 2, "improved": false, "elapsedSec": 19213.8}
+{"step": 225, "epoch": 1, "trainLoss": 0.6848, "lr": 4.320892800523827e-05, "vramGb": 6.09, "elapsedSec": 19701.1}
+{"step": 230, "epoch": 1, "trainLoss": 0.6453, "lr": 4.1229910351780925e-05, "vramGb": 6.09, "elapsedSec": 20008.0}
+{"step": 235, "epoch": 1, "trainLoss": 0.6243, "lr": 3.926497305120943e-05, "vramGb": 6.09, "elapsedSec": 20272.7}
+{"step": 240, "epoch": 1, "trainLoss": 0.654, "lr": 3.731727080452464e-05, "vramGb": 6.09, "elapsedSec": 20515.2}
+{"step": 240, "epoch": 1, "valLoss": 0.8103, "bestVal": 0.802, "bestStep": 180, "sinceImprove": 3, "improved": false, "elapsedSec": 20766.1}
+{"event": "early-stop", "step": 240, "bestStep": 180, "bestVal": 0.802, "elapsedSec": 20766.1}
+{"event": "done", "step": 240, "bestStep": 180, "bestVal": 0.802, "earlyStopped": true, "elapsedSec": 20766.1}

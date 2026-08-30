@@ -1,0 +1,57 @@
+{
+  "arm": "base",
+  "split": "hard-eval",
+  "rows": 61,
+  "clean": 27,
+  "cleanRate": 0.4426229508196721,
+  "openingDiversity": 0.4426229508196721,
+  "distinctReplies": 0.7049180327868853,
+  "medianWords": 35,
+  "failures": {
+    "question-policy": 33,
+    "no-unsupported-numerals": 8,
+    "verbosity": 1,
+    "must-state-anchors": 4,
+    "forbidden-tokens": 4,
+    "no-unsupported-claims": 4,
+    "no-stale-resurrection": 4
+  },
+  "byFamily": {
+    "a1": {
+      "clean": 6,
+      "rows": 10
+    },
+    "a2": {
+      "clean": 1,
+      "rows": 1
+    },
+    "a3": {
+      "clean": 2,
+      "rows": 3
+    },
+    "a4": {
+      "clean": 4,
+      "rows": 6
+    },
+    "a5": {
+      "clean": 2,
+      "rows": 9
+    },
+    "a6d": {
+      "clean": 2,
+      "rows": 4
+    },
+    "b3": {
+      "clean": 1,
+      "rows": 9
+    },
+    "b4": {
+      "clean": 8,
+      "rows": 16
+    },
+    "b7": {
+      "clean": 1,
+      "rows": 3
+    }
+  }
+}

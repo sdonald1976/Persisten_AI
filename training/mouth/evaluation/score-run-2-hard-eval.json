@@ -1,0 +1,51 @@
+{
+  "arm": "run-2",
+  "split": "hard-eval",
+  "rows": 61,
+  "clean": 58,
+  "cleanRate": 0.9508196721311475,
+  "openingDiversity": 0.09836065573770492,
+  "distinctReplies": 0.26229508196721313,
+  "medianWords": 11,
+  "failures": {
+    "no-unsupported-numerals": 3
+  },
+  "byFamily": {
+    "a1": {
+      "clean": 10,
+      "rows": 10
+    },
+    "a2": {
+      "clean": 1,
+      "rows": 1
+    },
+    "a3": {
+      "clean": 3,
+      "rows": 3
+    },
+    "a4": {
+      "clean": 6,
+      "rows": 6
+    },
+    "a5": {
+      "clean": 9,
+      "rows": 9
+    },
+    "a6d": {
+      "clean": 4,
+      "rows": 4
+    },
+    "b3": {
+      "clean": 9,
+      "rows": 9
+    },
+    "b4": {
+      "clean": 13,
+      "rows": 16
+    },
+    "b7": {
+      "clean": 3,
+      "rows": 3
+    }
+  }
+}

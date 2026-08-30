@@ -1,0 +1,193 @@
+{
+  "runId": "run-2",
+  "training": {
+    "totalStepsPlanned": 404,
+    "stepsRun": 240,
+    "earlyStopped": true,
+    "selectedCheckpointStep": 180,
+    "selectedValLoss": 0.802,
+    "wallClockSec": 20766.1,
+    "validationCurve": [
+      {
+        "step": 0,
+        "valLoss": 1.8108
+      },
+      {
+        "step": 20,
+        "valLoss": 1.0778
+      },
+      {
+        "step": 40,
+        "valLoss": 0.9607
+      },
+      {
+        "step": 60,
+        "valLoss": 0.9104
+      },
+      {
+        "step": 80,
+        "valLoss": 0.8915
+      },
+      {
+        "step": 100,
+        "valLoss": 0.8654
+      },
+      {
+        "step": 120,
+        "valLoss": 0.8444
+      },
+      {
+        "step": 140,
+        "valLoss": 0.8352
+      },
+      {
+        "step": 160,
+        "valLoss": 0.8209
+      },
+      {
+        "step": 180,
+        "valLoss": 0.802
+      },
+      {
+        "step": 200,
+        "valLoss": 0.8034
+      },
+      {
+        "step": 220,
+        "valLoss": 0.8018
+      },
+      {
+        "step": 240,
+        "valLoss": 0.8103
+      }
+    ],
+    "supervisorRestarts": 0,
+    "interruptions": [
+      "attempt 1: display driver reset (nvlddmkm) mid-validation at step 20; process exited 0",
+      "attempts 2-5: bitsandbytes paged-memory initialization error while the driver recovered",
+      "final attempt: completed without interruption"
+    ],
+    "resumeVerified": "exact (RNG restored); validation loss reproduced to 1.8108 across restarts"
+  },
+  "evaluation": {
+    "base/test": {
+      "rows": 171,
+      "clean": 79,
+      "cleanRate": 0.4619883040935672,
+      "openingDiversity": 0.391812865497076,
+      "distinctReplies": 0.8654970760233918,
+      "medianWords": 29,
+      "naturalness": 0.9415204678362573,
+      "failures": {
+        "question-policy": 71,
+        "must-state-anchors": 15,
+        "verbosity": 12,
+        "no-forbidden-content": 3,
+        "no-unsupported-numerals": 7,
+        "assistant-cliche-density": 2,
+        "forbidden-tokens": 1,
+        "no-unsupported-claims": 1,
+        "no-stale-resurrection": 1,
+        "required-tokens": 2,
+        "no-plan-echo": 1
+      }
+    },
+    "base/hard-eval": {
+      "rows": 61,
+      "clean": 27,
+      "cleanRate": 0.4426229508196721,
+      "openingDiversity": 0.4426229508196721,
+      "distinctReplies": 0.7049180327868853,
+      "medianWords": 35,
+      "naturalness": null,
+      "failures": {
+        "question-policy": 33,
+        "no-unsupported-numerals": 8,
+        "verbosity": 1,
+        "must-state-anchors": 4,
+        "forbidden-tokens": 4,
+        "no-unsupported-claims": 4,
+        "no-stale-resurrection": 4
+      }
+    },
+    "run-1c/test": {
+      "rows": 171,
+      "clean": 123,
+      "cleanRate": 0.7192982456140351,
+      "openingDiversity": 0.5380116959064327,
+      "distinctReplies": 0.672514619883041,
+      "medianWords": 7,
+      "naturalness": 0.9824561403508771,
+      "failures": {
+        "must-state-anchors": 13,
+        "verbosity": 3,
+        "question-policy": 31,
+        "no-forbidden-content": 1,
+        "forbidden-tokens": 1,
+        "no-unsupported-claims": 1,
+        "no-stale-resurrection": 1,
+        "required-tokens": 1
+      }
+    },
+    "run-1c/hard-eval": {
+      "rows": 61,
+      "clean": 61,
+      "cleanRate": 1,
+      "openingDiversity": 0.11475409836065574,
+      "distinctReplies": 0.22950819672131148,
+      "medianWords": 7,
+      "naturalness": null,
+      "failures": {}
+    },
+    "run-2/test": {
+      "rows": 171,
+      "clean": 159,
+      "cleanRate": 0.9298245614035088,
+      "openingDiversity": 0.4853801169590643,
+      "distinctReplies": 0.7719298245614035,
+      "medianWords": 14,
+      "naturalness": 1,
+      "failures": {
+        "verbosity": 3,
+        "no-forbidden-content": 2,
+        "question-policy": 5,
+        "must-state-anchors": 1,
+        "no-plan-echo": 1
+      }
+    },
+    "run-2/hard-eval": {
+      "rows": 61,
+      "clean": 58,
+      "cleanRate": 0.9508196721311475,
+      "openingDiversity": 0.09836065573770492,
+      "distinctReplies": 0.26229508196721313,
+      "medianWords": 11,
+      "naturalness": null,
+      "failures": {
+        "no-unsupported-numerals": 3
+      }
+    },
+    "base/validation": {
+      "rows": 213,
+      "clean": 98,
+      "cleanRate": 0.460093896713615,
+      "openingDiversity": 0.3568075117370892,
+      "distinctReplies": 0.8215962441314554,
+      "medianWords": 34,
+      "naturalness": null,
+      "failures": {
+        "must-state-anchors": 29,
+        "question-policy": 87,
+        "verbosity": 16,
+        "no-plan-echo": 7,
+        "no-forbidden-content": 3,
+        "no-unsupported-numerals": 6,
+        "assistant-cliche-density": 4,
+        "forbidden-tokens": 4,
+        "no-unsupported-claims": 5,
+        "no-stale-resurrection": 4,
+        "required-tokens": 5
+      }
+    }
+  }
+}

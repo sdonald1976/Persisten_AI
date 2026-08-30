@@ -1,0 +1,142 @@
+{
+  "runId": "run-2",
+  "repository": {
+    "commit": "01d7ee281520bd492a402c2aa353ca0471c4af21",
+    "branch": "master",
+    "treeClean": true,
+    "corpusApprovedAt": "e07d9d59f839431f141e39228b03a9ab19511c80"
+  },
+  "corpus": {
+    "files": {
+      "mouth-v2-train": {
+        "sha256": "529328e98c0d39267dc163cde90860ee900e15d6d7f1f8786ed54edcbaeb928b",
+        "rows": 1616
+      },
+      "mouth-v2-validation": {
+        "sha256": "686729eb91f87a0865a98f905dce5c82d11be8af3bdb81ceaa443ad1b5fccc79",
+        "rows": 213
+      },
+      "mouth-v2-test": {
+        "sha256": "4d2e899281a3a85b75cf6dc8d5e3987204fa7e9af1ec8ced5ac6ca86474b181a",
+        "rows": 171
+      },
+      "mouth-v2-hard-eval": {
+        "sha256": "3fda2a49b913cd1664ff199120324e174b024a08d0675b1e18292cabf7c3498e",
+        "rows": 61
+      }
+    },
+    "candidatePoolHash": "65d87e9c2561ee3c4435203faad98acab8ed0e2f71e041d0bb4066e8fa63478e",
+    "selectionHash": "001c153fe1440e02491eaff0c001a2c34a50074026542e768a3dd2f360cbd517",
+    "selectionAlgorithm": "balanced-opening-roundrobin/1.0",
+    "selectionSeed": 20260826,
+    "promptFormat": "mouth-prompt/4.0"
+  },
+  "baseModel": {
+    "id": "Qwen/Qwen2.5-3B-Instruct",
+    "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "localPath": "C:\\Source\\Persisten_AI\\training\\renderer\\models\\Qwen2.5-3B-Instruct",
+    "weightsSha256": "8b2ba1b444a759bed665faa4a4d9061eb71b6967462794c9ee160f5c5b91d236",
+    "configSha256": "eed00b17e22553979d090fa492e587e92885e328914c8e0b0b78f0a0d3576b3b"
+  },
+  "tokenizer": {
+    "sha256": "534b71671c407b9a0746db490a2af208d1cabd8ab2b71639b2f3affbe3f3d7c3",
+    "files": [
+      "generation_config.json",
+      "merges.txt",
+      "tokenizer.json",
+      "tokenizer_config.json",
+      "vocab.json"
+    ]
+  },
+  "environment": {
+    "python": "3.10.11",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "torch": "2.11.0+cu128",
+    "transformers": "4.57.6",
+    "peft": "0.20.0",
+    "bitsandbytes": "0.50.1",
+    "cuda": "12.8",
+    "cudnn": 91900
+  },
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 5070",
+    "totalMiB": 12199,
+    "computeCapability": "12.0",
+    "driver": "616.56"
+  },
+  "seed": 20260829,
+  "hyperparameters": {
+    "quantization": {
+      "load_in_4bit": true,
+      "bnb_4bit_quant_type": "nf4",
+      "bnb_4bit_use_double_quant": true,
+      "bnb_4bit_compute_dtype": "float16"
+    },
+    "lora": {
+      "r": 16,
+      "lora_alpha": 32,
+      "lora_dropout": 0.05,
+      "bias": "none",
+      "task_type": "CAUSAL_LM",
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ]
+    },
+    "training": {
+      "learning_rate": 0.0001,
+      "lr_scheduler_type": "cosine",
+      "warmup_ratio": 0.03,
+      "num_train_epochs": 2,
+      "per_device_train_batch_size": 1,
+      "gradient_accumulation_steps": 8,
+      "max_seq_length": 1536,
+      "gradient_checkpointing": true,
+      "gradient_checkpointing_use_reentrant": false,
+      "optim": "paged_adamw_8bit",
+      "seed": 20260829,
+      "eval_steps": 20,
+      "save_steps": 20,
+      "logging_steps": 5,
+      "early_stopping_patience_evals": 3,
+      "early_stopping_min_delta": 0.002
+    }
+  },
+  "deviationsFromRun1c": [
+    {
+      "field": "max_seq_length",
+      "run1cValue": 1024,
+      "run2Value": 1536,
+      "reason": "Measured, not chosen. 73.6% of Run-2 training rows exceed 1024 tokens (median 1047, max 1294), because a plan/4 prompt carries a rendered context packet and a transcript window where plan/2 carried neither. Truncation removes the END of the sequence, which is the target, so training at 1024 would have discarded the supervised span on three rows in four. 1536 covers every row in all four splits with headroom; no row is truncated."
+    },
+    {
+      "field": "eval_steps / save_steps",
+      "run1cValue": 25,
+      "run2Value": 20,
+      "reason": "Run-2 has 1,616 training rows against run-1c's 730, so an epoch is 202 optimizer steps rather than 91. Evaluating every 20 keeps roughly ten checkpoints per epoch to select from."
+    },
+    {
+      "field": "early stopping and checkpoint selection",
+      "run1cValue": "none - run-1 trained a fixed number of steps deliberately",
+      "run2Value": "select the checkpoint with the lowest validation loss; stop after 3 evaluations without a 0.002 improvement",
+      "reason": "Requested for Run-2. Selection and stopping read mouth-v2-validation only; test and hard-eval are not opened until the checkpoint is fixed."
+    },
+    {
+      "field": "gradient_checkpointing_use_reentrant",
+      "run1cValue": "unset - relied on the PyTorch default and emitted a warning",
+      "run2Value": false,
+      "reason": "Set explicitly. The non-reentrant implementation is the supported one and composes correctly with the frozen-base/trainable-adapter split; leaving it to a default that PyTorch is in the middle of changing makes the run depend on the torch version rather than on the config."
+    },
+    {
+      "field": "seed",
+      "run1cValue": 20260821,
+      "run2Value": 20260829,
+      "reason": "A distinct run gets a distinct seed, recorded here so the run is reproducible from this file alone."
+    }
+  ]
+}

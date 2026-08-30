@@ -1,0 +1,3 @@
+# The adapter is a build artifact whose bytes are hashed in SHA256SUMS. No line-ending
+# translation, and safetensors go through LFS per the root .gitattributes.
+* -text
