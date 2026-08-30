@@ -1,6 +1,6 @@
 {
   "runId": "run-2",
-  "status": "TRAINING",
+  "status": "COMPLETE",
   "corpus": {
     "repoCommit": "e07d9d59f839431f141e39228b03a9ab19511c80",
     "directory": "training/mouth/dataset",
@@ -124,5 +124,15 @@
   "knownCorpusDefect": {
     "issue": "The frozen JSONL files carry a UTF-8 BOM, so json.loads fails on the first line of each file for any reader that does not use utf-8-sig.",
     "handling": "Readers here open with utf-8-sig. The corpus is approved and frozen at e07d9d5 and was NOT modified; this is recorded for the next freeze."
+  },
+  "result": {
+    "selectedCheckpointStep": 180,
+    "selectedValLoss": 0.802,
+    "stepsRun": 240,
+    "earlyStopped": true,
+    "testCleanRate": 0.9298,
+    "hardEvalCleanRate": 0.9508,
+    "naturalnessTest": 1.0,
+    "adapterSha256": "a86caf4ad829fef6a427d39066ac5a744cf563934df080c8190713b52cfa235d"
   }
 }
