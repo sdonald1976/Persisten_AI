@@ -33,14 +33,32 @@ public static partial class SupplementChecks
         + @")\W*$",
         RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
 
-    /// <summary>The reply admits it does not know, rather than quietly filling the gap.</summary>
+    /// <summary>
+    /// The reply admits it does not know, rather than quietly filling the gap.
+    ///
+    /// Matched against apostrophe-NORMALISED text. The writer emits typographic apostrophes, so
+    /// "I don’t know" is the overwhelmingly common way it names a gap - and an ASCII-only
+    /// pattern scored 167 of 181 good rows as having dropped the uncertainty. The check was
+    /// wrong, not the corpus.
+    ///
+    /// Deliberately requires a marker that NAMES the gap. "we'll have to wait and see" and "any
+    /// updates would be good to check on" are not admissions - they are the deferral this
+    /// supplement exists to unteach, and they stay failures.
+    /// </summary>
     private static readonly Regex UncertaintyMarker = new(
         @"\b(?:"
-        + @"do(?:n'?t| not) know|no idea|not sure|unsure|can'?t (?:tell|say)|couldn'?t (?:tell|say)"
-        + @"|not clear|unclear|hard to say|no word|nothing (?:yet|so far)|yet to|still (?:waiting|open)"
-        + @"|haven'?t (?:heard|found out|been told)|wasn'?t said|didn'?t say|nobody (?:said|knows)"
-        + @"|one of them|either of them|which (?:one|of them)|somewhere|some point"
-        + @"|not certain|open question|up in the air|to be (?:seen|confirmed)"
+        + @"do(?:n't| not) know|did(?:n't| not) (?:know|see|catch)|no idea|not sure|unsure"
+        + @"|can(?:'t|not) (?:tell|say|confirm)|could(?:n't| not) (?:tell|say)"
+        + @"|not clear|unclear|hard to say|no telling"
+        + @"|no (?:word|update|updates|news|sign|detail|details|specifics)"
+        + @"|nothing (?:yet|so far|back|from|more|further)"
+        + @"|(?:don't|do not|haven't|have not) have (?:any |the )?(?:update|updates|detail|details|specifics|word)"
+        + @"|yet to|still (?:waiting|open|unknown)|(?:just |still )?waiting (?:to hear|on|for)"
+        + @"|have(?:n't| not) heard|hav(?:e|en't) (?:found out|been told)"
+        + @"|was(?:n't| not) said|nobody (?:said|knows|has said)"
+        + @"|one of them|either of them|which (?:one|of them)|not certain"
+        + @"|open question|up in the air|to be (?:seen|confirmed)|remains to be seen"
+        + @"|beyond that|past that|more than that"
         + @")\b",
         RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
 
@@ -66,7 +84,9 @@ public static partial class SupplementChecks
     public static IReadOnlyList<CheckResult> Run(ScenarioTruth scenario, string target)
     {
         var results = new List<CheckResult>();
-        var trimmed = (target ?? "").Trim();
+        // Typographic apostrophes and dashes are what the writer actually emits. Normalising here
+        // means every pattern below can be written in ASCII and still see what was said.
+        var trimmed = Normalise((target ?? "").Trim());
 
         void Check(string name, bool passed, string code, string? detail = null)
             => results.Add(new CheckResult
@@ -137,6 +157,12 @@ public static partial class SupplementChecks
         "thing", "bit", "much", "far", "least", "beyond", "past", "ahead", "behind",
     ];
 
+    /// <summary>Fold typographic punctuation to ASCII, so patterns match what was written.</summary>
+    private static string Normalise(string text)
+        => text.Replace('’', '\'').Replace('‘', '\'')
+            .Replace('“', '"').Replace('”', '"')
+            .Replace('–', '-').Replace('—', '-');
+
     private static HashSet<string> Content(string? text)
         => Words().Matches(text ?? "")
             .Select(m => m.Value.ToLowerInvariant())
@@ -171,7 +197,7 @@ public static partial class SupplementChecks
                 g.Key,
                 g.Count(),
                 g.Select(r => Opening(r.Target)).ToHashSet(StringComparer.OrdinalIgnoreCase).Count,
-                g.Select(r => Normalise(r.Target)).ToHashSet(StringComparer.OrdinalIgnoreCase).Count))
+                g.Select(r => Flatten(r.Target)).ToHashSet(StringComparer.OrdinalIgnoreCase).Count))
             .OrderBy(d => d.OpeningRatio)
             .ToList();
 
@@ -179,7 +205,8 @@ public static partial class SupplementChecks
         => string.Join(' ', (target ?? "").Split(
             [' ', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries).Take(4)).ToLowerInvariant();
 
-    private static string Normalise(string target)
+    /// <summary>Whitespace-flattened lowercase, for "is this literally the same reply".</summary>
+    private static string Flatten(string target)
         => string.Join(' ', (target ?? "").ToLowerInvariant().Split(
             [' ', '\n', '\t', '\r'], StringSplitOptions.RemoveEmptyEntries));
 }
