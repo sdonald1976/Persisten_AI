@@ -1,0 +1,13 @@
+4853e62cee82e812d79ec57ee5186e5d1914a09983a451985690e05d1e6efcc8  runs/run-2.1/adapter-final/adapter_config.json
+11f13f7d68c345ecf9dd7ac300272cea13111fbac25433a6561676feaed80a38  runs/run-2.1/adapter-final/adapter_model.safetensors
+f0acedf99e19ec0a5b797ffbd0b94328172ccd90f7f385bbc521cda2701b03ab  runs/run-2.1/adapter-final/added_tokens.json
+8aa40ce145adb73cb3a75194dc0224702a95850ec5275cabb728496bbd749fc6  runs/run-2.1/adapter-final/chat_template.jinja
+8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5  runs/run-2.1/adapter-final/merges.txt
+f51d7e7a49acb7b7d6143deed6c7ecb46813d091ac50c5a38c8abcdad25786af  runs/run-2.1/adapter-final/README.md
+57255613bbe23c9497211ca68561ff429a51e871dbaf5a59998fa4c8f7fe168a  runs/run-2.1/adapter-final/special_tokens_map.json
+9c5ae00e602b8860cbd784ba82a8aa14e8feecec692e7076590d014d7b7fdafa  runs/run-2.1/adapter-final/tokenizer.json
+5fd4cea2574beb6b70ba31582179880d331b723f5b5119ee67c29d45b983f7be  runs/run-2.1/adapter-final/tokenizer_config.json
+ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910  runs/run-2.1/adapter-final/vocab.json
+c18fb8f3abfe08c9bb5aa1c26c41653b670ab6c8ef076f5596cde33eb835a77d  runs/run-2.1/metrics.json
+7b0ef8c6bec4d6f680e26abeea63d095a1eebab4864e8495eba824865672bcb3  runs/run-2.1/training-log.jsonl
+dfb075536fc1b508bdd25fd2991bbf9d7f53b92340223819d6cc885fe210eb6b  runs/run-2.1/training-manifest.json

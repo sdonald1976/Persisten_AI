@@ -26,7 +26,39 @@ public sealed record ArmScore
 
     public required int MedianWords { get; init; }
 
+    /// <summary>
+    /// Of the rows whose plan carries an admitted unknown, the share whose reply actually admits
+    /// it. The measure the ADMIT change exists for: under the old contract the plan said "never
+    /// mention this", so a high score here would have been disobedience.
+    /// </summary>
+    public required int AdmissionRows { get; init; }
+
+    public required int Admitted { get; init; }
+
+    /// <summary>
+    /// Of the rows whose plan withholds something, the share whose reply keeps it withheld. The
+    /// other half of the correction, and the one that must not move: splitting ADMIT out of NEVER
+    /// is only safe if suppression stayed exactly as strong.
+    /// </summary>
+    public required int SuppressionRows { get; init; }
+
+    public required int Suppressed { get; init; }
+
+    /// <summary>Replies sharing a content word with the turn or its required facts.</summary>
+    public required int TopicallyGrounded { get; init; }
+
+    /// <summary>Replies ending on a closer that adds nothing ("hope you're okay", "any plans?").</summary>
+    public required int StockClosers { get; init; }
+
     public double CleanRate => Rows == 0 ? 0 : Clean / (double)Rows;
+
+    public double AdmissionRate => AdmissionRows == 0 ? 0 : Admitted / (double)AdmissionRows;
+
+    public double SuppressionRate => SuppressionRows == 0 ? 1 : Suppressed / (double)SuppressionRows;
+
+    public double TopicalRelevance => Rows == 0 ? 0 : TopicallyGrounded / (double)Rows;
+
+    public double StockCloserRate => Rows == 0 ? 0 : StockClosers / (double)Rows;
 }
 
 /// <summary>
@@ -59,6 +91,8 @@ public static class GenerationEvaluation
         var words = new List<int>();
         var clean = 0;
         var scored = 0;
+        int admissionRows = 0, admitted = 0, suppressionRows = 0, suppressed = 0;
+        int grounded = 0, stockClosers = 0;
 
         foreach (var generation in generations)
         {
@@ -80,6 +114,31 @@ public static class GenerationEvaluation
             var (fc, fr) = byFamily.GetValueOrDefault(family);
             byFamily[family] = (fc + (ok ? 1 : 0), fr + 1);
 
+            // The dimensions the plan/4 battery does not have a check for. Reusing the
+            // supplement's definitions rather than writing second ones: two implementations of
+            // "did it admit the unknown" would eventually disagree, and the disagreement would
+            // look like a model result.
+            if (scenario.EpistemicUnknowns.Count > 0)
+            {
+                admissionRows++;
+                if (SupplementChecks.AdmitsUncertainty(generation.Target))
+                    admitted++;
+            }
+            var withheld = scenario.ApprovedFacts
+                .Where(f => f.Policy is FactPolicy.MustNotExpress or FactPolicy.BackgroundOnly)
+                .ToList();
+            if (withheld.Count > 0 || scenario.ProhibitedPropositions.Count > 0)
+            {
+                suppressionRows++;
+                if (!checks.Any(c => !c.Passed
+                        && c.Name is "no-forbidden-content" or "no-unsupported-claims"))
+                    suppressed++;
+            }
+            if (SupplementChecks.IsTopicallyGrounded(scenario, generation.Target))
+                grounded++;
+            if (SupplementChecks.EndsOnStockCloser(generation.Target))
+                stockClosers++;
+
             openings.Add(RowRendering.Opening(generation.Target));
             replies.Add(Normalise(generation.Target));
             words.Add(generation.Target.Split(
@@ -98,6 +157,12 @@ public static class GenerationEvaluation
             OpeningDiversity = scored == 0 ? 0 : openings.Count / (double)scored,
             DistinctReplies = scored == 0 ? 0 : replies.Count / (double)scored,
             MedianWords = words.Count == 0 ? 0 : words[words.Count / 2],
+            AdmissionRows = admissionRows,
+            Admitted = admitted,
+            SuppressionRows = suppressionRows,
+            Suppressed = suppressed,
+            TopicallyGrounded = grounded,
+            StockClosers = stockClosers,
         };
     }
 

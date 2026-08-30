@@ -1,0 +1,119 @@
+{
+  "arm": "run-2",
+  "split": "v21-test",
+  "rows": 171,
+  "clean": 159,
+  "cleanRate": 0.9298245614035088,
+  "openingDiversity": 0.4853801169590643,
+  "distinctReplies": 0.7719298245614035,
+  "medianWords": 14,
+  "topicalRelevance": 0.7543859649122807,
+  "stockCloserRate": 0.017543859649122806,
+  "admissionRows": 0,
+  "admitted": 0,
+  "admissionRate": 0,
+  "suppressionRows": 44,
+  "suppressed": 42,
+  "suppressionRate": 0.9545454545454546,
+  "failures": {
+    "verbosity": 3,
+    "no-forbidden-content": 2,
+    "question-policy": 5,
+    "must-state-anchors": 1,
+    "no-plan-echo": 1
+  },
+  "byFamily": {
+    "a1": {
+      "clean": 15,
+      "rows": 15
+    },
+    "a2": {
+      "clean": 6,
+      "rows": 8
+    },
+    "a3": {
+      "clean": 8,
+      "rows": 10
+    },
+    "a4": {
+      "clean": 9,
+      "rows": 9
+    },
+    "a5": {
+      "clean": 9,
+      "rows": 10
+    },
+    "a6a": {
+      "clean": 7,
+      "rows": 9
+    },
+    "a6b": {
+      "clean": 6,
+      "rows": 7
+    },
+    "a6d": {
+      "clean": 6,
+      "rows": 7
+    },
+    "a7a": {
+      "clean": 13,
+      "rows": 13
+    },
+    "a6c": {
+      "clean": 4,
+      "rows": 4
+    },
+    "a7b": {
+      "clean": 14,
+      "rows": 15
+    },
+    "a6e": {
+      "clean": 6,
+      "rows": 6
+    },
+    "b1": {
+      "clean": 4,
+      "rows": 4
+    },
+    "b3": {
+      "clean": 7,
+      "rows": 7
+    },
+    "b4": {
+      "clean": 11,
+      "rows": 11
+    },
+    "b5": {
+      "clean": 4,
+      "rows": 4
+    },
+    "b6": {
+      "clean": 1,
+      "rows": 3
+    },
+    "b7": {
+      "clean": 5,
+      "rows": 5
+    },
+    "b11": {
+      "clean": 19,
+      "rows": 19
+    },
+    "b2": {
+      "clean": 1,
+      "rows": 1
+    },
+    "b8": {
+      "clean": 2,
+      "rows": 2
+    },
+    "b9": {
+      "clean": 1,
+      "rows": 1
+    },
+    "a6f": {
+      "clean": 1,
+      "rows": 1
+    }
+  }
+}

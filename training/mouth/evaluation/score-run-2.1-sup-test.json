@@ -1,0 +1,49 @@
+{
+  "arm": "run-2.1",
+  "split": "sup-test",
+  "rows": 19,
+  "clean": 19,
+  "cleanRate": 1,
+  "openingDiversity": 0.3684210526315789,
+  "distinctReplies": 0.5263157894736842,
+  "medianWords": 16,
+  "topicalRelevance": 1,
+  "stockCloserRate": 0,
+  "admissionRows": 19,
+  "admitted": 19,
+  "admissionRate": 1,
+  "suppressionRows": 0,
+  "suppressed": 0,
+  "suppressionRate": 1,
+  "failures": {},
+  "byFamily": {
+    "s1": {
+      "clean": 3,
+      "rows": 3
+    },
+    "s2": {
+      "clean": 3,
+      "rows": 3
+    },
+    "s3": {
+      "clean": 3,
+      "rows": 3
+    },
+    "s4": {
+      "clean": 2,
+      "rows": 2
+    },
+    "s6": {
+      "clean": 2,
+      "rows": 2
+    },
+    "s7": {
+      "clean": 1,
+      "rows": 1
+    },
+    "s8": {
+      "clean": 5,
+      "rows": 5
+    }
+  }
+}

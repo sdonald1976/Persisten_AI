@@ -1,5 +1,9 @@
 # Run-2.1 halted before training: the plan says the opposite of what we are trying to teach
 
+> **Superseded by `RUN21_COMPARISON.md`.** The halt was correct and the diagnosis
+> held: the serializer was fixed, the corpus reissued, and Run-2.1 trained. This
+> document is kept as the record of why training stopped, not as current status.
+
 Stopped at the supplement stage. Nothing was trained. The Run-2 corpus, its 61 hard-eval rows,
 decoding, and production routing are all untouched.
 

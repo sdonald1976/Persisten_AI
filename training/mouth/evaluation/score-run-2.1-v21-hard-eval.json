@@ -1,0 +1,59 @@
+{
+  "arm": "run-2.1",
+  "split": "v21-hard-eval",
+  "rows": 54,
+  "clean": 46,
+  "cleanRate": 0.8518518518518519,
+  "openingDiversity": 0.1111111111111111,
+  "distinctReplies": 0.37037037037037035,
+  "medianWords": 15,
+  "topicalRelevance": 1,
+  "stockCloserRate": 0,
+  "admissionRows": 31,
+  "admitted": 21,
+  "admissionRate": 0.6774193548387096,
+  "suppressionRows": 6,
+  "suppressed": 6,
+  "suppressionRate": 1,
+  "failures": {
+    "no-unsupported-numerals": 8
+  },
+  "byFamily": {
+    "a1": {
+      "clean": 10,
+      "rows": 10
+    },
+    "a2": {
+      "clean": 1,
+      "rows": 1
+    },
+    "a3": {
+      "clean": 1,
+      "rows": 2
+    },
+    "a4": {
+      "clean": 6,
+      "rows": 6
+    },
+    "a5": {
+      "clean": 6,
+      "rows": 8
+    },
+    "a6d": {
+      "clean": 3,
+      "rows": 3
+    },
+    "b4": {
+      "clean": 10,
+      "rows": 15
+    },
+    "b7": {
+      "clean": 3,
+      "rows": 3
+    },
+    "b3": {
+      "clean": 6,
+      "rows": 6
+    }
+  }
+}

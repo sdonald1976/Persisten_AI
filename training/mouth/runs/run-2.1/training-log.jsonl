@@ -1,0 +1,66 @@
+{"event": "start", "resumeStep": 0, "resumeFidelity": "fresh start", "replay": 1616, "supplement": 94, "repeats": 3, "supplementShare": 0.1486, "totalSteps": 238, "lr": 2e-05, "seed": 20260831, "elapsedSec": 0.0}
+{"step": 0, "valMain": 0.8081, "valTargeted": 0.7361, "note": "Run-2 checkpoint before any correction", "elapsedSec": 88.9}
+{"step": 5, "epoch": 0, "trainLoss": 0.7481, "lr": 1.4285714285714287e-05, "vramGb": 5.74, "elapsedSec": 139.8}
+{"step": 10, "epoch": 0, "trainLoss": 0.746, "lr": 1.9991677993445832e-05, "vramGb": 5.74, "elapsedSec": 188.7}
+{"step": 15, "epoch": 0, "trainLoss": 0.7251, "lr": 1.994087143864188e-05, "vramGb": 5.74, "elapsedSec": 240.4}
+{"step": 15, "epoch": 0, "valMain": 0.8089, "valTargeted": 0.6941, "mainRegression": 0.0009, "acceptableMain": true, "improvedTargeted": true, "bestStep": 15, "sinceImprove": 0, "elapsedSec": 338.0}
+{"step": 20, "epoch": 0, "trainLoss": 0.806, "lr": 1.9844116218848335e-05, "vramGb": 5.74, "elapsedSec": 391.1}
+{"step": 25, "epoch": 0, "trainLoss": 0.6507, "lr": 1.9701859555740647e-05, "vramGb": 5.74, "elapsedSec": 441.8}
+{"step": 30, "epoch": 0, "trainLoss": 0.5763, "lr": 1.9514758987623784e-05, "vramGb": 5.74, "elapsedSec": 492.7}
+{"step": 30, "epoch": 0, "valMain": 0.8055, "valTargeted": 0.668, "mainRegression": -0.0026, "acceptableMain": true, "improvedTargeted": true, "bestStep": 30, "sinceImprove": 0, "elapsedSec": 583.0}
+{"step": 35, "epoch": 0, "trainLoss": 0.6502, "lr": 1.9283679330160726e-05, "vramGb": 5.83, "elapsedSec": 660.8}
+{"step": 40, "epoch": 0, "trainLoss": 0.697, "lr": 1.900968867902419e-05, "vramGb": 5.83, "elapsedSec": 823.9}
+{"step": 45, "epoch": 0, "trainLoss": 0.6389, "lr": 1.8694053472948154e-05, "vramGb": 5.83, "elapsedSec": 976.8}
+{"step": 45, "epoch": 0, "valMain": 0.806, "valTargeted": 0.6547, "mainRegression": -0.0021, "acceptableMain": true, "improvedTargeted": true, "bestStep": 45, "sinceImprove": 0, "elapsedSec": 1131.5}
+{"step": 50, "epoch": 0, "trainLoss": 0.7781, "lr": 1.8338232639998672e-05, "vramGb": 5.84, "elapsedSec": 1290.6}
+{"step": 55, "epoch": 0, "trainLoss": 0.6503, "lr": 1.7943870854121126e-05, "vramGb": 5.84, "elapsedSec": 1476.7}
+{"step": 60, "epoch": 0, "trainLoss": 0.6221, "lr": 1.7512790933133435e-05, "vramGb": 5.84, "elapsedSec": 1630.1}
+{"step": 60, "epoch": 0, "valMain": 0.7991, "valTargeted": 0.6688, "mainRegression": -0.009, "acceptableMain": true, "improvedTargeted": false, "bestStep": 45, "sinceImprove": 1, "elapsedSec": 1794.2}
+{"step": 65, "epoch": 0, "trainLoss": 0.6301, "lr": 1.7046985413303215e-05, "vramGb": 5.84, "elapsedSec": 1948.0}
+{"step": 70, "epoch": 0, "trainLoss": 0.6009, "lr": 1.6548607339452853e-05, "vramGb": 5.84, "elapsedSec": 2113.2}
+{"step": 75, "epoch": 0, "trainLoss": 0.669, "lr": 1.6019960313162436e-05, "vramGb": 5.84, "elapsedSec": 2280.7}
+{"step": 75, "epoch": 0, "valMain": 0.7993, "valTargeted": 0.6598, "mainRegression": -0.0088, "acceptableMain": true, "improvedTargeted": false, "bestStep": 45, "sinceImprove": 2, "elapsedSec": 2442.9}
+{"step": 80, "epoch": 0, "trainLoss": 0.5662, "lr": 1.5463487845069708e-05, "vramGb": 5.84, "elapsedSec": 2623.0}
+{"step": 85, "epoch": 0, "trainLoss": 0.5958, "lr": 1.4881762060482814e-05, "vramGb": 5.84, "elapsedSec": 2835.4}
+{"step": 90, "epoch": 0, "trainLoss": 0.7236, "lr": 1.427747181051071e-05, "vramGb": 5.84, "elapsedSec": 3048.6}
+{"step": 90, "epoch": 0, "valMain": 0.8002, "valTargeted": 0.6561, "mainRegression": -0.0079, "acceptableMain": true, "improvedTargeted": false, "bestStep": 45, "sinceImprove": 3, "elapsedSec": 3219.8}
+{"step": 95, "epoch": 0, "trainLoss": 0.6533, "lr": 1.3653410243663953e-05, "vramGb": 5.84, "elapsedSec": 3450.0}
+{"step": 100, "epoch": 0, "trainLoss": 0.6918, "lr": 1.3012461895372343e-05, "vramGb": 5.84, "elapsedSec": 3706.5}
+{"step": 105, "epoch": 0, "trainLoss": 0.6992, "lr": 1.2357589355094275e-05, "vramGb": 5.86, "elapsedSec": 3931.6}
+{"step": 105, "epoch": 0, "valMain": 0.8024, "valTargeted": 0.6438, "mainRegression": -0.0056, "acceptableMain": true, "improvedTargeted": true, "bestStep": 105, "sinceImprove": 0, "elapsedSec": 4129.7}
+{"step": 110, "epoch": 0, "trainLoss": 0.5573, "lr": 1.1691819572644941e-05, "vramGb": 5.86, "elapsedSec": 4359.8}
+{"step": 115, "epoch": 0, "trainLoss": 0.6086, "lr": 1.1018229867038358e-05, "vramGb": 5.86, "elapsedSec": 4624.6}
+{"step": 120, "epoch": 0, "trainLoss": 0.5335, "lr": 1.0339933702512978e-05, "vramGb": 5.86, "elapsedSec": 4858.7}
+{"step": 120, "epoch": 0, "valMain": 0.8011, "valTargeted": 0.644, "mainRegression": -0.007, "acceptableMain": true, "improvedTargeted": false, "bestStep": 105, "sinceImprove": 1, "elapsedSec": 5042.4}
+{"step": 125, "epoch": 0, "trainLoss": 0.6538, "lr": 9.660066297487024e-06, "vramGb": 5.86, "elapsedSec": 5272.1}
+{"step": 130, "epoch": 0, "trainLoss": 0.5652, "lr": 8.981770132961649e-06, "vramGb": 6.08, "elapsedSec": 5572.8}
+{"step": 135, "epoch": 0, "trainLoss": 0.5857, "lr": 8.308180427355062e-06, "vramGb": 6.08, "elapsedSec": 5853.6}
+{"step": 135, "epoch": 0, "valMain": 0.7979, "valTargeted": 0.6323, "mainRegression": -0.0102, "acceptableMain": true, "improvedTargeted": true, "bestStep": 135, "sinceImprove": 0, "elapsedSec": 6056.6}
+{"step": 140, "epoch": 0, "trainLoss": 0.5498, "lr": 7.642410644905726e-06, "vramGb": 6.08, "elapsedSec": 6309.3}
+{"step": 145, "epoch": 0, "trainLoss": 0.6895, "lr": 6.9875381046276605e-06, "vramGb": 6.08, "elapsedSec": 6572.2}
+{"step": 150, "epoch": 0, "trainLoss": 0.5441, "lr": 6.34658975633605e-06, "vramGb": 6.08, "elapsedSec": 7109.0}
+{"event": "supervisor-restart", "attempt": 1, "stepBefore": 0, "stepAfter": 150, "exitCode": 1, "stalled": 0, "backoffSec": 45, "reason": "trainer exited without a terminal event"}
+{"event": "start", "resumeStep": 150, "resumeFidelity": "exact (RNG restored)", "replay": 1616, "supplement": 94, "repeats": 3, "supplementShare": 0.1486, "totalSteps": 238, "lr": 2e-05, "seed": 20260831, "elapsedSec": 1.1}
+{"step": 155, "epoch": 0, "trainLoss": 0.5847, "lr": 5.722528189489294e-06, "vramGb": 5.81, "elapsedSec": 61.6}
+{"step": 160, "epoch": 0, "trainLoss": 0.6271, "lr": 5.11823793951719e-06, "vramGb": 5.82, "elapsedSec": 134.0}
+{"step": 165, "epoch": 0, "trainLoss": 0.5478, "lr": 4.5365121549302916e-06, "vramGb": 5.82, "elapsedSec": 190.6}
+{"step": 165, "epoch": 0, "valMain": 0.794, "valTargeted": 0.6267, "mainRegression": -0.0039, "acceptableMain": true, "improvedTargeted": true, "bestStep": 165, "sinceImprove": 0, "elapsedSec": 447.5}
+{"step": 170, "epoch": 0, "trainLoss": 0.6179, "lr": 3.9800396868375675e-06, "vramGb": 5.85, "elapsedSec": 961.8}
+{"step": 175, "epoch": 0, "trainLoss": 0.5868, "lr": 3.4513926605471504e-06, "vramGb": 5.85, "elapsedSec": 1325.2}
+{"step": 180, "epoch": 0, "trainLoss": 0.6293, "lr": 2.9530145866967897e-06, "vramGb": 5.85, "elapsedSec": 1719.5}
+{"step": 180, "epoch": 0, "valMain": 0.7945, "valTargeted": 0.6265, "mainRegression": -0.0034, "acceptableMain": true, "improvedTargeted": false, "bestStep": 165, "sinceImprove": 1, "elapsedSec": 2049.5}
+{"step": 185, "epoch": 0, "trainLoss": 0.5611, "lr": 2.487209066866565e-06, "vramGb": 5.85, "elapsedSec": 2238.7}
+{"step": 190, "epoch": 0, "trainLoss": 0.5966, "lr": 2.0561291458788736e-06, "vramGb": 6.15, "elapsedSec": 2659.0}
+{"step": 195, "epoch": 0, "trainLoss": 0.6207, "lr": 1.6617673600013295e-06, "vramGb": 6.15, "elapsedSec": 2939.5}
+{"step": 195, "epoch": 0, "valMain": 0.7928, "valTargeted": 0.6219, "mainRegression": -0.0051, "acceptableMain": true, "improvedTargeted": true, "bestStep": 195, "sinceImprove": 0, "elapsedSec": 3026.5}
+{"step": 200, "epoch": 0, "trainLoss": 0.6144, "lr": 1.3059465270518469e-06, "vramGb": 6.15, "elapsedSec": 3127.8}
+{"step": 205, "epoch": 0, "trainLoss": 0.6543, "lr": 9.903113209758098e-07, "vramGb": 6.15, "elapsedSec": 3237.8}
+{"step": 210, "epoch": 0, "trainLoss": 0.6513, "lr": 7.163206698392744e-07, "vramGb": 6.15, "elapsedSec": 3301.2}
+{"step": 210, "epoch": 0, "valMain": 0.792, "valTargeted": 0.6208, "mainRegression": -0.0059, "acceptableMain": true, "improvedTargeted": false, "bestStep": 195, "sinceImprove": 1, "elapsedSec": 3387.1}
+{"step": 215, "epoch": 0, "trainLoss": 0.5997, "lr": 4.852410123762164e-07, "vramGb": 6.15, "elapsedSec": 3518.0}
+{"step": 220, "epoch": 0, "trainLoss": 0.6008, "lr": 2.9814044425935605e-07, "vramGb": 6.15, "elapsedSec": 3622.1}
+{"step": 225, "epoch": 0, "trainLoss": 0.5252, "lr": 1.558837811516667e-07, "vramGb": 6.15, "elapsedSec": 3673.5}
+{"step": 225, "epoch": 0, "valMain": 0.7919, "valTargeted": 0.6204, "mainRegression": -0.006, "acceptableMain": true, "improvedTargeted": false, "bestStep": 195, "sinceImprove": 2, "elapsedSec": 3759.7}
+{"step": 230, "epoch": 0, "trainLoss": 0.6087, "lr": 5.912856135812051e-08, "vramGb": 6.15, "elapsedSec": 3861.6}
+{"step": 235, "epoch": 0, "trainLoss": 0.6245, "lr": 8.322006554171147e-09, "vramGb": 6.15, "elapsedSec": 3916.0}
+{"event": "done", "step": 237, "bestStep": 195, "bestMain": 0.7928, "bestTargeted": 0.6219, "earlyStopped": false, "elapsedSec": 3942.5}

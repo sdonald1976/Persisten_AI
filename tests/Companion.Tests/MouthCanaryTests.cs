@@ -251,6 +251,48 @@ public class MouthCanaryTests : IAsyncDisposable
         Assert.Contains("no AdapterSha256 pinned", detail, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task AnAdapterTrainedUnderAnotherProtocolIsRefused()
+    {
+        // The Run-2 failure in one test. The adapter is the pinned one and the endpoint is
+        // serving exactly it, so every other gate passes - and it is still the wrong model,
+        // because ADMIT did not exist when it learned to read a plan. Nothing but this check
+        // can tell: the bytes are identical, only their meaning moved.
+        const string sha = "a86caf4ad829fef6a427d39066ac5a744cf563934df080c8190713b52cfa235d";
+        const string run2Protocol =
+            "0000000000000000000000000000000000000000000000000000000000000000";
+        await using var service = Service(
+            identitySha: sha, pinnedSha: sha, trainedProtocol: run2Protocol);
+
+        var (ok, detail) = await service.VerifyMouthIdentityAsync(default);
+
+        Assert.False(ok);
+        Assert.Contains("protocol mismatch", detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TheShippedConfigurationPinsTheProtocolThisBuildSerializes()
+    {
+        // The guard above is inert unless TrainedProtocolHash is actually set, and an empty
+        // string is the shape a silently-disabled check takes. This reads the shipped
+        // appsettings.json and holds it to the section table the build compiles.
+        var root = AppContext.BaseDirectory;
+        while (root is not null && !File.Exists(Path.Combine(root, "Persisten_AI.sln")))
+            root = Path.GetDirectoryName(root);
+        Assert.NotNull(root);
+
+        using var doc = JsonDocument.Parse(
+            await File.ReadAllTextAsync(
+                Path.Combine(root!, "src", "Companion.Api", "appsettings.json")));
+        var mouth = doc.RootElement
+            .GetProperty("Companion").GetProperty("RendererShadow").GetProperty("Mouth");
+
+        var pinned = mouth.GetProperty("TrainedProtocolHash").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(pinned),
+            "TrainedProtocolHash is empty, which disables the protocol-mismatch refusal.");
+        Assert.Equal(Companion.PlanV3.PlanV3Codec.ProtocolHash(), pinned);
+    }
+
     // ---- fixtures --------------------------------------------------------------------------------
 
     private RendererShadowService Service(
@@ -265,6 +307,7 @@ public class MouthCanaryTests : IAsyncDisposable
         bool startListener = true,
         string identitySha = "a86caf4ad829fef6a427d39066ac5a744cf563934df080c8190713b52cfa235d",
         string pinnedSha = "a86caf4ad829fef6a427d39066ac5a744cf563934df080c8190713b52cfa235d",
+        string trainedProtocol = "",
         IShadowRecorder? recorder = null)
     {
         var chosen = port ?? FreePort();
@@ -286,6 +329,7 @@ public class MouthCanaryTests : IAsyncDisposable
                         CanaryTimeoutSeconds = canaryTimeoutSeconds,
                         TimeoutSeconds = 30,
                         AdapterSha256 = pinnedSha,
+                        TrainedProtocolHash = trainedProtocol,
                     },
                 },
             }),

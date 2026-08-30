@@ -681,10 +681,12 @@ async Task<int> ScoreAsync()
 
     var datasetDir = ArgValue("--dataset")
                      ?? Path.Combine(RepoRoot(), "training", "mouth", "dataset");
-    var metadata = ReadJsonl<TrainingRowMetadata>(Path.Combine(datasetDir, "accepted.metadata.jsonl"))
+    var scenarioFile = ArgValue("--scenarios") ?? "scenarios.jsonl";
+    var metadataFile = ArgValue("--metadata") ?? "accepted.metadata.jsonl";
+    var metadata = ReadJsonl<TrainingRowMetadata>(Path.Combine(datasetDir, metadataFile))
         .GroupBy(m => m.Id, StringComparer.Ordinal)
         .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
-    var scenarios = ReadJsonl<ScenarioTruth>(Path.Combine(datasetDir, "scenarios.jsonl"))
+    var scenarios = ReadJsonl<ScenarioTruth>(Path.Combine(datasetDir, scenarioFile))
         .GroupBy(sc => sc.Id, StringComparer.Ordinal)
         .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
@@ -696,6 +698,12 @@ async Task<int> ScoreAsync()
     Console.WriteLine($"  opening diversity     {score.OpeningDiversity:P1}");
     Console.WriteLine($"  distinct replies      {score.DistinctReplies:P1}");
     Console.WriteLine($"  median words          {score.MedianWords}");
+    Console.WriteLine($"  topical relevance     {score.TopicalRelevance:P1}");
+    Console.WriteLine($"  stock closers         {score.StockClosers}/{score.Rows} ({score.StockCloserRate:P1})");
+    if (score.AdmissionRows > 0)
+        Console.WriteLine($"  admission             {score.Admitted}/{score.AdmissionRows} ({score.AdmissionRate:P1})");
+    if (score.SuppressionRows > 0)
+        Console.WriteLine($"  suppression           {score.Suppressed}/{score.SuppressionRows} ({score.SuppressionRate:P1})");
     if (score.Failures.Count > 0)
     {
         Console.WriteLine();
@@ -716,6 +724,9 @@ async Task<int> ScoreAsync()
         {
             score.Arm, score.Split, score.Rows, score.Clean, score.CleanRate,
             score.OpeningDiversity, score.DistinctReplies, score.MedianWords,
+            score.TopicalRelevance, score.StockCloserRate,
+            score.AdmissionRows, score.Admitted, score.AdmissionRate,
+            score.SuppressionRows, score.Suppressed, score.SuppressionRate,
             score.Failures,
             byFamily = score.ByFamily.ToDictionary(
                 kv => kv.Key, kv => new { kv.Value.Clean, kv.Value.Rows }),

@@ -1,0 +1,171 @@
+{
+  "runId": "run-2.1",
+  "repository": {
+    "commit": "8e0ce05a1791515fb0a7cfe87a081ed9a33816f9",
+    "branch": "master",
+    "treeClean": false,
+    "corpusApprovedAt": null
+  },
+  "protocolHash": "81c3a19acd48197818bb55030e1411e5e0a162ee925ed8ca1d4f0dc01e51085a",
+  "continuesFrom": {
+    "run": "run-2",
+    "checkpoint": "runs/run-2/adapter-final (checkpoint-180)",
+    "adapterSha256": "a86caf4ad829fef6a427d39066ac5a744cf563934df080c8190713b52cfa235d",
+    "note": "Weights are loaded trainable and moved, not frozen beside a new adapter. This is a correction to Run-2, not a second run."
+  },
+  "corpus": {
+    "directory": "dataset-v2.1/export",
+    "files": {
+      "mouth-v2.1-train": {
+        "sha256": "ad3bcd96616a36c60ba3f8310208ae5440e6b4aebbaee07cfee09e02a4406f80",
+        "rows": 1616
+      },
+      "mouth-v2.1-validation": {
+        "sha256": "9ae009d8aa56e68b5dbc58b9cdc3534bde077485c9db92ca33d3d4d616870471",
+        "rows": 211
+      },
+      "mouth-v2.1-test": {
+        "sha256": "4d2e899281a3a85b75cf6dc8d5e3987204fa7e9af1ec8ced5ac6ca86474b181a",
+        "rows": 171
+      },
+      "mouth-v2.1-hard-eval": {
+        "sha256": "6fc29d459a0e003b30db8a5ff30213ed7e045213d23d75b3daed8f53995d9a3f",
+        "rows": 54
+      }
+    },
+    "candidatePoolHash": "65d87e9c2561ee3c4435203faad98acab8ed0e2f71e041d0bb4066e8fa63478e",
+    "selectionHash": "001c153fe1440e02491eaff0c001a2c34a50074026542e768a3dd2f360cbd517",
+    "selectionAlgorithm": "balanced-opening-roundrobin/1.0",
+    "selectionSeed": 20260826,
+    "promptFormat": "MouthPromptV4"
+  },
+  "supplement": {
+    "directory": "supplement",
+    "composition": "question forbidden + admitted unknown + a known fact, across eight conversational acts",
+    "files": {
+      "mouth-sup-targeted-train": {
+        "sha256": "fe66a45c44c29d79d69dce7d307a9e57da35920f364db789f8317ebf7fa6c54b",
+        "rows": 94
+      },
+      "mouth-sup-targeted-validation": {
+        "sha256": "af3b74f986c0cca074665aa4d1e612052029cd7bf20685303d34f32282a168b5",
+        "rows": 19
+      },
+      "mouth-sup-targeted-test": {
+        "sha256": "3abdbe6b88023bb75806a57f02d8a49470094977e773d81ccdee8824998e8d7a",
+        "rows": 19
+      }
+    }
+  },
+  "adapter": {
+    "path": "runs/run-2.1/adapter-final",
+    "sha256": "d058f30ab2e38406ef0219ac7cbbcdaa6b6857230b23f46c661037ab74117a42"
+  },
+  "baseModel": {
+    "id": "Qwen/Qwen2.5-3B-Instruct",
+    "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "localPath": "C:\\Source\\Persisten_AI\\training\\renderer\\models\\Qwen2.5-3B-Instruct",
+    "weightsSha256": "8b2ba1b444a759bed665faa4a4d9061eb71b6967462794c9ee160f5c5b91d236",
+    "configSha256": "eed00b17e22553979d090fa492e587e92885e328914c8e0b0b78f0a0d3576b3b"
+  },
+  "tokenizer": {
+    "sha256": "534b71671c407b9a0746db490a2af208d1cabd8ab2b71639b2f3affbe3f3d7c3",
+    "files": [
+      "generation_config.json",
+      "merges.txt",
+      "tokenizer.json",
+      "tokenizer_config.json",
+      "vocab.json"
+    ]
+  },
+  "environment": {
+    "python": "3.10.11",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "torch": "2.11.0+cu128",
+    "transformers": "4.57.6",
+    "peft": "0.20.0",
+    "bitsandbytes": "0.50.1",
+    "cuda": "12.8",
+    "cudnn": 91900
+  },
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 5070",
+    "totalMiB": 12199,
+    "computeCapability": "12.0",
+    "driver": "616.56"
+  },
+  "seed": 20260831,
+  "hyperparameters": {
+    "quantization": {
+      "load_in_4bit": true,
+      "bnb_4bit_quant_type": "nf4",
+      "bnb_4bit_use_double_quant": true,
+      "bnb_4bit_compute_dtype": "float16"
+    },
+    "lora": {
+      "r": 16,
+      "lora_alpha": 32,
+      "lora_dropout": 0.05,
+      "bias": "none",
+      "task_type": "CAUSAL_LM",
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ]
+    },
+    "training": {
+      "learning_rate": 2e-05,
+      "lr_scheduler_type": "cosine",
+      "warmup_ratio": 0.03,
+      "num_train_epochs": 1,
+      "per_device_train_batch_size": 1,
+      "gradient_accumulation_steps": 8,
+      "max_seq_length": 1536,
+      "gradient_checkpointing": true,
+      "gradient_checkpointing_use_reentrant": false,
+      "optim": "adamw_8bit",
+      "seed": 20260831,
+      "eval_steps": 15,
+      "save_steps": 15,
+      "logging_steps": 5,
+      "early_stopping_patience_evals": 4,
+      "early_stopping_min_delta": 0.002,
+      "supplement_share": 0.15,
+      "supplement_share_ceiling": 0.25,
+      "main_validation_regression_allowance": 0.02,
+      "min_delta": 0.002
+    }
+  },
+  "deviations": [
+    {
+      "field": "learning_rate",
+      "run2Value": 0.0001,
+      "run21Value": 2e-05,
+      "reason": "Run-2 trained a zero-initialised adapter; this continues one that already works. Continuing at 1e-4 would move the weights further than a one-composition correction warrants and undo the run being corrected."
+    },
+    {
+      "field": "num_train_epochs",
+      "run2Value": 2,
+      "run21Value": 1,
+      "reason": "A bounded correction over a mixture that is 85% replay. A second epoch mostly re-teaches what the model already knows while giving the supplement four more passes at it."
+    },
+    {
+      "field": "supplement_share",
+      "run2Value": "n/a",
+      "run21Value": 0.15,
+      "reason": "94 supplement rows beside 1,616 replay rows is 5.5%, too dilute to learn from. Oversampling to ~15% makes it learnable; the 25% ceiling makes the run refuse rather than let the correction become the corpus."
+    },
+    {
+      "field": "checkpoint selection",
+      "run2Value": "lowest validation loss",
+      "run21Value": "targeted validation must improve AND main validation must not regress beyond 0.02",
+      "reason": "One validation set cannot distinguish a correction from a trade. A checkpoint that fixes the composition by damaging everything else would win on the targeted set alone."
+    }
+  ],
+  "deviationsRelativeTo": "run-2"
+}

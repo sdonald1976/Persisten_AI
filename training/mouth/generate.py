@@ -53,13 +53,16 @@ def load(adapter):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--split", required=True)
+    ap.add_argument("--file", default=None,
+                    help="explicit rows file; --split then names the output only")
     ap.add_argument("--arm", required=True)
     ap.add_argument("--adapter", default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--max-new-tokens", type=int, default=160)
     args = ap.parse_args()
 
-    rows = read_rows(f"mouth-v2-{args.split}.jsonl")
+    rows = ([json.loads(l) for l in io.open(args.file, encoding="utf-8-sig") if l.strip()]
+            if args.file else read_rows(f"mouth-v2-{args.split}.jsonl"))
     tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
     model = load(args.adapter)
 

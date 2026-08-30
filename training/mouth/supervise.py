@@ -17,13 +17,14 @@ rather than presenting a clean line that never happened.
 """
 import io
 import json
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-RUN_ID = "run-2"
+RUN_ID = os.environ.get("RUN_ID", "run-2")
 LOG = ROOT / "runs" / RUN_ID / "training-log.jsonl"
 MAX_RESTARTS = 60
 STALL_LIMIT = 4          # consecutive attempts with no progress before this is a real fault
@@ -67,7 +68,7 @@ def note(**kw):
 
 def main():
     python = sys.executable
-    trainer = str(ROOT / "train_run2.py")
+    trainer = str(ROOT / os.environ.get("TRAINER", "train_run2.py"))
 
     stalled = 0
     for attempt in range(1, MAX_RESTARTS + 1):

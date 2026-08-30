@@ -157,6 +157,23 @@ public static partial class SupplementChecks
         "thing", "bit", "much", "far", "least", "beyond", "past", "ahead", "behind",
     ];
 
+    /// <summary>Does the reply name what is not known? Shared with the evaluator.</summary>
+    public static bool AdmitsUncertainty(string target)
+        => UncertaintyMarker.IsMatch(Normalise((target ?? "").Trim()));
+
+    /// <summary>Does the reply end on a closer that adds nothing? Shared with the evaluator.</summary>
+    public static bool EndsOnStockCloser(string target)
+        => StockCloser.IsMatch(Normalise((target ?? "").Trim()));
+
+    /// <summary>Does the reply engage the turn at all? Shared with the evaluator.</summary>
+    public static bool IsTopicallyGrounded(ScenarioTruth scenario, string target)
+    {
+        var topic = Content(scenario.UserMessage);
+        foreach (var fact in scenario.ApprovedFacts.Where(f => f.Policy == FactPolicy.MustExpress))
+            topic.UnionWith(Content(fact.Text));
+        return topic.Count == 0 || Content(Normalise(target ?? "")).Overlaps(topic);
+    }
+
     /// <summary>Fold typographic punctuation to ASCII, so patterns match what was written.</summary>
     private static string Normalise(string text)
         => text.Replace('’', '\'').Replace('‘', '\'')

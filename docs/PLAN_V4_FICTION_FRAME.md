@@ -1,6 +1,6 @@
 # Plan/4 — the Run-2 mouth protocol, with an optional fiction frame
 
-**Final revision (rev 3), for approval. Not implemented.**
+**Rev 4 — implemented, and amended by the ADMIT correction of Run-2.1.**
 
 Supersedes `PLAN_V3_FICTION_FRAME_AMENDMENT.md` rev 2, whose dual
 `plan/3` + `plan/3.1` scheme is withdrawn.
@@ -15,7 +15,7 @@ turn.** There is no negotiation, no dual scheme, and no per-turn version choice.
 | protocol | status |
 |---|---|
 | `plan/2` | Run-1c's input. Untouched, authoritative until Run-2 is promoted. |
-| `plan/3` | **Frozen** as historical shadow evidence. The 804-plan corpus goldens and every recorded `renderer.plan3` row keep their meaning permanently. No new producer emits it after Run-2. |
+| `plan/3` | Historical shadow evidence. No new producer emits it after Run-2. **No longer frozen:** the ADMIT correction below changed the section table, so 135 of the 804 corpus goldens now serialize differently. The other 669 are byte-identical, proved by `AdmitSectionProofTests`. |
 | `plan/4` | Run-2's protocol. Everything `plan/3` had, plus an **optional** `frame` block. |
 
 **`frame` is optional and ordinary turns serialize no FRAME section**, so an
@@ -397,8 +397,50 @@ longest transcripts, which is why the feasibility probe must test 2048.
 
 - No content classification, rating, or restricted frame type.
 - No new authorization principal; no change to `ValidateForAudience`.
-- No change to `plan/2`, `plan/3`, Run-1c, routing, or displayed output.
+- No change to `plan/2`, Run-1c, routing, or displayed output. (`plan/3`'s section table *was* changed, once, by the ADMIT correction in §10.)
 - No scene store. §4 states the resulting limitation plainly.
 - No prose blob: scene facts and dialogue obligations stay ordinary `PlanItem`s.
 
-**Status: `plan/4` proposed for approval. Not implemented.**
+---
+
+## 10. The ADMIT correction (rev 4)
+
+`plan/4` shipped with a defect inherited from `plan/3`: `ExpressionPolicy.admit_unknown`
+was serialized into the `NEVER (do not assert, mention, or explain)` section,
+alongside `must_not_express`. A plan meaning *"say plainly that you do not know
+whether the tyre has the same puncture"* therefore reached the model as *"never
+mention the puncture"*.
+
+Run-2 was not failing those compositions. It was obeying them.
+
+`admit_unknown` now has its own section, placed above `NEVER`:
+
+```
+ADMIT (say plainly that this is not known; never explain it away)
+  [unk1 boundary] whether it is the same puncture as before
+NEVER (do not assert, mention, or explain)
+  [sup1 superseded] the meeting is on Thursday
+```
+
+`must_not_express` still serializes under `NEVER`, unchanged. Splitting ADMIT out
+is only safe if suppression stays exactly as strong, and that is measured, not
+assumed — see the suppression column in `RUN21_COMPARISON.md`.
+
+### The protocol hash
+
+`PlanV3Codec.ProtocolHash()` is a SHA-256 derived from the section table itself,
+so it moves by construction whenever a section is added, removed, renamed, or
+re-ordered. An adapter records the hash it was trained under; the renderer
+refuses to serve it against a build that serializes a different one:
+
+> protocol mismatch: adapter was trained under `…`, this build serializes `…`.
+> Refusing to serve — the plan means something different than it did when this
+> adapter learned to read it.
+
+Nothing else in the system notices that a plan has changed meaning. This is the
+check that would have caught the defect on the day it was introduced.
+
+Current hash: `81c3a19acd48197818bb55030e1411e5e0a162ee925ed8ca1d4f0dc01e51085a`.
+
+**Status: `plan/4` implemented, at protocol `81c3a19a`. Run-2's adapter is
+refused under this protocol; Run-2.1 is trained against it.**

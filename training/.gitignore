@@ -77,6 +77,16 @@ mouth/evaluation/**
 !mouth/evaluation/score-*.json
 !mouth/evaluation/*.md
 
+# Run-2.1: the corrected adapter travels for the same reason Run-2's does. Its checkpoints and
+# generations do not - they are reproducible from the manifest, the frozen corpus and the seed.
+!mouth/runs/run-2.1/
+!mouth/runs/run-2.1/adapter-final/
+!mouth/runs/run-2.1/adapter-final/**
+!mouth/runs/run-2.1/training-manifest.json
+!mouth/runs/run-2.1/training-log.jsonl
+!mouth/runs/run-2.1/metrics.json
+!mouth/runs/run-2.1/SHA256SUMS
+
 # Run-2.1 reissued corpus, versioned for the same reason the Run-2 one is: a frozen artifact
 # that exists on one machine cannot be frozen. The original dataset/ stays immutable beside it.
 !mouth/dataset-v2.1/export/*.jsonl
