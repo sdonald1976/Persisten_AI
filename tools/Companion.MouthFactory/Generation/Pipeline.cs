@@ -29,6 +29,17 @@ public sealed record PipelineOptions
     /// consuming the whole corpus. Reaching it is a reported outcome, not a silent truncation.
     /// </summary>
     public int? MaxUnits { get; init; }
+
+    /// <summary>
+    /// Take <see cref="TargetsPerScenario"/> literally, bypassing VariantPolicy.
+    ///
+    /// VariantPolicy exists to stop the factory spending a second target on a plan with one
+    /// natural rendering, which is right when building a corpus. It is wrong when REPLACING
+    /// specific rows: a scenario that needs two replacements and is allowed one attempt produces
+    /// a corpus that is quietly smaller than the one it replaced. Dedup still rejects clones, so
+    /// the cost of asking for more is wasted generation rather than duplicate rows.
+    /// </summary>
+    public bool ExactVariants { get; init; }
 }
 
 public sealed record PipelineResult

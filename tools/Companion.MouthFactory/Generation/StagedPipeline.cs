@@ -77,8 +77,12 @@ public sealed class StagedPipeline(
                 unsatisfiable++;
                 continue;
             }
-            // Variants are spent where wording genuinely varies, not handed out per scenario.
-            var wanted = VariantPolicy.For(scenario, options.TargetsPerScenario);
+            // Variants are spent where wording genuinely varies, not handed out per scenario -
+            // unless the caller is replacing specific rows, where a cap produces a smaller corpus
+            // than the one being replaced.
+            var wanted = options.ExactVariants
+                ? Math.Max(1, options.TargetsPerScenario)
+                : VariantPolicy.For(scenario, options.TargetsPerScenario);
             for (var v = 0; v < wanted; v++)
             {
                 var existing = candidates.Find($"{scenario.Id}#{v}");

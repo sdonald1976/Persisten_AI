@@ -76,3 +76,9 @@ mouth/evaluation/**
 !mouth/evaluation/
 !mouth/evaluation/score-*.json
 !mouth/evaluation/*.md
+
+# Run-2.1 reissued corpus, versioned for the same reason the Run-2 one is: a frozen artifact
+# that exists on one machine cannot be frozen. The original dataset/ stays immutable beside it.
+!mouth/dataset-v2.1/export/*.jsonl
+!mouth/dataset-v2.1/export/*.json
+!mouth/dataset-v2.1/export/SHA256SUMS

@@ -401,6 +401,20 @@ public sealed class MouthOptions
     /// <summary>Human-readable identity ("run-2 step-180 on Qwen2.5-3B-Instruct aa8e7253"), recorded per row.</summary>
     public string ModelVersion { get; set; } = "";
 
+    /// <summary>
+    /// The serialization contract this adapter was TRAINED under, as PlanV3Codec.ProtocolHash().
+    ///
+    /// A model is trained against a protocol, not only against data, and the two drift apart
+    /// silently. Moving admit_unknown out of NEVER changed what a plan MEANS without changing a
+    /// single type or signature: an adapter trained before it reads "ADMIT (say plainly that this
+    /// is not known)" as a section it has never seen, and the only symptom is worse replies.
+    ///
+    /// Empty disables the check, which is the right default for a setting that did not exist
+    /// before this run - an old configuration should not fail to start. Set it, and a mismatch
+    /// refuses to serve instead of quietly degrading.
+    /// </summary>
+    public string TrainedProtocolHash { get; set; } = "";
+
     /// <summary>Per-call ceiling for a shadow render, which nothing user-facing waits on.</summary>
     public int TimeoutSeconds { get; set; } = 120;
 

@@ -39,6 +39,7 @@ switch (command)
     case "score": return await ScoreAsync();
     case "supplement": return await SupplementAsync();
     case "supplement-freeze": return SupplementFreeze();
+    case "reissue": return await ReissueAsync();
     default:
         Console.WriteLine("""
             mouth-factory <command> [options]
@@ -54,6 +55,7 @@ switch (command)
               score          score generated replies against scenario truth (--generations, --arm, --split)
               supplement     generate the Run-2.1 targeted supplement (additive; never touches Run-2)
               supplement-freeze  check the supplement's own bar, then hash and export it
+              reissue        regenerate only the rows the ADMIT change affected, into a new dataset
 
             options
               --out <dir>        output directory (default training/mouth-factory)
@@ -79,7 +81,9 @@ int Inventory()
     var plan = PlanCounts();
     Console.WriteLine($"\nCurriculum: docs/RUN2_CURRICULUM_R5.md (supersedes R4)");
     Console.WriteLine($"Format:     {MouthPromptV4.FormatVersion}");
-    Console.WriteLine($"Scenario:   {ScenarioTruth.SchemaVersion}   Row: {TrainingRow.SchemaVersion}\n");
+    Console.WriteLine($"Scenario:   {ScenarioTruth.SchemaVersion}   Row: {TrainingRow.SchemaVersion}");
+    Console.WriteLine($"Protocol:   {PlanV3Codec.ProtocolHash()[..16]}  "
+                      + "(section contract; an adapter trained under another is refused)\n");
     Console.WriteLine($"  {"family",-8}{"layer",-8}{"scenarios",-12}description");
     foreach (var family in Curriculum.Families)
         Console.WriteLine($"  {family.Id,-8}{family.Layer,-8}{plan.GetValueOrDefault(family.Id),-12}{family.Description}");
@@ -1048,6 +1052,246 @@ int SupplementFreeze()
     Console.WriteLine();
     Console.WriteLine($"manifest   {manifestPath}");
     Console.WriteLine($"hashes     {sumsPath}");
+    return 0;
+}
+
+
+/// <summary>
+/// Reissue the corpus under the new section contract, regenerating ONLY what changed.
+///
+/// The original freeze is immutable. It is read and never written: it remains the record of what
+/// Run-2 was actually trained on, and a corpus whose hashes are edited after the fact is not a
+/// freeze. The reissue is a new dataset beside it.
+///
+/// A row is affected when its scenario carries an admitted unknown, because that is exactly the
+/// set whose serialization moved. Unaffected rows are carried across byte-identically and keep
+/// their ids - they are the same rows, and pretending otherwise would make the diff unreadable.
+/// Affected rows get NEW ids, because their input bytes changed and their target was written
+/// against a plan that said the opposite: a row that now means something different should not
+/// answer to the same name.
+/// </summary>
+async Task<int> ReissueAsync()
+{
+    var sourceDir = ArgValue("--from") ?? Path.Combine(RepoRoot(), "training", "mouth", "dataset");
+    var targetDir = ArgValue("--to") ?? Path.Combine(RepoRoot(), "training", "mouth", "dataset-v2.1");
+
+    var scenarios = ReadJsonl<ScenarioTruth>(Path.Combine(sourceDir, "scenarios.jsonl"))
+        .GroupBy(sc => sc.Id, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    var metadata = ReadJsonl<TrainingRowMetadata>(Path.Combine(sourceDir, "accepted.metadata.jsonl"))
+        .GroupBy(m => m.Id, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    if (scenarios.Count == 0 || metadata.Count == 0)
+    {
+        Console.Error.WriteLine($"no source corpus at {sourceDir}");
+        return 1;
+    }
+
+    var splits = new[] { "train", "validation", "test", "hard-eval" };
+    var original = new Dictionary<string, List<TrainingRow>>(StringComparer.Ordinal);
+    foreach (var split in splits)
+    {
+        var path = Path.Combine(sourceDir, $"mouth-v2-{split}.jsonl");
+        original[split] = File.Exists(path)
+            ? File.ReadLines(path).Where(l => l.Trim().Length > 0)
+                .Select(l => JsonSerializer.Deserialize<TrainingRow>(l.TrimStart('\uFEFF'), Web())!)
+                .ToList()
+            : [];
+    }
+
+    bool Affected(TrainingRow row)
+        => metadata.TryGetValue(row.Id, out var m)
+           && scenarios.TryGetValue(m.ScenarioId, out var sc)
+           && sc.EpistemicUnknowns.Count > 0;
+
+    Console.WriteLine();
+    Console.WriteLine($"protocol   {PlanV3Codec.ProtocolHash()}");
+    Console.WriteLine($"source     {sourceDir}   (read only; the original freeze is immutable)");
+    Console.WriteLine($"target     {targetDir}");
+    Console.WriteLine();
+    Console.WriteLine($"  {"split",-12}{"rows",6}{"affected",10}{"carried",9}");
+    var affected = new List<(string Split, TrainingRow Row, TrainingRowMetadata Meta, ScenarioTruth Scenario)>();
+    foreach (var split in splits)
+    {
+        var rows = original[split];
+        var hit = rows.Where(Affected).ToList();
+        foreach (var r in hit)
+            affected.Add((split, r, metadata[r.Id], scenarios[metadata[r.Id].ScenarioId]));
+        Console.WriteLine($"  {split,-12}{rows.Count,6}{hit.Count,10}{rows.Count - hit.Count,9}");
+    }
+    if (affected.Count == 0)
+    {
+        Console.Error.WriteLine("nothing affected; the reissue would be a copy");
+        return 1;
+    }
+
+    // Prove the carried rows really are byte-identical under the new serializer before trusting
+    // them. "Unaffected" is a claim about the serializer, and it is cheap to check rather than
+    // assume for every row being carried across unchanged.
+    var drifted = 0;
+    foreach (var split in splits)
+        foreach (var row in original[split].Where(r => !Affected(r)))
+        {
+            if (!metadata.TryGetValue(row.Id, out var m)
+                || !scenarios.TryGetValue(m.ScenarioId, out var sc))
+                continue;
+            var (rebuilt, _, failure) = RowRendering.Render(
+                sc, PlanConstruction.Build(sc).Plan!, row.Target, m.VariantIndex, m.Generation);
+            if (failure is null && rebuilt is not null
+                && !string.Equals(rebuilt.Input, row.Input, StringComparison.Ordinal))
+                drifted++;
+        }
+    Console.WriteLine();
+    Console.WriteLine(drifted == 0
+        ? "  carried rows re-render byte-identically under the new contract"
+        : $"  WARNING: {drifted} carried row(s) no longer re-render identically");
+    if (drifted > 0)
+        return 1;
+
+    if (dryRunOnly)
+    {
+        Console.WriteLine($"\ndry run: {affected.Count} row(s) would be regenerated with new ids");
+        return 0;
+    }
+
+    // ---- regenerate the affected rows ---------------------------------------------------------
+    var roleRouter = BuildRoles(out var roleDescription);
+    if (roleRouter is null)
+    {
+        Console.Error.WriteLine("Set MOUTH_WRITER_MODEL and the critic models, or pass --dry-run.");
+        return 2;
+    }
+    var independence = RoleIndependence.Check(RoleModels());
+    if (independence.Count > 0)
+    {
+        foreach (var v in independence)
+            Console.Error.WriteLine("ROLE INDEPENDENCE: " + v.Detail);
+        return 4;
+    }
+    Console.WriteLine($"roles      {roleDescription}");
+
+    Directory.CreateDirectory(targetDir);
+    var source = new ModelTargetSource(roleRouter, seed);
+    var criticRoles = new[] { Role.FaithfulnessCritic, Role.AdversarialCritic, Role.NaturalnessCritic }
+        .Where(r => roleRouter.Has(r)).Select(r => r.ToString()).ToList();
+    var store = new RowStore(Path.Combine(targetDir, "rows"));
+    var staged = new StagedPipeline(
+        source, CandidateStore.Open(Path.Combine(targetDir, "candidates.jsonl")),
+        store, new Deduplicator(), criticRoles);
+
+    var toRegenerate = affected
+        .Select(a => a.Scenario)
+        .GroupBy(sc => sc.Id, StringComparer.Ordinal)
+        .Select(g => g.First())
+        .ToList();
+    Console.WriteLine($"\nregenerating {toRegenerate.Count} scenario(s) behind {affected.Count} row(s)");
+
+    var sr = await staged.RunAsync(toRegenerate, new PipelineOptions
+    {
+        OutputDirectory = targetDir, TargetsPerScenario = variants, MaxUnits = maxUnits,
+        ExactVariants = true,
+    }, batchSize);
+    Console.WriteLine($"  accepted {sr.Accepted}   manual review {sr.ManualReview}   rejected {sr.Rejected}");
+    foreach (var (code, count) in sr.RejectionCodes.OrderByDescending(kv => kv.Value).Take(6))
+        Console.WriteLine($"    {count,5}  {code}");
+
+    // ---- assemble the reissued corpus -----------------------------------------------------------
+    var fresh = store.ReadRows(Disposition.Accepted).ToList();
+    var freshMeta = store.ReadMetadata(Disposition.Accepted)
+        .GroupBy(m => m.Id, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    var bySplit = new Dictionary<string, List<TrainingRow>>(StringComparer.Ordinal);
+    foreach (var split in splits)
+        bySplit[split] = original[split].Where(r => !Affected(r)).ToList();
+
+    // New identities: a row whose input bytes changed and whose target answers a different
+    // instruction is a new row, and reusing the id would make the two indistinguishable in any
+    // record that only carries ids.
+    var replaced = 0;
+    var splitOfScenario = affected
+        .GroupBy(a => a.Scenario.Id, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.First().Split, StringComparer.Ordinal);
+
+    // ONE replacement per row replaced. Generation was asked for more attempts than needed so
+    // that every affected scenario would yield at least one usable row; taking all of them would
+    // grow the corpus instead of reissuing it, and the before/after comparison depends on the
+    // denominators matching. Selection is by sorted id, so the same pool always yields the same
+    // corpus.
+    var needPerScenario = affected
+        .GroupBy(a => a.Scenario.Id, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+    var shortfall = new List<string>();
+
+    foreach (var (scenarioId, need) in needPerScenario.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+    {
+        var split = splitOfScenario[scenarioId];
+        var candidates = fresh
+            .Where(r => freshMeta.TryGetValue(r.Id, out var m) && m.ScenarioId == scenarioId)
+            .OrderBy(r => r.Id, StringComparer.Ordinal)
+            .Take(need)
+            .ToList();
+        foreach (var row in candidates)
+        {
+            bySplit[split].Add(row with { Id = $"{row.Id}@v2.1" });
+            replaced++;
+        }
+        if (candidates.Count < need)
+            shortfall.Add($"{scenarioId} ({candidates.Count}/{need})");
+    }
+
+    if (shortfall.Count > 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"  SHORTFALL: {shortfall.Count} scenario(s) produced fewer accepted "
+                          + "replacements than they lost. The reissued corpus is smaller than the "
+                          + "original by that many rows, which is reported rather than padded:");
+        foreach (var s in shortfall.Take(10))
+            Console.WriteLine($"    {s}");
+    }
+
+    var exportDir = Path.Combine(targetDir, "export");
+    var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
+    Console.WriteLine();
+    foreach (var split in splits)
+    {
+        var name = $"mouth-v2.1-{split}";
+        var jsonl = Exports.WriteJsonl(exportDir, name, bySplit[split]);
+        hashes[Path.GetFileName(jsonl)] = Exports.Sha256OfFile(jsonl);
+        var was = original[split].Count;
+        var now = bySplit[split].Count;
+        Console.WriteLine($"  {name,-26}{now,6} rows   was {was}"
+                          + (now == was ? "" : $"   DELTA {now - was:+#;-#;0}"));
+    }
+
+    var manifest = new
+    {
+        corpus = "run-2.1",
+        supersedes = "run-2 (immutable; read, never written)",
+        sourceDirectory = Path.GetFileName(sourceDir),
+        protocolHash = PlanV3Codec.ProtocolHash(),
+        promptFormat = MouthPromptV4.FormatVersion,
+        repoCommit = Environment.GetEnvironmentVariable("MOUTH_FACTORY_COMMIT") ?? "(unrecorded)",
+        seed,
+        reason = "admit_unknown moved out of NEVER into its own ADMIT section; only rows whose "
+                 + "scenario carries an admitted unknown were affected",
+        affectedRows = affected.Count,
+        regeneratedRows = replaced,
+        carriedRowsVerifiedByteIdentical = true,
+        rowsBySplit = bySplit.ToDictionary(kv => kv.Key, kv => kv.Value.Count, StringComparer.Ordinal),
+        roles = RoleDescription(),
+        exportHashes = hashes,
+    };
+    File.WriteAllText(
+        Path.Combine(exportDir, "manifest.json"),
+        JsonSerializer.Serialize(manifest, new JsonSerializerOptions(Web()) { WriteIndented = true }));
+    File.WriteAllText(
+        Path.Combine(exportDir, "SHA256SUMS"),
+        string.Concat(hashes.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => kv.Value + "  " + kv.Key + "\n")));
+
+    Console.WriteLine();
+    Console.WriteLine($"protocol   {PlanV3Codec.ProtocolHash()}");
+    Console.WriteLine($"manifest   {Path.Combine(exportDir, "manifest.json")}");
     return 0;
 }
 

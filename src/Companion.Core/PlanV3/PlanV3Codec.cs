@@ -312,6 +312,34 @@ public static class PlanV3Codec
     ];
 
     /// <summary>
+    /// A hash of the SERIALIZATION CONTRACT itself: which policy renders under which header, with
+    /// which instruction, in which order.
+    ///
+    /// This exists because a model is trained against a protocol, not just against data, and the
+    /// two can drift apart silently. Moving admit_unknown out of NEVER changed what a plan MEANS
+    /// without changing any type, signature or file name; an adapter trained before that change
+    /// reads "ADMIT (say plainly that this is not known)" as a section it has never seen, and the
+    /// only symptom is worse replies. Serving is refused on a mismatch instead.
+    ///
+    /// Derived from the table rather than written down beside it, so it cannot fall out of date:
+    /// change a header, a note, an order or a policy mapping and the hash moves by construction.
+    /// </summary>
+    public static string ProtocolHash()
+    {
+        var sb = new StringBuilder();
+        foreach (var (header, note, policies) in Sections)
+        {
+            sb.Append(header).Append('|').Append(note).Append('|');
+            foreach (var policy in policies)
+                sb.Append(policy).Append(',');
+            sb.Append('\n');
+        }
+        return Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())))
+            .ToLowerInvariant();
+    }
+
+    /// <summary>
     /// CompactV3: refuses invalid plans; sections by policy; CLOSED kebab-case category
     /// labels only (open `type` never appears); legacyStyle is migration metadata and
     /// NEVER serializes (rev-2 §6); CRLF; deterministic.

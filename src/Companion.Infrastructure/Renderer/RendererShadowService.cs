@@ -360,13 +360,30 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
                 return (false, $"no AdapterSha256 pinned; endpoint is serving {loaded}");
             if (!string.Equals(pinned, loaded, StringComparison.OrdinalIgnoreCase))
                 return (false, $"adapter mismatch: pinned {pinned}, endpoint loaded {loaded}");
-            return (true, $"endpoint serving pinned adapter {loaded}");
+
+            // The protocol the adapter was trained under must be the protocol it will be served
+            // under. This is the check that would have caught the ADMIT change: nothing else in
+            // the system notices that a plan now means something different.
+            var trained = _options.Mouth.TrainedProtocolHash;
+            var serving = Companion.PlanV3.PlanV3Codec.ProtocolHash();
+            if (!string.IsNullOrWhiteSpace(trained)
+                && !string.Equals(trained, serving, StringComparison.OrdinalIgnoreCase))
+                return (false,
+                    $"protocol mismatch: adapter was trained under {Short(trained)}, this build "
+                    + $"serializes {Short(serving)}. Refusing to serve - the plan means something "
+                    + "different than it did when this adapter learned to read it.");
+
+            return (true, string.IsNullOrWhiteSpace(trained)
+                ? $"endpoint serving pinned adapter {loaded} (no trained protocol pinned)"
+                : $"endpoint serving pinned adapter {loaded} under protocol {Short(serving)}");
         }
         catch (Exception ex)
         {
             return (false, $"mouth endpoint unreachable: {ex.Message}");
         }
     }
+
+    private static string Short(string hash) => hash.Length <= 12 ? hash : hash[..12];
 
     /// <summary>
     /// Render this turn through run-2 and score it. Used by both the shadow path and the canary;

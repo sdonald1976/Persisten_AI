@@ -1,0 +1,31 @@
+{
+  "corpus": "run-2.1",
+  "supersedes": "run-2 (immutable; read, never written)",
+  "sourceDirectory": "dataset",
+  "protocolHash": "81c3a19acd48197818bb55030e1411e5e0a162ee925ed8ca1d4f0dc01e51085a",
+  "promptFormat": "mouth-prompt/4.0",
+  "repoCommit": "dba08e3aeb038c397b43d2e88b0a2e7add3d5632",
+  "seed": 20260826,
+  "reason": "admit_unknown moved out of NEVER into its own ADMIT section; only rows whose scenario carries an admitted unknown were affected",
+  "affectedRows": 48,
+  "regeneratedRows": 39,
+  "carriedRowsVerifiedByteIdentical": true,
+  "rowsBySplit": {
+    "train": 1616,
+    "validation": 211,
+    "test": 171,
+    "hard-eval": 54
+  },
+  "roles": {
+    "TargetWriter": "qwen2.5:14b-instruct",
+    "FaithfulnessCritic": "phi4",
+    "NaturalnessCritic": "qwen2.5:7b-instruct",
+    "AdversarialCritic": "qwen3:8b"
+  },
+  "exportHashes": {
+    "mouth-v2.1-train.jsonl": "ad3bcd96616a36c60ba3f8310208ae5440e6b4aebbaee07cfee09e02a4406f80",
+    "mouth-v2.1-validation.jsonl": "9ae009d8aa56e68b5dbc58b9cdc3534bde077485c9db92ca33d3d4d616870471",
+    "mouth-v2.1-test.jsonl": "4d2e899281a3a85b75cf6dc8d5e3987204fa7e9af1ec8ced5ac6ca86474b181a",
+    "mouth-v2.1-hard-eval.jsonl": "6fc29d459a0e003b30db8a5ff30213ed7e045213d23d75b3daed8f53995d9a3f"
+  }
+}
