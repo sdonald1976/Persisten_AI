@@ -238,6 +238,62 @@ public static class ModelDependencies
             Source = shadow.BaseModel,
         });
 
+        // ---- the mouth: run-2 -----------------------------------------------------------------
+        // Named even when disabled, so a fresh machine is told what it would need rather than
+        // discovering it at the moment a turn wants it.
+        var mouth = shadow.Mouth;
+        var mouthAdapterPath = Path.IsPathRooted(mouth.AdapterPath)
+            ? mouth.AdapterPath
+            : Path.Combine(repositoryRoot, mouth.AdapterPath);
+
+        all.Add(new ModelDependency
+        {
+            Id = "mouth.adapter",
+            Role = "mouth/adapter (run-2)",
+            Kind = DependencyKind.LocalFile,
+            Identifier = mouth.AdapterPath,
+            Provider = "git-lfs",
+            ExpectedPath = mouthAdapterPath,
+            Active = mouth.Enabled,
+            InactiveReason = mouth.Enabled ? null : "Companion:RendererShadow:Mouth:Enabled is false",
+            // The configured hash IS the pin and also the Git LFS object id, so a pointer left
+            // unfetched fails the content check rather than passing an existence check.
+            Sha256 = string.IsNullOrWhiteSpace(mouth.AdapterSha256) ? null : mouth.AdapterSha256,
+            CompanionFiles = mouth.AdapterFiles
+                .Select(f => Path.Combine(Path.GetDirectoryName(mouthAdapterPath) ?? repositoryRoot, f))
+                .ToList(),
+        });
+
+        all.Add(new ModelDependency
+        {
+            Id = "mouth.base",
+            Role = "mouth/base model",
+            Kind = DependencyKind.HuggingFaceSnapshot,
+            Identifier = mouth.BaseModel?.Repository ?? "",
+            Provider = "huggingface",
+            ExpectedPath = mouth.BaseModelPath is { Length: > 0 } mp
+                ? (Path.IsPathRooted(mp) ? mp : Path.Combine(repositoryRoot, mp))
+                : null,
+            // Unlike run-1c's merged Ollama model, run-2 is served as base + adapter, so the base
+            // is required to answer a turn rather than only to rebuild one.
+            Active = mouth.Enabled,
+            InactiveReason = mouth.Enabled ? null : "Companion:RendererShadow:Mouth:Enabled is false",
+            Source = mouth.BaseModel,
+        });
+
+        all.Add(new ModelDependency
+        {
+            Id = "mouth.served",
+            Role = "mouth/served endpoint",
+            Kind = DependencyKind.LocallyBuiltOllamaModel,
+            Identifier = "run-2",
+            Provider = "serve_run2.py",
+            BaseUrl = mouth.Endpoint,
+            Active = mouth.Enabled,
+            InactiveReason = mouth.Enabled ? null : "Companion:RendererShadow:Mouth:Enabled is false",
+            Source = new ArtifactSource { BuiltBy = "training/mouth/serve_run2.py" },
+        });
+
         all.Add(new ModelDependency
         {
             Id = "renderer.served",

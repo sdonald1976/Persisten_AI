@@ -102,11 +102,24 @@ public static class RendererArtifactChecks
         return IntimateThirdPersonClause.IsMatch(reply);
     }
 
-    /// <summary>plan/3's tag and its five section headers, as CompactV3 actually writes them.</summary>
+    /// <summary>
+    /// plan/3's tag and section headers, plus plan/4's expression-policy vocabulary.
+    ///
+    /// The plan/4 tokens are here because Run-2 is the first model trained on a prompt that
+    /// contains them: CompactV4 writes `must_express`, `background_only` and their siblings into
+    /// the input, so those are the words this model can echo. A gate that knows only the previous
+    /// format's vocabulary would watch for words the model never sees while missing the ones it
+    /// does, which is the same as not watching.
+    /// </summary>
     private static readonly string[] PlanThreeVocabulary =
     [
         "[plan/3]", "SAY (", "ASK (", "OPTIONAL (", "NEVER (", "BACKGROUND (",
         "MUST-STATE", "MAY-USE", "NEVER-CONTRADICT",
+
+        // plan/4 (CompactV4)
+        "[plan/4]", "must_express", "may_express", "background_only", "must_not_express",
+        "admit_unknown", "ask_required", "question_forbidden", "question_optional",
+        "RESPONSE PLAN:", "sceneRef",
     ];
 
     /// <summary>A bracketed plan tag, or a bare control assignment, at the head of a line.</summary>

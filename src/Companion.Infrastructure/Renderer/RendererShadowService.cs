@@ -62,6 +62,11 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
 
     private long _canaryDisplayed;
     private long _canaryFallback;
+    private long _mouthRendered;
+    private long _mouthFailed;
+    private long _mouthCanaryDisplayed;
+    private long _mouthCanaryFallback;
+    private string? _mouthLoadedAdapterSha;
 
     private long _v3Produced;
     private long _v3Valid;
@@ -302,6 +307,199 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         var shadowViolations = RendererShadowChecks.Score(obs.Plan, core.Reply);
         var productionViolations = RendererShadowChecks.Score(obs.Plan, obs.ProductionResponse);
         await RecordComparisonAsync(obs, core, shadowViolations, productionViolations, "legacy", ct);
+    }
+
+    // ---- Run-2: the mouth -------------------------------------------------------------------
+
+    /// <summary>What the endpoint says it actually loaded, once asked. Null until then.</summary>
+    public string? MouthLoadedAdapterSha => _mouthLoadedAdapterSha;
+
+    public long MouthRendered => Interlocked.Read(ref _mouthRendered);
+    public long MouthFailed => Interlocked.Read(ref _mouthFailed);
+    public long MouthCanaryDisplayed => Interlocked.Read(ref _mouthCanaryDisplayed);
+    public long MouthCanaryFallback => Interlocked.Read(ref _mouthCanaryFallback);
+
+    /// <summary>
+    /// Whether run-2 may be DISPLAYED to this user. Distinct from whether it is observed: shadow
+    /// runs for everyone the options enable, display runs for exactly one named user.
+    /// </summary>
+    public bool IsMouthCanaryFor(string userId)
+        => _options.Mouth.Enabled
+           && !string.IsNullOrEmpty(_options.Mouth.CanaryUserId)
+           && string.Equals(_options.Mouth.CanaryUserId, userId, StringComparison.Ordinal);
+
+    public bool IsMouthObserving => _options.Mouth.Enabled;
+
+    /// <summary>
+    /// Confirm the endpoint is serving the adapter configuration pins. Called once at startup:
+    /// a hash in a config file and a process answering on a port are two separate claims, and
+    /// only the second one renders turns.
+    /// </summary>
+    public async Task<(bool Ok, string Detail)> VerifyMouthIdentityAsync(CancellationToken ct)
+    {
+        if (!_options.Mouth.Enabled)
+            return (true, "mouth disabled");
+        try
+        {
+            using var response = await _http.GetAsync(
+                $"{_options.Mouth.Endpoint.TrimEnd('/')}/api/identity", ct);
+            response.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            var loaded = doc.RootElement.GetProperty("adapterSha256").GetString() ?? "";
+            _mouthLoadedAdapterSha = loaded;
+
+            var pinned = _options.Mouth.AdapterSha256;
+            if (string.IsNullOrWhiteSpace(pinned))
+                return (false, $"no AdapterSha256 pinned; endpoint is serving {loaded}");
+            if (!string.Equals(pinned, loaded, StringComparison.OrdinalIgnoreCase))
+                return (false, $"adapter mismatch: pinned {pinned}, endpoint loaded {loaded}");
+            return (true, $"endpoint serving pinned adapter {loaded}");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"mouth endpoint unreachable: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Render this turn through run-2 and score it. Used by both the shadow path and the canary;
+    /// the difference between them is what the caller does with the result, never how it is
+    /// produced, so a canary reply is the same reply the shadow would have recorded.
+    /// </summary>
+    private async Task<RenderCore> RenderMouthCoreAsync(
+        RendererShadowObservation obs, CancellationToken ct)
+    {
+        if (obs.Packet is null)
+            throw new InvalidOperationException("mouth render requires the turn's ContextPacket");
+        if (obs.NativeV3 is null)
+            throw new InvalidOperationException("mouth render requires the native plan/4");
+
+        // THE training input, built by the one definition of it. Not a reconstruction.
+        var prompt = MouthPromptV4.Build(
+            obs.Packet, obs.NativeV3, obs.Transcript, obs.UserMessage);
+        var planHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(prompt.User)))
+            .ToLowerInvariant();
+
+        var payload = new
+        {
+            model = "run-2",
+            stream = false,
+            // Greedy, matching the evaluation harness. Sampling would make each turn a
+            // measurement of luck rather than of the model.
+            options = new { temperature = 0.0, num_predict = 220 },
+            messages = new object[]
+            {
+                new { role = "system", content = prompt.System },
+                new { role = "user", content = prompt.User },
+            },
+        };
+
+        var started = Stopwatch.GetTimestamp();
+        using var response = await _http.PostAsync(
+            $"{_options.Mouth.Endpoint.TrimEnd('/')}/api/chat",
+            new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"),
+            ct);
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        var reply = doc.RootElement.GetProperty("message").GetProperty("content").GetString() ?? "";
+        var latencyMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+        // The endpoint stamps every reply with the weights that produced it, so a row records
+        // what answered rather than what was configured.
+        if (doc.RootElement.TryGetProperty("adapter_sha256", out var sha))
+            _mouthLoadedAdapterSha = sha.GetString();
+
+        long vramBytes = 0;
+        try
+        {
+            using var ps = await _http.GetAsync($"{_options.Mouth.Endpoint.TrimEnd('/')}/api/ps", ct);
+            using var psDoc = JsonDocument.Parse(await ps.Content.ReadAsStringAsync(ct));
+            vramBytes = psDoc.RootElement.GetProperty("models")[0].GetProperty("size_vram").GetInt64();
+        }
+        catch (Exception)
+        {
+            // Telemetry; its absence never costs the row.
+        }
+
+        return new RenderCore(reply, prompt.User, planHash, latencyMs, vramBytes);
+    }
+
+    /// <summary>
+    /// The canary: run-2's reply, or null to mean "show production".
+    ///
+    /// Null is returned for every failure class without distinction at the call site - the caller
+    /// has the production reply already and does not need to know which way the mouth failed to
+    /// decide what to show. The reason is recorded, not acted on.
+    /// </summary>
+    public async Task<RendererCanaryResult?> RenderMouthForDisplayAsync(
+        RendererShadowObservation obs, bool record, CancellationToken ct)
+    {
+        if (!_options.Mouth.Enabled)
+            return null;
+
+        RenderCore core;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(
+                Math.Clamp(_options.Mouth.CanaryTimeoutSeconds, 5, 180)));
+            core = await RenderMouthCoreAsync(obs, cts.Token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            Interlocked.Increment(ref _mouthFailed);
+            Interlocked.Increment(ref _mouthCanaryFallback);
+            _logger.LogWarning(ex, "Mouth canary unavailable for {TraceId}; production reply shown.", obs.TraceId);
+            return null;
+        }
+
+        Interlocked.Increment(ref _mouthRendered);
+        var violations = RendererShadowChecks.Score(obs.Plan, core.Reply);
+        var critical = violations.Any(IsCritical);
+        Interlocked.Increment(ref critical ? ref _mouthCanaryFallback : ref _mouthCanaryDisplayed);
+
+        if (record && _recorder.IsRecording)
+        {
+            var productionViolations = RendererShadowChecks.Score(obs.Plan, obs.ProductionResponse);
+            await RecordComparisonAsync(obs, core, violations, productionViolations,
+                applied: critical ? "legacy" : "mouth", CancellationToken.None);
+        }
+
+        return new RendererCanaryResult(core.Reply, violations, core.LatencyMs, critical);
+    }
+
+    /// <summary>
+    /// Shadow: render run-2, score it, record it, display nothing. Fire and forget - the caller
+    /// is not waiting and a failure anywhere inside is a counter and a log line.
+    /// </summary>
+    public void ObserveMouth(RendererShadowObservation observation)
+    {
+        if (!_options.Mouth.Enabled)
+            return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(
+                    TimeSpan.FromSeconds(Math.Clamp(_options.Mouth.TimeoutSeconds, 5, 600)));
+                var core = await RenderMouthCoreAsync(observation, cts.Token);
+                Interlocked.Increment(ref _mouthRendered);
+
+                if (_recorder.IsRecording)
+                {
+                    var violations = RendererShadowChecks.Score(observation.Plan, core.Reply);
+                    var productionViolations =
+                        RendererShadowChecks.Score(observation.Plan, observation.ProductionResponse);
+                    await RecordComparisonAsync(observation, core, violations, productionViolations,
+                        applied: "legacy", CancellationToken.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Increment(ref _mouthFailed);
+                _logger.LogWarning(ex, "Mouth shadow render failed for {TraceId}.", observation.TraceId);
+            }
+        });
     }
 
     private readonly record struct RenderCore(string Reply, string Plan2, string PlanHash, long LatencyMs, long VramBytes);

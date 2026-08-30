@@ -336,4 +336,85 @@ public sealed class RendererShadowOptions
     /// for the renderer; the user should barely wait for the canary.
     /// </summary>
     public int CanaryTimeoutSeconds { get; set; } = 25;
+
+    /// <summary>Run-2, the mouth. Off by default; see <see cref="MouthOptions"/>.</summary>
+    public MouthOptions Mouth { get; set; } = new();
+}
+
+/// <summary>
+/// Run-2: the mouth, trained on plan/4 and served on its own endpoint.
+///
+/// A sibling of the run-1c renderer rather than a replacement for it. The two are deliberately
+/// separate settings because they are different models, on different prompt formats, at different
+/// stages of trust: run-1c has a shipped corpus and a shadow history, run-2 has neither yet. What
+/// they share is the queue, the recorder and the privacy path, so a row from either is written the
+/// same way and forgotten the same way.
+///
+/// Everything here defaults to off. Enabling <see cref="Enabled"/> starts SHADOW only — run-2
+/// renders beside the production reply and is recorded; the user sees production. Naming a
+/// <see cref="CanaryUserId"/> is the separate, later decision that lets one user see run-2's reply
+/// when every critical gate passes.
+/// </summary>
+public sealed class MouthOptions
+{
+    /// <summary>Off by default. Turning this off IS the rollback; no other state is involved.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>serve_run2.py, which verifies its own artifacts before loading and reports what it loaded.</summary>
+    public string Endpoint { get; set; } = "http://127.0.0.1:11436";
+
+    /// <summary>
+    /// sha256 of adapter_model.safetensors. Checked against what the endpoint reports it actually
+    /// loaded, because a configured hash and a running process are two different claims and only
+    /// one of them is answering turns.
+    /// </summary>
+    public string AdapterSha256 { get; set; } = "";
+
+    /// <summary>
+    /// The adapter weights, relative to the repository root. Tracked by Git LFS, so on a fresh
+    /// clone without LFS this path EXISTS and holds a pointer rather than weights - which is why
+    /// bootstrap inspects content instead of testing for presence.
+    /// </summary>
+    public string AdapterPath { get; set; } =
+        "training/mouth/runs/run-2/adapter-final/adapter_model.safetensors";
+
+    /// <summary>Files that must sit beside the adapter for it to load at all.</summary>
+    public string[] AdapterFiles { get; set; } =
+    [
+        "adapter_config.json", "tokenizer.json", "tokenizer_config.json",
+        "special_tokens_map.json", "added_tokens.json", "vocab.json", "merges.txt",
+    ];
+
+    /// <summary>The manifest every artifact is verified against before the endpoint loads.</summary>
+    public string ManifestPath { get; set; } = "training/mouth/runs/run-2/SHA256SUMS";
+
+    /// <summary>The base the adapter was trained against, pinned to the exact revision.</summary>
+    public ArtifactSource? BaseModel { get; set; } = new()
+    {
+        Repository = "Qwen/Qwen2.5-3B-Instruct",
+        Revision = "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    };
+
+    /// <summary>Where the base is expected locally, relative to the repository root.</summary>
+    public string BaseModelPath { get; set; } = "training/renderer/models/Qwen2.5-3B-Instruct";
+
+    /// <summary>Human-readable identity ("run-2 step-180 on Qwen2.5-3B-Instruct aa8e7253"), recorded per row.</summary>
+    public string ModelVersion { get; set; } = "";
+
+    /// <summary>Per-call ceiling for a shadow render, which nothing user-facing waits on.</summary>
+    public int TimeoutSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// The user-scoped canary. When this names a user id, that user's eligible non-tool turns
+    /// DISPLAY run-2's reply - but only when every critical gate passes, with the production reply
+    /// as immediate fallback on unavailability, timeout, empty output, or any critical failure.
+    /// Empty (the default) means shadow-only for everyone, and clearing it is the whole rollback.
+    /// </summary>
+    public string CanaryUserId { get; set; } = "";
+
+    /// <summary>
+    /// Ceiling for the in-turn canary render. Past this the fallback reply, already generated,
+    /// is shown. The canary waits for the mouth; the user should barely wait for the canary.
+    /// </summary>
+    public int CanaryTimeoutSeconds { get; set; } = 30;
 }

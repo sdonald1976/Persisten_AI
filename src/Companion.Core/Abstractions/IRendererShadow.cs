@@ -34,6 +34,40 @@ public interface IRendererShadow
     /// </summary>
     void ObservePlanOnly(RendererShadowObservation observation);
 
+    // ---- Run-2: the mouth -------------------------------------------------------------------
+    // A sibling arm, not a replacement. Separate because they are different models on different
+    // prompt formats at different stages of trust; on the same interface because they share the
+    // recorder, the queue and the privacy path, so a row from either is written and forgotten
+    // the same way.
+
+    /// <summary>Whether run-2 renders beside the reply at all. Display is a separate question.</summary>
+    bool IsMouthObserving { get; }
+
+    /// <summary>Whether run-2 may be DISPLAYED to this user. One named user, or nobody.</summary>
+    bool IsMouthCanaryFor(string userId);
+
+    /// <summary>
+    /// Render this turn through run-2 for DISPLAY, or return null meaning "show production".
+    ///
+    /// Null covers every failure class without distinguishing them at the call site: the caller
+    /// holds the production reply already and does not need to know how the mouth failed in order
+    /// to decide what to show. The reason is recorded, never acted on.
+    /// </summary>
+    Task<RendererCanaryResult?> RenderMouthForDisplayAsync(
+        RendererShadowObservation observation, bool record, CancellationToken ct);
+
+    /// <summary>
+    /// Render and record run-2 beside the displayed reply, changing nothing. Fire-and-forget on
+    /// the same terms as <see cref="Observe"/>: immutable inputs, no return, never throws.
+    /// </summary>
+    void ObserveMouth(RendererShadowObservation observation);
+
+    /// <summary>
+    /// Confirm the endpoint is serving the pinned adapter. A hash in configuration and a process
+    /// answering on a port are two different claims, and only the second one renders turns.
+    /// </summary>
+    Task<(bool Ok, string Detail)> VerifyMouthIdentityAsync(CancellationToken ct);
+
     /// <summary>Queue lifecycle counters, for diagnostics and the collection report.</summary>
     RendererShadowCounters Counters { get; }
 
@@ -117,6 +151,18 @@ public sealed record RendererShadowObservation
     public required string ProductionResponse { get; init; }
 
     /// <summary>
+    /// The companion's rendered context packet - the SYSTEM message MouthPromptV4 requires.
+    ///
+    /// Run-2 was trained on exactly this seat: the mouth occupies the position the chat model
+    /// occupies in TurnExecution, and receives the same packet the chat model receives. Passing
+    /// the packet rather than rebuilding one here is what makes "the training row's input equals
+    /// the shipping renderer's input" true by construction rather than by review.
+    ///
+    /// Null for the run-1c path, which serializes plan/2 and never sees a packet.
+    /// </summary>
+    public ContextPacket? Packet { get; init; }
+
+    /// <summary>
     /// plan/4 evidence: the size of the CompactV4 serialization for this turn, when a frame
     /// was present. A NUMBER, never the text — CompactV4 is recorded as evidence that the
     /// serializer runs on real turns, and reaches no model until Run-2 is promoted.
@@ -162,4 +208,20 @@ public sealed class NullRendererShadow : IRendererShadow
     public Task<RendererCanaryResult?> RenderForDisplayAsync(
         RendererShadowObservation observation, bool record, CancellationToken ct)
         => Task.FromResult<RendererCanaryResult?>(null);
+
+    // The mouth is off here for the same reason everything else is: this type IS the off switch.
+    public bool IsMouthObserving => false;
+
+    public bool IsMouthCanaryFor(string userId) => false;
+
+    public Task<RendererCanaryResult?> RenderMouthForDisplayAsync(
+        RendererShadowObservation observation, bool record, CancellationToken ct)
+        => Task.FromResult<RendererCanaryResult?>(null);
+
+    public void ObserveMouth(RendererShadowObservation observation)
+    {
+    }
+
+    public Task<(bool Ok, string Detail)> VerifyMouthIdentityAsync(CancellationToken ct)
+        => Task.FromResult((true, "renderer shadow disabled"));
 }

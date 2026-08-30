@@ -159,7 +159,20 @@ public sealed class TurnExecution(
         // CAPABILITY ROUTING, not content blocking. Run-1c's corpus contains no roleplay, so
         // an in-character turn stays on production, the model proven to handle it. That
         // restricts no subject matter: production answers it in full.
-        var canaryTurn = rendererShadow.IsCanaryFor(request.UserId)
+        // Run-2 needs a native plan/4 and the packet; without either it has nothing to render and
+        // the turn stays on production. Tool turns and in-character turns are excluded for the
+        // same reason they are excluded from the run-1c canary: the corpus never covered them.
+        var mouthEligible = request.ToolOutcome.Calls.Count == 0
+            && !request.InCharacter
+            && request.NativeV3 is not null;
+
+        var mouthCanaryTurn = rendererShadow.IsMouthCanaryFor(request.UserId) && mouthEligible;
+
+        // Exactly one candidate can ever be displayed. When the mouth canary owns this turn the
+        // run-1c canary stands down, so there is no arrangement in which two models both produce
+        // a reply that could be shown - the user sees one reply and one only.
+        var canaryTurn = !mouthCanaryTurn
+            && rendererShadow.IsCanaryFor(request.UserId)
             && request.ToolOutcome.Calls.Count == 0
             && !request.InCharacter;
 
@@ -167,8 +180,11 @@ public sealed class TurnExecution(
         // than a second rendering that might differ.
         var renderedPrompt = request.Packet.Render();
 
+        // Streaming is suppressed for any canary turn: a token sink would show the user the
+        // production reply as it is generated, and then a different reply would replace it.
         var generated = await replyGenerator.GenerateAsync(
-            renderedPrompt, request.PromptText, canaryTurn ? null : request.TokenSink,
+            renderedPrompt, request.PromptText,
+            canaryTurn || mouthCanaryTurn ? null : request.TokenSink,
             request.CompanionName, ct);
 
         // Her own transcript is in the prompt, and she sometimes continues it instead of
@@ -182,10 +198,72 @@ public sealed class TurnExecution(
                 request.UserId, generated.Text.Length - production.Length);
         }
 
+        // One construction, used by both the shadow and the canary. If these were built
+        // separately the thing measured in shadow would not be the thing displayed in canary,
+        // and the shadow would stop being evidence about the canary.
+        static RendererShadowObservation MouthObservation(TurnExecutionRequest r, string produced)
+            => new()
+            {
+                TraceId = r.TraceId,
+                UserId = r.UserId,
+                SourceMessageId = r.SourceMessageId,
+                ConversationId = r.ConversationId,
+                Plan = r.Plan,
+                Packet = r.Packet,
+                Transcript = r.Recent
+                    .TakeLast(4)
+                    .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
+                    .ToList(),
+                UserMessage = r.PromptText,
+                ProductionResponse = produced,
+                NativeV3 = r.NativeV3,
+                NativeBuildError = r.NativeBuildError,
+                NativeLintRejections = r.NativeLintRejections,
+                NativeAssembly = r.NativeAssembly,
+                NativeCompactV4Chars = r.NativeCompactV4Chars,
+                NativeFrameTransition = r.NativeFrameTransition,
+            };
+
         var response = production;
         string? rendererCandidate = null;
         var selectedRenderer = "production";
         string? fallbackReason = null;
+
+        if (mouthCanaryTurn)
+        {
+            var mouthResult = await rendererShadow.RenderMouthForDisplayAsync(
+                MouthObservation(request, response), record: !request.Sensitive, ct);
+
+            selectedRenderer = mouthResult is { CriticalFailure: false } ? "run-2" : "production";
+            if (selectedRenderer == "run-2")
+            {
+                rendererCandidate = mouthResult!.Reply;
+                response = rendererCandidate;
+            }
+            else
+            {
+                fallbackReason = mouthResult is null
+                    ? "mouth unavailable or timed out"
+                    : $"critical fidelity failure: {string.Join("; ", mouthResult.Violations)}";
+            }
+
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "mouth.canary", Decider = "config",
+                Verdict = selectedRenderer == "run-2" ? "displayed-run2" : "fallback-production",
+                Reason = mouthResult is null ? "mouth unavailable or timed out"
+                    : mouthResult.CriticalFailure
+                        ? $"critical fidelity failure: {string.Join("; ", mouthResult.Violations)}"
+                        : $"latency {mouthResult.LatencyMs}ms",
+            });
+        }
+        else if (mouthEligible && rendererShadow.IsMouthObserving)
+        {
+            // Shadow: run-2 renders beside the reply the user is already getting, and the pair is
+            // recorded. Nothing here can change the displayed reply, and nothing waits on it.
+            if (!request.Sensitive)
+                rendererShadow.ObserveMouth(MouthObservation(request, response));
+        }
 
         if (canaryTurn)
         {

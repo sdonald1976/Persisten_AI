@@ -351,6 +351,21 @@ public class TurnObservabilityComponentTests
         public Task<RendererCanaryResult?> RenderForDisplayAsync(
             RendererShadowObservation observation, bool record, CancellationToken ct)
             => Task.FromResult<RendererCanaryResult?>(null);
+
+    public bool IsMouthObserving => false;
+
+    public bool IsMouthCanaryFor(string userId) => false;
+
+    public Task<RendererCanaryResult?> RenderMouthForDisplayAsync(
+        RendererShadowObservation observation, bool record, CancellationToken ct)
+        => Task.FromResult<RendererCanaryResult?>(null);
+
+    public void ObserveMouth(RendererShadowObservation observation)
+    {
+    }
+
+    public Task<(bool Ok, string Detail)> VerifyMouthIdentityAsync(CancellationToken ct)
+        => Task.FromResult((true, "test double"));
     }
 
     private sealed class CollectingTraceLog : ITurnTraceLog
