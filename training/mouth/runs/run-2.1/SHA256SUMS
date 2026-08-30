@@ -10,4 +10,4 @@ f51d7e7a49acb7b7d6143deed6c7ecb46813d091ac50c5a38c8abcdad25786af  runs/run-2.1/a
 ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910  runs/run-2.1/adapter-final/vocab.json
 c18fb8f3abfe08c9bb5aa1c26c41653b670ab6c8ef076f5596cde33eb835a77d  runs/run-2.1/metrics.json
 7b0ef8c6bec4d6f680e26abeea63d095a1eebab4864e8495eba824865672bcb3  runs/run-2.1/training-log.jsonl
-dfb075536fc1b508bdd25fd2991bbf9d7f53b92340223819d6cc885fe210eb6b  runs/run-2.1/training-manifest.json
+44157ee630fe0cdc5165baa428e6e61240317fc884e83624e00ba35493aad3e9  runs/run-2.1/training-manifest.json

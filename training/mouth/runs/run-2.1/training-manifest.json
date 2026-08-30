@@ -1,9 +1,9 @@
 {
   "runId": "run-2.1",
   "repository": {
-    "commit": "8e0ce05a1791515fb0a7cfe87a081ed9a33816f9",
+    "commit": "7bc0c4db2a080d2a1c68439bab6271921e592433",
     "branch": "master",
-    "treeClean": false,
+    "treeClean": true,
     "corpusApprovedAt": null
   },
   "protocolHash": "81c3a19acd48197818bb55030e1411e5e0a162ee925ed8ca1d4f0dc01e51085a",
