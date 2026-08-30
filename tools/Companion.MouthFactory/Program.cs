@@ -24,6 +24,7 @@ var targetAccepted = int.TryParse(ArgValue("--target-accepted"), out var ta) ? t
 var maxUnits = int.TryParse(ArgValue("--max-units"), out var mu) ? mu : (int?)null;
 var batchSize = int.TryParse(ArgValue("--batch"), out var bs) ? bs : 64;
 var interleaved = Array.IndexOf(args, "--interleaved") >= 0;
+var dryRunOnly = Array.IndexOf(args, "--dry-run") >= 0;
 
 switch (command)
 {
@@ -36,6 +37,8 @@ switch (command)
     case "critic-audit": return await CriticAuditAsync();
     case "freeze": return await FreezeAsync();
     case "score": return await ScoreAsync();
+    case "supplement": return await SupplementAsync();
+    case "supplement-freeze": return SupplementFreeze();
     default:
         Console.WriteLine("""
             mouth-factory <command> [options]
@@ -49,6 +52,8 @@ switch (command)
               critic-audit   matched-pair critic asymmetry audit
               freeze         evaluate the declared acceptance conditions; export only if all pass
               score          score generated replies against scenario truth (--generations, --arm, --split)
+              supplement     generate the Run-2.1 targeted supplement (additive; never touches Run-2)
+              supplement-freeze  check the supplement's own bar, then hash and export it
 
             options
               --out <dir>        output directory (default training/mouth-factory)
@@ -767,6 +772,284 @@ List<T> ReadJsonl<T>(string path)
         ? File.ReadLines(path).Where(l => l.Trim().Length > 0)
             .Select(l => JsonSerializer.Deserialize<T>(l, Web())!).ToList()
         : [];
+
+
+/// <summary>
+/// Generate the Run-2.1 supplement: the composition Run-2 was never trained on.
+///
+/// Additive. The Run-2 corpus is not read, rewritten or extended, and the 61 hard-eval rows are
+/// untouched - moving them into training would close the gap and destroy the only measurement of
+/// it in the same move.
+///
+/// Splits are assigned BEFORE any target is generated, from the scenario family alone, and
+/// deliberately not through FamilySplitter: its hard-case routing is what sent every row of this
+/// composition to an evaluation-only split in the first place.
+/// </summary>
+async Task<int> SupplementAsync()
+{
+    var generator = new SupplementGenerator(seed);
+    var perSituation = int.TryParse(ArgValue("--per-situation"), out var ps) ? ps : 4;
+    var scenarios = generator.Generate(perSituation).ToList();
+
+    var splits = SupplementSplitter.AssignAll(scenarios)
+        .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+
+    Console.WriteLine();
+    Console.WriteLine($"SUPPLEMENT  scenarios={scenarios.Count}  seed={seed}  "
+                      + $"algorithm={SupplementSplitter.Algorithm}");
+    foreach (var g in splits.Values.GroupBy(v => v, StringComparer.Ordinal)
+                 .OrderBy(g => g.Key, StringComparer.Ordinal))
+        Console.WriteLine($"  {g.Key,-22}{g.Count(),5} scenarios");
+
+    foreach (var g in scenarios.GroupBy(sc => sc.FamilyId, StringComparer.Ordinal)
+                 .OrderBy(g => g.Key, StringComparer.Ordinal))
+        Console.WriteLine($"  {g.Key,-6}{g.Count(),5} scenarios   "
+                          + $"{g.Select(x => x.ScenarioFamilyId).Distinct().Count()} families");
+
+    // Every scenario must be the composition it claims to be. A supplement that quietly contains
+    // an ordinary turn teaches the ordinary case again.
+    var wrong = scenarios.Where(sc =>
+        !string.Equals(sc.Question.Policy, "none", StringComparison.Ordinal)
+        || (sc.EpistemicUnknowns.Count == 0 && sc.IntentionalAmbiguities.Count == 0)
+        || !sc.ApprovedFacts.Any(f => f.Policy == FactPolicy.MustExpress)).ToList();
+    if (wrong.Count > 0)
+    {
+        Console.Error.WriteLine($"COMPOSITION: {wrong.Count} scenario(s) are not "
+                                + "question-forbidden + gap + known fact.");
+        return 5;
+    }
+    Console.WriteLine("  composition verified on every scenario");
+
+    // A split must never straddle a scenario family, or a target seen in training reappears in test.
+    var straddling = scenarios.GroupBy(sc => sc.ScenarioFamilyId, StringComparer.Ordinal)
+        .Count(g => g.Select(x => splits[x.Id]).Distinct(StringComparer.Ordinal).Count() > 1);
+    if (straddling > 0)
+    {
+        Console.Error.WriteLine($"SPLITS: {straddling} scenario families span more than one split.");
+        return 5;
+    }
+    Console.WriteLine("  every scenario family sits in exactly one split");
+
+    if (dryRunOnly)
+    {
+        Directory.CreateDirectory(output);
+        WriteScenarios(scenarios, splits);
+        Console.WriteLine($"\ndry run: scenarios written, nothing generated -> {output}");
+        return 0;
+    }
+
+    var roleRouter = BuildRoles(out var roleDescription);
+    if (roleRouter is null)
+    {
+        Console.Error.WriteLine("Set MOUTH_WRITER_MODEL and the critic models, or pass --dry-run.");
+        return 2;
+    }
+    var violations = RoleIndependence.Check(RoleModels());
+    if (violations.Count > 0)
+    {
+        foreach (var v in violations)
+            Console.Error.WriteLine("ROLE INDEPENDENCE: " + v.Detail);
+        return 4;
+    }
+
+    using (var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(300) })
+    {
+        var health = await OllamaPreflight.CheckAsync(
+            probe,
+            Environment.GetEnvironmentVariable("MOUTH_WRITER_ENDPOINT") ?? "http://localhost:11434/v1",
+            Environment.GetEnvironmentVariable("MOUTH_WRITER_MODEL")!);
+        if (!health.Healthy)
+        {
+            Console.Error.WriteLine("PREFLIGHT FAILED: " + health.Detail);
+            return 3;
+        }
+        Console.WriteLine("preflight  " + health.Detail);
+    }
+
+    Console.WriteLine($"roles     {roleDescription}");
+    Directory.CreateDirectory(output);
+    WriteScenarios(scenarios, splits);
+
+    var source = new ModelTargetSource(roleRouter, seed);
+    var store = new RowStore(Path.Combine(output, "rows"));
+    var criticRoles = new[] { Role.FaithfulnessCritic, Role.AdversarialCritic, Role.NaturalnessCritic }
+        .Where(r => roleRouter.Has(r)).Select(r => r.ToString()).ToList();
+    var staged = new StagedPipeline(
+        source, CandidateStore.Open(Path.Combine(output, "candidates.jsonl")),
+        store, new Deduplicator(), criticRoles);
+
+    var sr = await staged.RunAsync(scenarios, new PipelineOptions
+    {
+        OutputDirectory = output,
+        TargetsPerScenario = variants,
+        MaxUnits = maxUnits,
+    }, batchSize);
+
+    Console.WriteLine($"\nstop reason     {sr.StopReason}   rounds {sr.Rounds}");
+    Console.WriteLine($"units attempted {sr.UnitsAttempted}   accepted {sr.Accepted}   "
+                      + $"manual review {sr.ManualReview}   rejected {sr.Rejected}");
+    if (sr.RejectionCodes.Count > 0)
+    {
+        Console.WriteLine("rejection reasons");
+        foreach (var (code, count) in sr.RejectionCodes.OrderByDescending(kv => kv.Value))
+            Console.WriteLine($"  {count,6}  {code}");
+    }
+    return sr.Accepted == 0 ? 1 : 0;
+}
+
+void WriteScenarios(
+    List<ScenarioTruth> scenarios, Dictionary<string, string> splits)
+{
+    File.WriteAllText(
+        Path.Combine(output, "supplement-scenarios.jsonl"),
+        string.Concat(scenarios.Select(sc => JsonSerializer.Serialize(sc, Web()) + "\n")));
+    File.WriteAllText(
+        Path.Combine(output, "supplement-splits.json"),
+        JsonSerializer.Serialize(
+            new
+            {
+                algorithm = SupplementSplitter.Algorithm,
+                seed,
+                assignedBeforeGeneration = true,
+                splits,
+            },
+            new JsonSerializerOptions(Web()) { WriteIndented = true }));
+}
+
+
+/// <summary>
+/// The supplement's own freeze: apply the stricter bar, check family diversity, then hash and
+/// export.
+///
+/// Separate from the main freeze because the bar is different. The main gates cannot see the
+/// failure this supplement corrects - Run-2 scored 95.1% plan/4-clean on hard-eval while
+/// answering in stubs - so a row that clears the main battery still has to clear topical
+/// grounding, uncertainty preservation, no-stock-closer and unsupported elaboration here.
+/// </summary>
+int SupplementFreeze()
+{
+    var store = new RowStore(Path.Combine(output, "rows"));
+    var rows = store.ReadRows(Disposition.Accepted).ToList();
+    var meta = store.ReadMetadata(Disposition.Accepted)
+        .GroupBy(m => m.Id, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    if (rows.Count == 0)
+    {
+        Console.Error.WriteLine("no accepted supplement rows; run `supplement` first");
+        return 1;
+    }
+
+    var scenarioPath = Path.Combine(output, "supplement-scenarios.jsonl");
+    var scenarios = File.ReadLines(scenarioPath).Where(l => l.Length > 0)
+        .Select(l => JsonSerializer.Deserialize<ScenarioTruth>(l, Web())!)
+        .GroupBy(sc => sc.Id, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    var splitDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "supplement-splits.json")));
+    var splits = splitDoc.RootElement.GetProperty("splits").EnumerateObject()
+        .ToDictionary(p => p.Name, p => p.Value.GetString()!, StringComparer.Ordinal);
+
+    // ---- the stricter bar, row by row -------------------------------------------------------
+    var kept = new List<(TrainingRow Row, TrainingRowMetadata Meta, string Split)>();
+    var rejected = new Dictionary<string, int>(StringComparer.Ordinal);
+    foreach (var row in rows)
+    {
+        if (!meta.TryGetValue(row.Id, out var m)
+            || !scenarios.TryGetValue(m.ScenarioId, out var sc))
+            continue;
+        var checks = SupplementChecks.Run(sc, row.Target);
+        var failed = checks.Where(c => !c.Passed).ToList();
+        if (failed.Count > 0)
+        {
+            foreach (var f in failed)
+                rejected[f.Code!] = rejected.GetValueOrDefault(f.Code!) + 1;
+            continue;
+        }
+        kept.Add((row, m, splits.GetValueOrDefault(m.ScenarioId, "targeted-train")));
+    }
+
+    Console.WriteLine();
+    Console.WriteLine($"supplement rows accepted by the main battery : {rows.Count}");
+    Console.WriteLine($"rows clearing the SUPPLEMENT bar             : {kept.Count}");
+    if (rejected.Count > 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("rejected by the stricter bar");
+        foreach (var (code, n) in rejected.OrderByDescending(kv => kv.Value))
+            Console.WriteLine($"  {n,5}  {code}");
+    }
+    if (kept.Count == 0)
+        return 1;
+
+    // ---- family-level diversity, which no per-row check can see -------------------------------
+    var diversity = SupplementChecks.Diversity(
+        kept.Select(k => (k.Meta.FamilyId, k.Row.Target)));
+    Console.WriteLine();
+    Console.WriteLine($"  {"family",-8}{"rows",6}{"openings",11}{"replies",10}");
+    foreach (var d in diversity)
+        Console.WriteLine($"  {d.Family,-8}{d.Rows,6}{d.OpeningRatio,10:P0}{d.ReplyRatio,10:P0}"
+                          + (d.Ok ? "" : "   BELOW BAR"));
+
+    var thin = diversity.Where(d => !d.Ok).ToList();
+    if (thin.Count > 0)
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("FREEZE REFUSED - family diversity below the supplement bar "
+                                + "(openings >= 60%, replies >= 90%): "
+                                + string.Join(", ", thin.Select(t => t.Family)));
+        return 1;
+    }
+
+    // ---- export, hashed, with provenance --------------------------------------------------------
+    var exportDir = Path.Combine(output, "export");
+    Directory.CreateDirectory(exportDir);
+    var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
+    foreach (var group in kept.GroupBy(k => k.Split, StringComparer.Ordinal)
+                 .OrderBy(g => g.Key, StringComparer.Ordinal))
+    {
+        var name = $"mouth-sup-{group.Key}";
+        var jsonl = Exports.WriteJsonl(exportDir, name, group.Select(g => g.Row).ToList());
+        hashes[Path.GetFileName(jsonl)] = Exports.Sha256OfFile(jsonl);
+        Console.WriteLine($"  {name,-30}{group.Count(),5} rows");
+    }
+
+    var manifest = new
+    {
+        supplement = "run-2.1-targeted",
+        schemaVersion = SupplementGenerator.SchemaVersion,
+        promptFormat = MouthPromptV4.FormatVersion,
+        repoCommit = Environment.GetEnvironmentVariable("MOUTH_FACTORY_COMMIT") ?? "(unrecorded)",
+        seed,
+        composition = "question forbidden + admitted unknown (sometimes with an ambiguity) + a known fact",
+        additive = "Run-2's frozen corpus is not read, rewritten or extended; its 61 hard-eval rows are untouched",
+        splitAlgorithm = SupplementSplitter.Algorithm,
+        splitsAssignedBeforeGeneration = true,
+        acts = SupplementSituations.Acts.Select(a => new { family = a.Family, act = a.Act, situations = a.Pool.Count }),
+        acceptedByMainBattery = rows.Count,
+        acceptedBySupplementBar = kept.Count,
+        rejectedBySupplementBar = rejected,
+        familyDiversity = diversity.Select(d => new
+        {
+            d.Family, d.Rows, openings = d.OpeningRatio, replies = d.ReplyRatio,
+        }),
+        rowsBySplit = kept.GroupBy(k => k.Split, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
+        roles = RoleDescription(),
+        exportHashes = hashes,
+    };
+    var manifestPath = Path.Combine(exportDir, "supplement-manifest.json");
+    File.WriteAllText(manifestPath, JsonSerializer.Serialize(
+        manifest, new JsonSerializerOptions(Web()) { WriteIndented = true }));
+
+    var sumsPath = Path.Combine(exportDir, "SHA256SUMS");
+    File.WriteAllText(sumsPath, string.Concat(
+        hashes.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => kv.Value + "  " + kv.Key + "\n")));
+
+    Console.WriteLine();
+    Console.WriteLine($"manifest   {manifestPath}");
+    Console.WriteLine($"hashes     {sumsPath}");
+    return 0;
+}
 
 // ---- helpers -----------------------------------------------------------------------------------
 
