@@ -110,7 +110,8 @@ var bootstrap = new ModelBootstrap(
     new OllamaCliClient(http, models.Chat.BaseUrl),
     new HuggingFaceDownloader(),
     new GitLfsCliClient(repoRoot),
-    new LocalFileSystem());
+    new LocalFileSystem(),
+    new HttpServedAdapterProbe(http));
 
 var report = await bootstrap.RunAsync(
     dependencies, mode, routing, allConfigured, force);

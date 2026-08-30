@@ -66,7 +66,8 @@ internal static class ModelBootstrapGate
             new OllamaCliClient(http, models.Chat.BaseUrl),
             new HuggingFaceDownloader(),
             new GitLfsCliClient(contentRoot),
-            new LocalFileSystem());
+            new LocalFileSystem(),
+            new HttpServedAdapterProbe(http));
 
         var report = await bootstrap.RunAsync(
             dependencies, BootstrapMode.Normal,

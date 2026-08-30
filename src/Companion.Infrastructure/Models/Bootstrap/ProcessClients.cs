@@ -190,3 +190,39 @@ public sealed class HuggingFaceDownloader : IArtifactDownloader
         return (false, $"download of {source.Repository} failed (exit {code})");
     }
 }
+
+/// <summary>
+/// Asks a locally served adapter what it loaded, over HTTP.
+///
+/// The counterpart of serve_run2.py's /api/identity. Deliberately thin: any failure at all is
+/// "could not be reached", because from bootstrap's point of view a refused connection, a 500 and
+/// a malformed body are the same actionable fact - the endpoint is not ready, here is how to
+/// start it.
+/// </summary>
+public sealed class HttpServedAdapterProbe(HttpClient http) : IServedAdapterProbe
+{
+    public async Task<(string? AdapterSha256, string Detail)> IdentifyAsync(
+        string baseUrl, CancellationToken ct = default)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            using var response = await http.GetAsync(
+                $"{baseUrl.TrimEnd('/')}/api/identity", cts.Token);
+            if (!response.IsSuccessStatusCode)
+                return (null, $"endpoint answered {(int)response.StatusCode}");
+
+            using var doc = System.Text.Json.JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(cts.Token));
+            return doc.RootElement.TryGetProperty("adapterSha256", out var sha)
+                   && sha.GetString() is { Length: > 0 } value
+                ? (value, "endpoint reported its adapter")
+                : (null, "endpoint did not report an adapter hash");
+        }
+        catch (Exception ex)
+        {
+            return (null, $"endpoint unreachable: {ex.Message}");
+        }
+    }
+}

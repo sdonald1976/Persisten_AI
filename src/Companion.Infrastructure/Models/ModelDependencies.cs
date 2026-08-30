@@ -19,6 +19,17 @@ public enum DependencyKind
     /// download it; the bootstrap can only say what is missing and which script produces it.
     /// </summary>
     LocallyBuiltOllamaModel,
+
+    /// <summary>
+    /// A local process serving an adapter over HTTP, which reports the weights it loaded.
+    ///
+    /// Distinct from <see cref="LocallyBuiltOllamaModel"/> because there is no Ollama tag to look
+    /// for: asking Ollama about it returns "not found" no matter how healthy the process is, which
+    /// reads as a missing dependency and refuses startup while the thing is running perfectly.
+    /// The check that means something here is asking the endpoint what it loaded and comparing it
+    /// to the pin.
+    /// </summary>
+    HttpServedAdapter,
 }
 
 /// <summary>
@@ -285,10 +296,14 @@ public static class ModelDependencies
         {
             Id = "mouth.served",
             Role = "mouth/served endpoint",
-            Kind = DependencyKind.LocallyBuiltOllamaModel,
+            Kind = DependencyKind.HttpServedAdapter,
             Identifier = "run-2",
             Provider = "serve_run2.py",
             BaseUrl = mouth.Endpoint,
+            // The SAME pin the adapter file carries. Without it the probe can only report that
+            // something answered, and a healthy process serving the wrong weights answers
+            // exactly as well as the right one.
+            Sha256 = string.IsNullOrWhiteSpace(mouth.AdapterSha256) ? null : mouth.AdapterSha256,
             Active = mouth.Enabled,
             InactiveReason = mouth.Enabled ? null : "Companion:RendererShadow:Mouth:Enabled is false",
             Source = new ArtifactSource { BuiltBy = "training/mouth/serve_run2.py" },

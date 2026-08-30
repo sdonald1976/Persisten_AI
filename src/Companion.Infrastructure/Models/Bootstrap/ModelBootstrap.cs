@@ -70,6 +70,24 @@ public sealed record BootstrapReport
     public bool Ok => !Results.Any(r => r.Dependency.Active && r.IsFailure);
 }
 
+/// <summary>
+/// A locally served adapter, asked what it loaded.
+///
+/// Behind an interface for the same reason the others are: a bootstrap test must be able to
+/// describe a healthy endpoint, a wrong-adapter endpoint and a dead one without any of them
+/// existing.
+/// </summary>
+public interface IServedAdapterProbe
+{
+    /// <summary>
+    /// The adapter hash the endpoint reports, or null when it cannot be reached. The second
+    /// return value carries the reason, which is the only thing worth telling a human when the
+    /// answer is "no".
+    /// </summary>
+    Task<(string? AdapterSha256, string Detail)> IdentifyAsync(
+        string baseUrl, CancellationToken ct = default);
+}
+
 /// <summary>The Ollama CLI/server, behind an interface so tests never shell out or download.</summary>
 public interface IOllamaClient
 {
@@ -115,7 +133,8 @@ public sealed class ModelBootstrap(
     IOllamaClient ollama,
     IArtifactDownloader downloader,
     IGitLfsClient lfs,
-    IFileSystem files)
+    IFileSystem files,
+    IServedAdapterProbe? servedProbe = null)
 {
     /// <summary>
     /// Git LFS writes a small text stub in place of the real file when content was not fetched.
@@ -170,6 +189,8 @@ public sealed class ModelBootstrap(
                     await CheckLocalFileAsync(dep, mode, force, ct),
                 DependencyKind.HuggingFaceSnapshot =>
                     await CheckSnapshotAsync(dep, mode, force, ct),
+                DependencyKind.HttpServedAdapter =>
+                    await CheckHttpServedAsync(dep, ct),
                 _ => new ArtifactResult
                 {
                     Dependency = dep, State = ArtifactState.Blocked,
@@ -245,6 +266,66 @@ public sealed class ModelBootstrap(
     private static bool Serves(IReadOnlySet<string> catalog, string model)
         => catalog.Contains(model)
            || (!model.Contains(':') && catalog.Contains(model + ":latest"));
+
+    /// <summary>
+    /// Ask the endpoint what it loaded, and compare that to the pin.
+    ///
+    /// Nothing here can acquire the dependency - a serving process is started, not downloaded -
+    /// so the useful outcomes are "it is serving the weights we expect", "it is serving something
+    /// else", and "it is not running, here is the command". The middle one matters most: a healthy
+    /// process serving the wrong adapter passes every check that only asks whether it responds.
+    /// </summary>
+    private async Task<ArtifactResult> CheckHttpServedAsync(
+        ModelDependency dep, CancellationToken ct)
+    {
+        var start = dep.Source?.BuiltBy is { Length: > 0 } script
+            ? $"Start it: python {script}"
+            : "Start the serving process.";
+
+        if (string.IsNullOrWhiteSpace(dep.BaseUrl))
+            return new ArtifactResult
+            {
+                Dependency = dep, State = ArtifactState.Blocked,
+                Detail = "no endpoint configured", Action = start,
+            };
+
+        if (servedProbe is null)
+            return new ArtifactResult
+            {
+                Dependency = dep, State = ArtifactState.PresentUnpinned,
+                Detail = "no probe configured; the endpoint was not contacted",
+            };
+
+        var (loaded, detail) = await servedProbe.IdentifyAsync(dep.BaseUrl, ct);
+        if (loaded is null)
+            return new ArtifactResult
+            {
+                Dependency = dep, State = ArtifactState.Missing,
+                Detail = detail, Action = start,
+            };
+
+        if (string.IsNullOrWhiteSpace(dep.Sha256))
+            return new ArtifactResult
+            {
+                Dependency = dep, State = ArtifactState.PresentUnpinned,
+                Detail = $"serving {Short(loaded)} (no pin configured to check it against)",
+            };
+
+        // A healthy process serving the WRONG adapter passes every check that only asks whether
+        // it responds, which is why this comparison is the point of the whole probe.
+        return string.Equals(dep.Sha256, loaded, StringComparison.OrdinalIgnoreCase)
+            ? new ArtifactResult
+            {
+                Dependency = dep, State = ArtifactState.Verified,
+                Detail = $"endpoint is serving the pinned adapter ({Short(loaded)})",
+            }
+            : new ArtifactResult
+            {
+                Dependency = dep, State = ArtifactState.Invalid,
+                Detail = $"endpoint is serving {Short(loaded)}, pin is {Short(dep.Sha256)}",
+                Action = "Restart the endpoint against the pinned adapter, or correct the pin.",
+            };
+    }
 
     private static ArtifactResult CheckLocallyBuilt(ModelDependency dep, IReadOnlySet<string>? catalog)
     {
