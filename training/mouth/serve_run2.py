@@ -179,6 +179,17 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def handle_one_request(self):
+        """A client that gives up mid-reply must not take the server down with it.
+
+        The API being stopped while a shadow render was in flight raised ConnectionAbortedError
+        out of the socket write and killed the serving process - so the next turn's shadow failed
+        for a reason that had nothing to do with the model."""
+        try:
+            super().handle_one_request()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            self.close_connection = True
+
     def _json(self, obj, code=200):
         body = json.dumps(obj).encode("utf-8")
         self.send_response(code)
@@ -209,16 +220,42 @@ class Handler(BaseHTTPRequestHandler):
         options = req.get("options") or {}
         num_predict = options.get("num_predict", 220)
 
+        # Decoding is a SERVING parameter, so the grid can be measured without touching prompts,
+        # weights or corpus. Greedy stays the default, because that is what every measurement so
+        # far was taken under and a default that drifts makes old numbers incomparable.
+        temperature = float(options.get("temperature", 0.0))
+        top_p = float(options.get("top_p", 1.0))
+        repetition_penalty = float(options.get("repetition_penalty", 1.0))
+        no_repeat_ngram = int(options.get("no_repeat_ngram_size", 0))
+        sample = temperature > 0
+
+        gen_kwargs = dict(
+            max_new_tokens=num_predict,
+            do_sample=sample,
+            pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
+        )
+        if sample:
+            gen_kwargs["temperature"] = temperature
+            gen_kwargs["top_p"] = top_p
+        if repetition_penalty != 1.0:
+            gen_kwargs["repetition_penalty"] = repetition_penalty
+        if no_repeat_ngram > 0:
+            gen_kwargs["no_repeat_ngram_size"] = no_repeat_ngram
+
+        # A seed per request, so a sampled configuration is still reproducible: the same request
+        # to the same configuration returns the same reply, and a grid can be re-run.
+        seed = int(options.get("seed", 20260830))
+
         t0 = time.perf_counter()
         with LOCK:
+            if sample:
+                torch.manual_seed(seed)
             ids = tokenizer.apply_chat_template(
                 req["messages"], tokenize=True, add_generation_prompt=True,
                 return_tensors="pt").cuda()
             prompt_done = time.perf_counter()
             with torch.no_grad():
-                out = model.generate(
-                    ids, max_new_tokens=num_predict, do_sample=False,
-                    pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id)
+                out = model.generate(ids, **gen_kwargs)
             gen_done = time.perf_counter()
             new_tokens = out[0][ids.shape[1]:]
             text = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
