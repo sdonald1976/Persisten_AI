@@ -462,7 +462,9 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
         {
             var productionViolations = RendererShadowChecks.Score(obs.Plan, obs.ProductionResponse);
             await RecordComparisonAsync(obs, core, violations, productionViolations,
-                applied: critical ? "legacy" : "mouth", CancellationToken.None);
+                applied: critical ? "legacy" : "mouth", CancellationToken.None,
+                adapterSha256: _mouthLoadedAdapterSha ?? _options.Mouth.AdapterSha256,
+                modelVersion: _options.Mouth.ModelVersion);
         }
 
         return new RendererCanaryResult(core.Reply, violations, core.LatencyMs, critical);
@@ -491,7 +493,9 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
                     var productionViolations =
                         RendererShadowChecks.Score(observation.Plan, observation.ProductionResponse);
                     await RecordComparisonAsync(observation, core, violations, productionViolations,
-                        applied: "legacy", CancellationToken.None);
+                        applied: "legacy", CancellationToken.None,
+                        adapterSha256: _mouthLoadedAdapterSha ?? _options.Mouth.AdapterSha256,
+                        modelVersion: _options.Mouth.ModelVersion);
                 }
             }
             catch (Exception ex)
@@ -556,13 +560,17 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
     private async Task RecordComparisonAsync(
         RendererShadowObservation obs, RenderCore core,
         List<string> shadowViolations, List<string> productionViolations,
-        string applied, CancellationToken ct)
+        string applied, CancellationToken ct,
+        // WHICH model produced core.Reply. Defaulted to run-1c because that is what every existing
+        // caller means, and passed explicitly by the mouth: a row that records run-1c's adapter
+        // hash beside run-2's output is not evidence, it is a mislabelled sample.
+        string? adapterSha256 = null, string? modelVersion = null)
     {
         var envelope = JsonSerializer.Serialize(new RendererShadowEnvelope
         {
             PlanHash = core.PlanHash,
-            AdapterSha256 = _options.AdapterSha256,
-            ModelVersion = _options.ModelVersion,
+            AdapterSha256 = adapterSha256 ?? _options.AdapterSha256,
+            ModelVersion = modelVersion ?? _options.ModelVersion,
             LatencyMs = core.LatencyMs,
             VramBytes = core.VramBytes,
             PaletteBearing = obs.Plan.Content.Any(c => c.Requirement == ContentRequirement.MayUse),

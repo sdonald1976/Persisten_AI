@@ -189,6 +189,29 @@ public class MouthCanaryTests : IAsyncDisposable
         Assert.Equal(0, recorder.Recorded);
     }
 
+    [Fact]
+    public async Task ARecordedMouthRowCarriesTheMouthAdapterNotRun1cs()
+    {
+        // A row that records run-1c's adapter hash beside run-2's output is not evidence, it is a
+        // mislabelled sample - and both arms write through the same recorder.
+        const string mouthSha = "a86caf4ad829fef6a427d39066ac5a744cf563934df080c8190713b52cfa235d";
+        var recorder = new CapturingRecorder();
+        await using var service = Service(reply: "Build came through fine.", recorder: recorder,
+            identitySha: mouthSha, pinnedSha: mouthSha);
+
+        await service.RenderMouthForDisplayAsync(Obs(), record: true, default);
+
+        // The identity rides in the row's envelope, beside the latency and the violations.
+        var row = Assert.Single(recorder.Rows);
+        using var envelope = JsonDocument.Parse(row.Input);
+        var recorded = envelope.RootElement
+            .EnumerateObject()
+            .First(prop => prop.NameEquals("AdapterSha256") || prop.NameEquals("adapterSha256"))
+            .Value.GetString();
+
+        Assert.Equal(mouthSha, recorded);
+    }
+
     // ---- identity -------------------------------------------------------------------------------
 
     [Fact]
@@ -246,7 +269,7 @@ public class MouthCanaryTests : IAsyncDisposable
     {
         var chosen = port ?? FreePort();
         if (startListener)
-            StartListener(chosen, reply, rawBody, statusCode, delay, identitySha);
+            chosen = StartListener(chosen, reply, rawBody, statusCode, delay, identitySha);
 
         return new RendererShadowService(
             recorder ?? new CountingRecorder(),
@@ -270,12 +293,29 @@ public class MouthCanaryTests : IAsyncDisposable
             drainWindow: TimeSpan.FromMilliseconds(50));
     }
 
-    private void StartListener(
+    /// <summary>
+    /// Bind, retrying on conflict. Probing for a free port and then binding it is a race - the
+    /// probe releases the port before the listener claims it - and under xunit's parallel
+    /// execution the loser silently steals a port another suite is already serving on.
+    /// </summary>
+    private int StartListener(
         int port, string? reply, string? rawBody, int statusCode, TimeSpan? delay, string identitySha)
     {
-        var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        HttpListener listener;
+        while (true)
+        {
+            listener = new HttpListener();
+            listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+            try
+            {
+                listener.Start();
+                break;
+            }
+            catch (HttpListenerException)
+            {
+                port = FreePort();
+            }
+        }
         _listeners.Add(listener);
 
         _ = Task.Run(async () =>
@@ -323,6 +363,7 @@ public class MouthCanaryTests : IAsyncDisposable
                 }
             }
         });
+        return port;
     }
 
     private static int FreePort()
@@ -376,7 +417,18 @@ public class MouthCanaryTests : IAsyncDisposable
             new Companion.PlanV3.RegisterVector()),
     };
 
-    private sealed class CountingRecorder : IShadowRecorder
+    private sealed class CapturingRecorder : CountingRecorder
+    {
+        public List<ShadowComparison> Rows { get; } = [];
+
+        public override Task RecordAsync(ShadowComparison comparison, CancellationToken ct = default)
+        {
+            Rows.Add(comparison);
+            return base.RecordAsync(comparison, ct);
+        }
+    }
+
+    private class CountingRecorder : IShadowRecorder
     {
         public int Recorded;
 
@@ -384,7 +436,7 @@ public class MouthCanaryTests : IAsyncDisposable
 
         public bool IsShadowing => true;
 
-        public Task RecordAsync(ShadowComparison comparison, CancellationToken ct = default)
+        public virtual Task RecordAsync(ShadowComparison comparison, CancellationToken ct = default)
         {
             Interlocked.Increment(ref Recorded);
             return Task.CompletedTask;
