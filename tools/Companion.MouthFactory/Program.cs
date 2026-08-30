@@ -35,7 +35,7 @@ switch (command)
     case "export": return await ExportAsync();
     case "critic-audit": return await CriticAuditAsync();
     case "freeze": return await FreezeAsync();
-    case "score": return Score();
+    case "score": return await ScoreAsync();
     default:
         Console.WriteLine("""
             mouth-factory <command> [options]
@@ -648,7 +648,7 @@ async Task<int> ExportSelectedAsync(
 /// A separately-written evaluator would measure the gap between two implementations as readily as
 /// it measures the model.
 /// </summary>
-int Score()
+async Task<int> ScoreAsync()
 {
     var generationsPath = ArgValue("--generations");
     var arm = ArgValue("--arm") ?? "unnamed";
@@ -712,6 +712,51 @@ int Score()
                 kv => kv.Key, kv => new { kv.Value.Clean, kv.Value.Rows }),
         },
         new JsonSerializerOptions(Web()) { WriteIndented = true }));
+    // ---- naturalness ---------------------------------------------------------------------
+    // The one dimension a string test cannot reach. Judged by the same independently-configured
+    // critic the corpus was gated with, which shares weights with neither the base being
+    // evaluated nor the writer that produced the training targets. It sees the reply alone - no
+    // plan, no arm label - so it cannot be grading anything but the language.
+    double? naturalRate = null;
+    if (Array.IndexOf(args, "--naturalness") >= 0)
+    {
+        var roleRouter = BuildRoles(out _);
+        if (roleRouter is null || !roleRouter.Has(Role.NaturalnessCritic))
+        {
+            Console.Error.WriteLine("  naturalness: set MOUTH_NATURALNESS_MODEL to judge it");
+        }
+        else
+        {
+            var source = new ModelTargetSource(roleRouter, 0);
+            var judged = 0;
+            var natural = 0;
+            foreach (var g in generations)
+            {
+                if (!metadata.TryGetValue(g.Id, out var m)
+                    || !scenarios.TryGetValue(m.ScenarioId, out var sc))
+                    continue;
+                var verdict = await source.CriticiseOneAsync(
+                    nameof(Role.NaturalnessCritic), sc, g.Target);
+                judged++;
+                if (verdict.Passed)
+                    natural++;
+                if (judged % 25 == 0)
+                    Console.WriteLine($"    naturalness {judged}/{generations.Count}");
+            }
+            naturalRate = judged == 0 ? 0 : natural / (double)judged;
+            Console.WriteLine($"  naturalness           {natural}/{judged} ({naturalRate:P1})");
+        }
+    }
+
+    if (naturalRate is { } nr)
+    {
+        var enriched = JsonSerializer.Deserialize<Dictionary<string, object>>(
+            File.ReadAllText(outPath), Web())!;
+        enriched["naturalness"] = nr;
+        File.WriteAllText(outPath, JsonSerializer.Serialize(
+            enriched, new JsonSerializerOptions(Web()) { WriteIndented = true }));
+    }
+
     Console.WriteLine();
     Console.WriteLine($"  -> {outPath}");
     return 0;
