@@ -1,0 +1,4 @@
+# Provenance for the goldens in this directory. Written by tools/Companion.Goldens.
+# Recorded here rather than inside the golden files, whose bytes must not depend
+# on which commit produced them.
+compact-v3-manifest protocol=plan/3 commit=aed4a4e-dirty sha256=e47f89258cd6920a5c363fde58293c32f905926143e003a36f04258faba56556 lines=806

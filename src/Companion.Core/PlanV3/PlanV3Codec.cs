@@ -294,8 +294,20 @@ public static class PlanV3Codec
         ("SAY", "each item: convey the meaning, fresh words", [ExpressionPolicy.must_express]),
         ("ASK", "end the reply with this", [ExpressionPolicy.ask_required]),
         ("OPTIONAL", "use one only if it truly fits; silence is correct", [ExpressionPolicy.may_express]),
+        // ADMIT is its own section, and this is the correction Run-2.1 exists for.
+        //
+        // admit_unknown used to sit here, inside NEVER. A plan meaning "admit you do not know the
+        // cost" therefore reached the model as "never mention the cost", and the obedient reply
+        // was a stub - which is what 38 of the 61 hard-eval rows measured, and what was reported
+        // as a diversity collapse. The schema said the opposite all along: EpistemicUnknowns are
+        // "things upstream does NOT know - the reply must admit them".
+        //
+        // Placed BEFORE never so the two read in the order a speaker needs them: here is what you
+        // say, here is what you concede, here is what you withhold.
+        ("ADMIT", "say plainly that this is not known; never explain it away",
+            [ExpressionPolicy.admit_unknown]),
         ("NEVER", "do not assert, mention, or explain",
-            [ExpressionPolicy.must_not_express, ExpressionPolicy.admit_unknown]),
+            [ExpressionPolicy.must_not_express]),
         ("BACKGROUND", "may shape tone; content must not surface", [ExpressionPolicy.background_only]),
     ];
 

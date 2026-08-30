@@ -132,7 +132,11 @@ public static class PlanV4Codec
 
     private static int FirstSectionMarker(string v4)
     {
-        foreach (var header in new[] { "SAY (", "ASK (", "OPTIONAL (", "NEVER (", "BACKGROUND (", "STYLE\r\n" })
+        // Same order as PlanV3Codec.Sections, so the frame lands above the first section that
+        // actually appears. ADMIT is in the list for the same reason the others are: a plan whose
+        // only section is ADMIT would otherwise have nowhere to put the frame.
+        foreach (var header in new[]
+                 { "SAY (", "ASK (", "OPTIONAL (", "ADMIT (", "NEVER (", "BACKGROUND (", "STYLE\r\n" })
         {
             var i = v4.IndexOf("\r\n" + header, StringComparison.Ordinal);
             if (i >= 0)
