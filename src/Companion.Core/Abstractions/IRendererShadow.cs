@@ -43,6 +43,14 @@ public interface IRendererShadow
     /// <summary>Whether run-2 renders beside the reply at all. Display is a separate question.</summary>
     bool IsMouthObserving { get; }
 
+    /// <summary>
+    /// What run-2 has done this process: rendered, failed, displayed, fallen back, and which
+    /// adapter the endpoint reported loading. The displayed/fallback split is the number that
+    /// says whether a canary is working, so it is a first-class reading rather than something
+    /// reconstructed from a truncated trace log.
+    /// </summary>
+    MouthCounters MouthCounters { get; }
+
     /// <summary>Whether run-2 may be DISPLAYED to this user. One named user, or nobody.</summary>
     bool IsMouthCanaryFor(string userId);
 
@@ -188,6 +196,10 @@ public sealed record RendererShadowObservation
     public IReadOnlyList<string> NativeLintRejections { get; init; } = [];
 }
 
+/// <summary>Run-2's tally for this process.</summary>
+public readonly record struct MouthCounters(
+    long Rendered, long Failed, long CanaryDisplayed, long CanaryFallback, string? LoadedAdapterSha256);
+
 /// <summary>No-op used when renderer shadow mode is disabled; the flag off IS the rollback.</summary>
 public sealed class NullRendererShadow : IRendererShadow
 {
@@ -211,6 +223,8 @@ public sealed class NullRendererShadow : IRendererShadow
 
     // The mouth is off here for the same reason everything else is: this type IS the off switch.
     public bool IsMouthObserving => false;
+
+    public MouthCounters MouthCounters => new(0, 0, 0, 0, null);
 
     public bool IsMouthCanaryFor(string userId) => false;
 

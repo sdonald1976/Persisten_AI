@@ -157,6 +157,19 @@ internal static class DiagnosticsEndpoints
                 adapterSha256 = rs.AdapterSha256,
                 modelVersion = rs.ModelVersion,
                 queue = counters,
+                // Run-2, reported beside run-1c because they are two arms of the same decision:
+                // which model the user in front of you is actually being shown.
+                mouth = new
+                {
+                    observing = renderer.IsMouthObserving,
+                    canaryUser = renderer.IsMouthCanaryFor(user.UserId) ? user.UserId : null,
+                    activeRenderer = renderer.IsMouthCanaryFor(user.UserId)
+                        ? "run-2 (user-scoped canary, production fallback)"
+                        : "shadow only",
+                    pinnedAdapterSha256 = rs.Mouth.AdapterSha256,
+                    modelVersion = rs.Mouth.ModelVersion,
+                    counters = renderer.MouthCounters,
+                },
                 // P3: translated_v2 V3 shadow lifecycle (produced/valid/invalid/compatible/
                 // protected/redacted/failed/dropped). These rows test translation,
                 // serialization, privacy, and infrastructure — never corpus material.

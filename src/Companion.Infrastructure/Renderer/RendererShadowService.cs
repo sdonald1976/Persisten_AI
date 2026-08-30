@@ -330,6 +330,13 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
 
     public bool IsMouthObserving => _options.Mouth.Enabled;
 
+    public MouthCounters MouthCounters => new(
+        Interlocked.Read(ref _mouthRendered),
+        Interlocked.Read(ref _mouthFailed),
+        Interlocked.Read(ref _mouthCanaryDisplayed),
+        Interlocked.Read(ref _mouthCanaryFallback),
+        _mouthLoadedAdapterSha);
+
     /// <summary>
     /// Confirm the endpoint is serving the adapter configuration pins. Called once at startup:
     /// a hash in a config file and a process answering on a port are two separate claims, and

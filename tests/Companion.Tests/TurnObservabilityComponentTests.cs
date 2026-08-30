@@ -354,6 +354,9 @@ public class TurnObservabilityComponentTests
 
     public bool IsMouthObserving => false;
 
+    public MouthCounters MouthCounters => new(0, 0, 0, 0, null);
+
+
     public bool IsMouthCanaryFor(string userId) => false;
 
     public Task<RendererCanaryResult?> RenderMouthForDisplayAsync(
