@@ -304,6 +304,40 @@ public static class DependencyInjection
                 sp.GetRequiredService<ILogger<CrossEncoderMemoryReranker>>()));
         }
 
+        // Reranker shadow (independent of RerankMemories): run the cross-encoder and the rule
+        // reranker beside the authoritative one and record all three orderings, without touching
+        // the displayed turn. The default sink is the no-op; the real jsonl sink and the wrapping
+        // decorator are registered only when RerankShadow is on AND a real provider is configured.
+        // Registered AFTER the reranker above so the decorator wraps that authoritative choice.
+        services.AddSingleton<Companion.Core.Domain.IRerankShadowSink,
+            Companion.Core.Domain.NullRerankShadowSink>();
+        var cognitiveShadow = configuration.GetSection(CognitiveModelOptions.Section)
+            .Get<CognitiveModelOptions>() ?? new CognitiveModelOptions();
+        if (cognitiveShadow.RerankShadow && modelOptions.UsesRealModel)
+        {
+            var shadowDir = ResolveModelDirectory(".", configuration["Database:Path"]);
+            var shadowPath = Path.Combine(shadowDir, cognitiveShadow.RerankShadowPath);
+            services.AddSingleton<Companion.Core.Domain.IRerankShadowSink>(sp =>
+                new JsonlRerankShadowSink(shadowPath,
+                    sp.GetRequiredService<ILogger<JsonlRerankShadowSink>>()));
+            services.AddSingleton<IMemoryReranker>(sp => new ShadowComparingReranker(
+                // Authoritative = the same choice the block above made: the cross-encoder only
+                // when promoted, otherwise the 3B. Shadow observes; it does not promote.
+                authoritative: cognitiveShadow.Reranker.Enabled && cognitiveShadow.RerankMemories
+                    ? new CrossEncoderMemoryReranker(sp.GetRequiredService<ITextPairScorer>(),
+                        new RuleBasedMemoryReranker(),
+                        sp.GetRequiredService<ILogger<CrossEncoderMemoryReranker>>())
+                    : new LlmMemoryReranker(sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Reranker),
+                        new RuleBasedMemoryReranker(),
+                        sp.GetRequiredService<ILogger<LlmMemoryReranker>>()),
+                crossEncoder: new CrossEncoderMemoryReranker(sp.GetRequiredService<ITextPairScorer>(),
+                    new RuleBasedMemoryReranker(),
+                    sp.GetRequiredService<ILogger<CrossEncoderMemoryReranker>>()),
+                rule: new RuleBasedMemoryReranker(),
+                sink: sp.GetRequiredService<Companion.Core.Domain.IRerankShadowSink>(),
+                logger: sp.GetRequiredService<ILogger<ShadowComparingReranker>>()));
+        }
+
         // The reply gate. Off unless asked for, and watching rather than acting even then — see
         // SafetyOptions. Uses the Safety chat role, which falls back to Extraction, so enabling it
         // does not require another model on the roster.

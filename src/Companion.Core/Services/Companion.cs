@@ -309,10 +309,13 @@ public sealed class Companion : ICompanion
         var interpretationNote = understanding.InterpretationNote;
         var extractionResolution = understanding.ExtractionResolution;
 
-        // 4. Retrieve relevant memories, boosted by the resolved project â€” searching what the
-        // message MEANS (question + answer, reference + referent), not just what it says.
-        var retrieved = await _context.RetrieveAsync(
-            userId, retrievalQuery, projectContext.ResolvedProjectName, ct);
+        // 4. Retrieve relevant memories. Open the reranker shadow scope around retrieval so the
+        // cross-encoder/rule comparison can attribute itself to this turn and honour the same
+        // private-turn exclusion as every other derived signal (mayRecord = not sensitive).
+        global::Companion.Core.Turns.Context.TurnRetrievalResult retrieved;
+        using (RerankShadowScope.Open(traceId, userId, mayRecord: !sensitive))
+            retrieved = await _context.RetrieveAsync(
+                userId, retrievalQuery, projectContext.ResolvedProjectName, ct);
         var outcome = retrieved.Outcome;
         var selectedMemories = retrieved.Selected;
 

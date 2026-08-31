@@ -32,6 +32,19 @@ public sealed class CognitiveModelOptions
     /// </summary>
     public bool RerankMemories { get; set; }
 
+    /// <summary>
+    /// Run the cross-encoder AND the deterministic rule reranker in SHADOW beside the
+    /// authoritative reranker on every eligible retrieval, recording all three orderings without
+    /// affecting the displayed turn. Independent of <see cref="RerankMemories"/> (which decides
+    /// which reranker is AUTHORITATIVE): shadow observes, promotion decides. Requires
+    /// <see cref="Reranker"/> to be enabled so the cross-encoder can load. Off by default.
+    /// </summary>
+    public bool RerankShadow { get; set; }
+
+    /// <summary>Where shadow reranker comparisons are appended (JSONL). Relative to the database
+    /// directory, like the model directory, so the data travels with the deployment.</summary>
+    public string RerankShadowPath { get; set; } = "rerank-shadow/shadow.jsonl";
+
     /// <summary>Entailment/contradiction, for supersession and the assertion veto.</summary>
     public CognitiveModelEntry Nli { get; set; } = new() { Threshold = 0.6 };
 
