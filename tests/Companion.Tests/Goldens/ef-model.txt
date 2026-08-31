@@ -600,6 +600,7 @@
   prop Intent : String null col=TEXT max=40
   prop IntentConfidence : Double notnull col=REAL
   prop IntentRunnerUp : String null col=TEXT max=60
+  prop MemoryProvenance : String null col=TEXT max=20000
   prop ModelUsed : String null col=TEXT max=200
   prop Move : String null col=TEXT max=40
   prop PacketTokens : Int32 notnull col=INTEGER

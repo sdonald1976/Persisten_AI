@@ -300,6 +300,47 @@ public sealed class TurnObservability(
                 : SecretDetector.LooksLikeSecret(text) ? null
                 : text.Length <= max ? text : text[..max];
 
+            // Memory-provenance trace (additive, record-only). Built from artifacts the turn
+            // already produced; it stores memory IDs, stages and a conservative tri-state label,
+            // never memory TEXT (the lexical proxy uses text transiently and discards it). Nulled
+            // on private/sensitive turns, exactly like the previews above.
+            string? provenanceJson = null;
+            if (extractFacts && t.Outcome.Selected.Count + t.Outcome.Excluded.Count > 0)
+            {
+                static string PolicyOf(ContentRequirement r) => r switch
+                {
+                    ContentRequirement.MustState => "must_express",
+                    ContentRequirement.MayUse => "may_express",
+                    ContentRequirement.MustNotContradict => "must_not_express",
+                    _ => "may_express",
+                };
+                var texts = t.Outcome.Selected.Concat(t.Outcome.Excluded)
+                    .GroupBy(r => r.Memory.Id)
+                    .ToDictionary(g => g.Key, g => g.First().Memory.Content, EqualityComparer<Guid>.Default);
+                var provenance = MemoryProvenanceTracer.Build(new MemoryProvenanceTracer.Inputs
+                {
+                    TurnId = traceId,
+                    Selected = t.Outcome.Selected
+                        .Select((r, i) => (r.Memory.Id, r.Score, i)).ToList(),
+                    // The retriever exposes excluded memories but not a per-memory reason; they
+                    // were ranked and not selected, which is exactly NotSelected.
+                    Excluded = t.Outcome.Excluded
+                        .Select(r => (r.Memory.Id, MemoryExclusionReason.NotSelected)).ToList(),
+                    RetainedInPacket = packet.Memories
+                        .Where(m => m.SourceMemoryId is not null)
+                        .Select(m => m.SourceMemoryId!.Value).ToList(),
+                    PlanItems = plan.Content
+                        .Where(c => c.SourceMemoryId is not null)
+                        .Select((c, i) => (c.SourceMemoryId!.Value, $"content-{i}", PolicyOf(c.Requirement)))
+                        .ToList(),
+                    DisplayedReply = string.IsNullOrWhiteSpace(response) ? null : response,
+                    Texts = texts,
+                    TurnFailed = string.IsNullOrWhiteSpace(response),
+                });
+                var pj = System.Text.Json.JsonSerializer.Serialize(provenance);
+                provenanceJson = pj.Length <= 20000 ? pj : null;
+            }
+
             await diagnostics.RecordTurnAsync(new TurnRecord
             {
                 Id = traceId,
@@ -334,6 +375,7 @@ public sealed class TurnObservability(
                         && planJson.Length <= 2500 ? planJson : null,
                 PacketTokens = packet.EstimatedTokens,
                 ModelUsed = generated.Model,
+                MemoryProvenance = provenanceJson,
             }, ct);
         }
     }

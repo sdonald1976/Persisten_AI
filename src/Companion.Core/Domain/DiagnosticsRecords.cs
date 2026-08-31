@@ -121,6 +121,14 @@ public class TurnRecord
 
     public int PacketTokens { get; set; }
     public string? ModelUsed { get; set; }
+
+    /// <summary>
+    /// Additive (v1): the memory-provenance trace for this turn, as JSON — one record per
+    /// (turn, memory) with id-preserving stages and a conservative tri-state relevance label.
+    /// Null on private/sensitive turns and on turns with no retrieved memories. Existing
+    /// consumers ignore it; the column is nullable so no historical row needs backfilling.
+    /// </summary>
+    public string? MemoryProvenance { get; set; }
 }
 
 /// <summary>Aggregated model telemetry for one role+model pair over a window (computed, not stored).</summary>

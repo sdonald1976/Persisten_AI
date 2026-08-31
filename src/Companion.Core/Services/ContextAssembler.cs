@@ -81,6 +81,7 @@ public sealed class ContextAssembler : IContextAssembler
                 Note = provenance == ContextProvenance.Outdated ? "was true previously" : null,
                 Owner = result.Memory.Owner,
                 Source = result.Source,
+                SourceMemoryId = result.Memory.Id,
             });
             diagnostics.Add($"{result.Source}: {Truncate(text)} ({result.Reason})");
             usedTokens += cost;

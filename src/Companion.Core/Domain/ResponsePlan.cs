@@ -45,7 +45,12 @@ public sealed record PlannedContent(
     [property: JsonConverter(typeof(KebabEnumConverter<ContentKind>))] ContentKind Kind,
     [property: JsonConverter(typeof(KebabEnumConverter<ContentRequirement>))] ContentRequirement Requirement,
     string Text,
-    string? Provenance = null);
+    string? Provenance = null)
+{
+    /// <summary>Additive: the source memory's id when this content came from a stored memory,
+    /// for the memory-provenance trace's id chain. Null otherwise. Existing consumers ignore it.</summary>
+    public Guid? SourceMemoryId { get; init; }
+}
 
 /// <summary>A typed epistemic constraint: what she does not know, holds thinly, or disputes.</summary>
 public sealed record EpistemicNote(

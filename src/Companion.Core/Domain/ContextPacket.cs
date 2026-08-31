@@ -148,6 +148,13 @@ public sealed record ContextItem
     /// <summary>Whose story the line is from — shared moments render as "remember when we…".</summary>
     public MemoryOwner Owner { get; init; } = MemoryOwner.User;
     public RetrievalSource Source { get; init; } = RetrievalSource.Direct;
+
+    /// <summary>
+    /// Additive (schema-compatible): the source memory's id, when this item came from a stored
+    /// memory. Null for interpretation/temporal/other lines. Lets the memory-provenance trace
+    /// follow an id chain into the packet instead of matching text. Existing consumers ignore it.
+    /// </summary>
+    public Guid? SourceMemoryId { get; init; }
 }
 
 /// <summary>

@@ -224,6 +224,9 @@ public sealed class CompanionDbContext : DbContext
             e.Property(x => x.Decisions).HasMaxLength(1000);
             e.Property(x => x.Plan).HasMaxLength(2500);
             e.Property(x => x.ModelUsed).HasMaxLength(200);
+            // Memory-provenance trace JSON: generously capped, so an oversized turn is bounded
+            // rather than unbounded, same spirit as the other text columns.
+            e.Property(x => x.MemoryProvenance).HasMaxLength(20000);
             // Read newest-first per user; pruned below a time cutoff.
             e.HasIndex(x => new { x.UserId, x.Timestamp });
         });

@@ -73,7 +73,8 @@ public static class ResponsePlanner
                 _ => ContentKind.Memory,
             };
             content.Add(new PlannedContent(kind, requirement, Clip(memory.Content),
-                memory.Owner == MemoryOwner.Shared ? "shared-history" : memory.Status.ToString().ToLowerInvariant()));
+                memory.Owner == MemoryOwner.Shared ? "shared-history" : memory.Status.ToString().ToLowerInvariant())
+                { SourceMemoryId = memory.Id });
         }
 
         // ---- epistemic constraints (Phase 3's boundary, carried as typed state) ----
