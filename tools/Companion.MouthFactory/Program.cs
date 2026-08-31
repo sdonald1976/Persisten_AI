@@ -41,6 +41,8 @@ switch (command)
     case "supplement-freeze": return SupplementFreeze();
     case "reissue": return await ReissueAsync();
     case "shadow-probe": return await ShadowProbeAsync();
+    case "contract-probe": return await ShadowProbeAsync(
+        Companion.MouthFactory.Probe.ShadowProbe.MatchedTriplet());
     default:
         Console.WriteLine("""
             mouth-factory <command> [options]
@@ -664,7 +666,8 @@ async Task<int> ExportSelectedAsync(
 /// the shipped checks said about it, whether the canary gate would fall back, and whether the
 /// recorded row carries the same bytes and the right adapter.
 /// </summary>
-async Task<int> ShadowProbeAsync()
+async Task<int> ShadowProbeAsync(
+    IReadOnlyList<Companion.MouthFactory.Probe.ShadowProbe.Case>? cases = null)
 {
     var endpoint = ArgValue("--endpoint") ?? "http://127.0.0.1:11436";
     var adapter = ArgValue("--adapter-sha") ?? "";
@@ -677,6 +680,7 @@ async Task<int> ShadowProbeAsync()
     Console.WriteLine();
 
     var outcomes = await Companion.MouthFactory.Probe.ShadowProbe.RunAsync(
+        cases ?? Companion.MouthFactory.Probe.ShadowProbe.Cases(),
         endpoint, adapter, protocol, canary);
 
     var displayed = 0;
