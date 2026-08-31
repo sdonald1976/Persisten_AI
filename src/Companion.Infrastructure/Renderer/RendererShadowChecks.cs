@@ -89,6 +89,22 @@ public static class RendererShadowChecks
             }
         }
 
+        // Unauthorized stance (fidelity, not content). A reply that declines, refuses, or
+        // expresses inability when the PLAN carried no boundary/decline invented a stance the
+        // plan never authorized - the 2026-08-31 refusal on a licensed consensual-adult turn.
+        // It reads only the plan's own item text for an authorized boundary, so it is blind to
+        // subject matter: neutral, romantic and explicit turns are judged identically. Recorded
+        // for now (not in IsCritical) until its sensitivity/specificity are demonstrated in the
+        // field, exactly as the epistemic-admission check was staged.
+        var planTexts = plan.Content.Select(c => c.Text)
+            .Concat(plan.Acknowledgments.Select(a => a.Text))
+            .Concat(plan.Epistemic.Select(e => e.Subject));
+        if (StanceMarkers.ExpressesRefusal(reply)
+            && !StanceMarkers.PlanAuthorizesDecline(planTexts))
+        {
+            violations.Add("unauthorized-stance: reply declines but the plan directed no decline");
+        }
+
         // Epistemic admission. A NotLearned subject translates to plan/4's admit_unknown, which
         // serializes under ADMIT — "say plainly that this is not known". Silence is not a soft
         // stylistic miss here: it is the failure Run-2.1 exists to correct, reappearing at
@@ -131,7 +147,7 @@ public static class RendererShadowChecks
     /// The words that make a text findable in another text: numbers, and content words of
     /// five letters or more that are not conversational stopwords.
     /// </summary>
-    internal static List<string> DistinctiveTokens(string text)
+    public static List<string> DistinctiveTokens(string text)
     {
         var tokens = Regex.Matches(text, @"[\w][\w'-]*")
             .Select(m => m.Value)

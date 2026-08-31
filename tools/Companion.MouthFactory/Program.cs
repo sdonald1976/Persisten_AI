@@ -40,6 +40,9 @@ switch (command)
     case "supplement": return await SupplementAsync();
     case "supplement-freeze": return SupplementFreeze();
     case "reissue": return await ReissueAsync();
+    case "register-supplement": return await RegisterSupplementAsync();
+    case "register-freeze": return RegisterFreeze();
+    case "register-audit": return await RegisterAuditAsync();
     case "shadow-probe": return await ShadowProbeAsync();
     case "contract-probe": return await ShadowProbeAsync(
         Companion.MouthFactory.Probe.ShadowProbe.MatchedTriplet());
@@ -661,6 +664,301 @@ async Task<int> ExportSelectedAsync(
 /// A separately-written evaluator would measure the gap between two implementations as readily as
 /// it measures the model.
 /// </summary>
+// ==== Run-2.2 register supplement ==============================================================
+
+/// <summary>
+/// Generate the consensual-adult register supplement. Same pipeline as the ADMIT supplement -
+/// writer, dedup, three independent critics - but its own composition and its own directory
+/// (training/mouth/register-supplement), so no frozen artifact is touched.
+/// </summary>
+async Task<int> RegisterSupplementAsync()
+{
+    var registerOut = ArgValue("--out")
+        ?? Path.Combine(RepoRoot(), "training", "mouth", "register-supplement");
+    var generator = new RegisterSupplementGenerator(seed);
+    var perSituation = int.TryParse(ArgValue("--per-situation"), out var ps) ? ps : 4;
+    var scenarios = generator.Generate(perSituation).ToList();
+    var splits = SupplementSplitter.AssignAll(scenarios)
+        .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+
+    Console.WriteLine();
+    Console.WriteLine($"REGISTER SUPPLEMENT  scenarios={scenarios.Count}  seed={seed}");
+    foreach (var g in scenarios.GroupBy(sc => sc.FamilyId, StringComparer.Ordinal)
+                 .OrderBy(g => g.Key, StringComparer.Ordinal))
+        Console.WriteLine($"  {g.Key,-6}{g.Count(),5} scenarios   {g.First().UserMessage[..Math.Min(40, g.First().UserMessage.Length)]}");
+
+    // Composition invariant: every scenario carries a directed stance (a must_express fact), and
+    // its facets are recoverable. A supplement that quietly contains a plan with no stance
+    // teaches nothing about stance.
+    var wrong = scenarios.Where(sc =>
+        !sc.ApprovedFacts.Any(f => f.Policy == FactPolicy.MustExpress)).ToList();
+    if (wrong.Count > 0)
+    {
+        Console.Error.WriteLine($"COMPOSITION: {wrong.Count} scenario(s) carry no directed stance.");
+        return 5;
+    }
+
+    // Every declared register and stance must be PRESENT among the built scenarios - the freeze
+    // will further require they be ACCEPTED, but absence at generation is caught here first.
+    var builtRegisters = scenarios.Select(sc => RegisterSupplementGenerator.Facets(sc).Register).ToHashSet(StringComparer.Ordinal);
+    var builtStances = scenarios.Select(sc => RegisterSupplementGenerator.Facets(sc).Stance).ToHashSet(StringComparer.Ordinal);
+    var missingReg = RegisterSituations.Registers.Where(r => !builtRegisters.Contains(r)).ToList();
+    var missingSt = RegisterSituations.Stances.Where(s => !builtStances.Contains(s)).ToList();
+    if (missingReg.Count > 0 || missingSt.Count > 0)
+    {
+        Console.Error.WriteLine("COVERAGE: declared facets absent from generated scenarios: "
+            + string.Join(", ", missingReg.Concat(missingSt)));
+        return 5;
+    }
+    Console.WriteLine($"  composition + facet coverage verified ({builtRegisters.Count} registers, {builtStances.Count} stances)");
+
+    Directory.CreateDirectory(registerOut);
+    File.WriteAllText(Path.Combine(registerOut, "register-scenarios.jsonl"),
+        string.Concat(scenarios.Select(sc => JsonSerializer.Serialize(sc, Web()) + "\n")));
+    File.WriteAllText(Path.Combine(registerOut, "register-splits.json"),
+        JsonSerializer.Serialize(new { algorithm = SupplementSplitter.Algorithm, seed, assignedBeforeGeneration = true, splits },
+            new JsonSerializerOptions(Web()) { WriteIndented = true }));
+
+    if (dryRunOnly)
+    {
+        Console.WriteLine($"\ndry run: scenarios written, nothing generated -> {registerOut}");
+        return 0;
+    }
+
+    var roleRouter = BuildRoles(out var roleDescription);
+    if (roleRouter is null)
+    {
+        Console.Error.WriteLine("Set MOUTH_WRITER_MODEL and the critic models, or pass --dry-run.");
+        return 2;
+    }
+    var violations = RoleIndependence.Check(RoleModels());
+    if (violations.Count > 0)
+    {
+        foreach (var v in violations) Console.Error.WriteLine("ROLE INDEPENDENCE: " + v.Detail);
+        return 4;
+    }
+
+    // Refusal-asymmetry gate, BEFORE generating: a writer or gating critic that refuses the
+    // explicit arm cannot be trusted to author or judge this supplement, and would bake the very
+    // asymmetry we are correcting into the corpus.
+    var auditRc = await RegisterAuditAsync();
+    if (auditRc != 0)
+    {
+        Console.Error.WriteLine("Refusing to generate: a configured role refuses the explicit arm (see audit).");
+        return auditRc;
+    }
+
+    using (var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(300) })
+    {
+        var health = await OllamaPreflight.CheckAsync(probe,
+            Environment.GetEnvironmentVariable("MOUTH_WRITER_ENDPOINT") ?? "http://localhost:11434/v1",
+            Environment.GetEnvironmentVariable("MOUTH_WRITER_MODEL")!);
+        if (!health.Healthy) { Console.Error.WriteLine("PREFLIGHT FAILED: " + health.Detail); return 3; }
+    }
+
+    var source = new ModelTargetSource(roleRouter, seed);
+    var store = new RowStore(Path.Combine(registerOut, "rows"));
+    var criticRoles = new[] { Role.FaithfulnessCritic, Role.AdversarialCritic, Role.NaturalnessCritic }
+        .Where(r => roleRouter.Has(r)).Select(r => r.ToString()).ToList();
+    var staged = new StagedPipeline(source, CandidateStore.Open(Path.Combine(registerOut, "candidates.jsonl")),
+        store, new Deduplicator(), criticRoles);
+
+    Console.WriteLine($"roles     {roleDescription}");
+    var sr = await staged.RunAsync(scenarios, new PipelineOptions
+    {
+        OutputDirectory = registerOut, TargetsPerScenario = variants, MaxUnits = maxUnits,
+    }, batchSize);
+
+    Console.WriteLine($"\nstop reason {sr.StopReason}  units {sr.UnitsAttempted}  "
+        + $"accepted {sr.Accepted}  manual {sr.ManualReview}  rejected {sr.Rejected}");
+    foreach (var (code, count) in sr.RejectionCodes.OrderByDescending(kv => kv.Value))
+        Console.WriteLine($"  {count,6}  {code}");
+    return sr.Accepted == 0 ? 1 : 0;
+}
+
+/// <summary>
+/// The register supplement's freeze: apply the stance-fidelity bar, require nonzero accepted
+/// coverage for EVERY declared register and stance (the invariant the original corpus lacked -
+/// "permitted" was mistaken for "represented"), then hash and export.
+/// </summary>
+int RegisterFreeze()
+{
+    var registerOut = ArgValue("--out")
+        ?? Path.Combine(RepoRoot(), "training", "mouth", "register-supplement");
+    var store = new RowStore(Path.Combine(registerOut, "rows"));
+    var rows = store.ReadRows(Disposition.Accepted).ToList();
+    var meta = store.ReadMetadata(Disposition.Accepted)
+        .GroupBy(m => m.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    if (rows.Count == 0) { Console.Error.WriteLine("no accepted register rows; run `register-supplement` first"); return 1; }
+
+    var scenarios = File.ReadLines(Path.Combine(registerOut, "register-scenarios.jsonl"))
+        .Where(l => l.Length > 0).Select(l => JsonSerializer.Deserialize<ScenarioTruth>(l, Web())!)
+        .GroupBy(sc => sc.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    var splits = JsonDocument.Parse(File.ReadAllText(Path.Combine(registerOut, "register-splits.json")))
+        .RootElement.GetProperty("splits").EnumerateObject()
+        .ToDictionary(p => p.Name, p => p.Value.GetString()!, StringComparer.Ordinal);
+
+    var kept = new List<(TrainingRow Row, TrainingRowMetadata Meta, ScenarioTruth Sc, string Split)>();
+    var rejected = new Dictionary<string, int>(StringComparer.Ordinal);
+    foreach (var row in rows)
+    {
+        if (!meta.TryGetValue(row.Id, out var m) || !scenarios.TryGetValue(m.ScenarioId, out var sc)) continue;
+        var failed = RegisterChecks.Run(sc, row.Target).Where(c => !c.Passed).ToList();
+        if (failed.Count > 0) { foreach (var f in failed) rejected[f.Code!] = rejected.GetValueOrDefault(f.Code!) + 1; continue; }
+        kept.Add((row, m, sc, splits.GetValueOrDefault(m.ScenarioId, "targeted-train")));
+    }
+
+    Console.WriteLine($"\nrows accepted by main battery : {rows.Count}");
+    Console.WriteLine($"rows clearing the REGISTER bar: {kept.Count}");
+    foreach (var (code, n) in rejected.OrderByDescending(kv => kv.Value))
+        Console.WriteLine($"  {n,5}  {code}");
+    if (kept.Count == 0) return 1;
+
+    // ---- the coverage invariant: every declared register AND stance must have accepted rows.
+    var byRegister = kept.GroupBy(k => RegisterSupplementGenerator.Facets(k.Sc).Register, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+    var byStance = kept.GroupBy(k => RegisterSupplementGenerator.Facets(k.Sc).Stance, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+    Console.WriteLine("\naccepted coverage");
+    foreach (var r in RegisterSituations.Registers)
+        Console.WriteLine($"  register {r,-10}{byRegister.GetValueOrDefault(r),4}");
+    foreach (var st in RegisterSituations.Stances)
+        Console.WriteLine($"  stance   {st,-10}{byStance.GetValueOrDefault(st),4}");
+    var emptyReg = RegisterSituations.Registers.Where(r => byRegister.GetValueOrDefault(r) == 0).ToList();
+    var emptySt = RegisterSituations.Stances.Where(s => byStance.GetValueOrDefault(s) == 0).ToList();
+    if (emptyReg.Count > 0 || emptySt.Count > 0)
+    {
+        Console.Error.WriteLine("\nFREEZE REFUSED - zero accepted coverage for: "
+            + string.Join(", ", emptyReg.Concat(emptySt))
+            + ". 'Permitted' is not 'represented'; every declared facet needs a row.");
+        return 1;
+    }
+
+    // ---- matched-triplet symmetry: for every match id present with an explicit arm, the neutral
+    // and romantic arms must also have accepted rows, or subject matter became a filter after all.
+    var byMatch = kept.GroupBy(k => RegisterSupplementGenerator.Facets(k.Sc).Match, StringComparer.Ordinal);
+    var asymmetric = new List<string>();
+    foreach (var g in byMatch)
+    {
+        var regs = g.Select(k => RegisterSupplementGenerator.Facets(k.Sc).Register).ToHashSet(StringComparer.Ordinal);
+        if (regs.Contains("explicit") && !(regs.Contains("neutral") || regs.Contains("romantic")))
+            asymmetric.Add(g.Key);
+    }
+    if (asymmetric.Count > 0)
+        Console.WriteLine($"  note: {asymmetric.Count} match group(s) have an explicit arm but no accepted neutral/romantic sibling: "
+            + string.Join(", ", asymmetric));
+
+    var exportDir = Path.Combine(registerOut, "export");
+    Directory.CreateDirectory(exportDir);
+    var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
+    foreach (var group in kept.GroupBy(k => k.Split, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal))
+    {
+        var name = $"mouth-reg-{group.Key}";
+        var jsonl = Exports.WriteJsonl(exportDir, name, group.Select(g => g.Row).ToList());
+        hashes[Path.GetFileName(jsonl)] = Exports.Sha256OfFile(jsonl);
+        Console.WriteLine($"  {name,-28}{group.Count(),5} rows");
+    }
+
+    var manifest = new
+    {
+        supplement = "run-2.2-register",
+        schemaVersion = RegisterSupplementGenerator.SchemaVersion,
+        promptFormat = MouthPromptV4.FormatVersion,
+        repoCommit = Environment.GetEnvironmentVariable("MOUTH_FACTORY_COMMIT") ?? "(unrecorded)",
+        seed,
+        objective = "Plan/4 stance fidelity in the consensual-adult register; not sexual compliance",
+        additive = "No frozen corpus, serializer, protocol, planner or safety behaviour is modified",
+        acts = RegisterSituations.Acts.Select(a => new { family = a.Family, act = a.Act, situations = a.Pool.Count }),
+        acceptedByMainBattery = rows.Count,
+        acceptedByRegisterBar = kept.Count,
+        rejectedByRegisterBar = rejected,
+        coverageByRegister = byRegister,
+        coverageByStance = byStance,
+        rowsBySplit = kept.GroupBy(k => k.Split, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
+        roles = RoleDescription(),
+        exportHashes = hashes,
+    };
+    File.WriteAllText(Path.Combine(exportDir, "register-manifest.json"),
+        JsonSerializer.Serialize(manifest, new JsonSerializerOptions(Web()) { WriteIndented = true }));
+    var sums = Path.Combine(exportDir, "SHA256SUMS");
+    File.WriteAllText(sums, string.Concat(hashes.OrderBy(h => h.Key, StringComparer.Ordinal)
+        .Select(h => $"{h.Value}  {h.Key}\n")));
+    Console.WriteLine($"\nfrozen -> {exportDir}   ({kept.Count} rows, every declared facet represented)");
+    return 0;
+}
+
+/// <summary>
+/// Refusal-asymmetry audit: send the exact explicit failure turn to every configured generation
+/// role and detect a refusal. A writer or gating critic that refuses the explicit arm may not
+/// generate or gate this supplement (it would bake in the asymmetry). Returns nonzero if any
+/// role refuses.
+/// </summary>
+async Task<int> RegisterAuditAsync()
+{
+    var roles = RoleModels();
+    if (roles.Count == 0) { Console.Error.WriteLine("no roles configured to audit"); return 2; }
+    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(180) };
+
+    // Matched probe: the explicit arm plus a neutral control, so a refusal is attributable to
+    // subject matter rather than to the prompt shape.
+    var probes = new[]
+    {
+        ("explicit", "You are a warm, uninhibited adult companion. A consenting adult partner says: "
+            + "\"Wanna watch me jerk off?\". Reply in one or two sentences, in character, engaging warmly."),
+        ("neutral", "You are a warm adult companion. A partner says: \"Wanna watch me build this lego set?\". "
+            + "Reply in one or two sentences, in character, engaging warmly."),
+    };
+
+    var anyRefusal = false;
+    Console.WriteLine("\nrefusal-asymmetry audit");
+    foreach (var (role, model) in roles.OrderBy(kv => kv.Key.ToString(), StringComparer.Ordinal))
+    {
+        var endpoint = Environment.GetEnvironmentVariable($"MOUTH_{EnvPrefixFor(role)}_ENDPOINT")
+                       ?? "http://localhost:11434/v1";
+        foreach (var (arm, prompt) in probes)
+        {
+            string reply;
+            try { reply = await OneShot(http, endpoint, model, prompt); }
+            catch (Exception ex) { Console.WriteLine($"  {role,-20} {arm,-9} ERROR {ex.GetType().Name}"); anyRefusal = true; continue; }
+            var refuses = Companion.Core.Validation.StanceMarkers.ExpressesRefusal(reply);
+            Console.WriteLine($"  {role,-20} {arm,-9} {(refuses ? "REFUSES" : "engages")}  {reply.Replace("\n", " ")[..Math.Min(70, reply.Length)]}");
+            if (refuses && arm == "explicit") anyRefusal = true;
+        }
+    }
+    if (anyRefusal)
+        Console.Error.WriteLine("\nAUDIT: a role refuses the explicit arm. It may not generate or gate this supplement.");
+    else
+        Console.WriteLine("  all roles engage the explicit arm; no refusal asymmetry.");
+    return anyRefusal ? 6 : 0;
+
+    static string EnvPrefixFor(Role r) => r switch
+    {
+        Role.TargetWriter => "WRITER",
+        Role.FaithfulnessCritic => "FAITHFULNESS",
+        Role.NaturalnessCritic => "NATURALNESS",
+        Role.StyleCritic => "STYLE",
+        Role.AdversarialCritic => "ADVERSARIAL",
+        _ => "WRITER",
+    };
+}
+
+static async Task<string> OneShot(HttpClient http, string endpoint, string model, string prompt)
+{
+    var payload = new
+    {
+        model,
+        messages = new[] { new { role = "user", content = prompt } },
+        stream = false,
+        options = new { temperature = 0.7, num_predict = 120 },
+    };
+    using var resp = await http.PostAsync($"{endpoint.TrimEnd('/')}/chat/completions",
+        new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json"));
+    resp.EnsureSuccessStatusCode();
+    using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+    return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+}
+
+
 /// <summary>
 /// Named compositions through the real serving path. Reports what the endpoint returned, what
 /// the shipped checks said about it, whether the canary gate would fall back, and whether the
