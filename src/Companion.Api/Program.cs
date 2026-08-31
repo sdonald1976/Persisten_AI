@@ -126,7 +126,18 @@ var contentTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentType
 contentTypes.Mappings[".glb"] = "model/gltf-binary";
 contentTypes.Mappings[".gltf"] = "model/gltf+json";
 contentTypes.Mappings[".vrm"] = "model/gltf-binary"; // VRoid/VRM is glTF-binary under the hood
-app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = contentTypes });
+app.UseStaticFiles(new StaticFileOptions
+{
+    ContentTypeProvider = contentTypes,
+    // HTML pages must revalidate on every launch: a browser opening its cached index.html after
+    // a UI change shows the old face against the new server, which reads as a bug that "came
+    // back". no-cache still permits ETag revalidation, so unchanged pages cost one 304.
+    OnPrepareResponse = ctx =>
+    {
+        if (ctx.File.Name.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+            ctx.Context.Response.Headers.CacheControl = "no-cache";
+    },
+});
 
 // Local API authentication: every REST/SSE/WebSocket call must present the local token (header
 // Authorization: Bearer / X-Companion-Key, or ?access_token= for EventSource/WebSocket which can't

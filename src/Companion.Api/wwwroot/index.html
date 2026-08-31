@@ -262,15 +262,15 @@
             turnQueue.length = 0; // replies in flight on a dropped socket are never coming
             currentBot = null;
             hideThinking();
-            // The companion opens the conversation so you don't have to. Her message is the
-            // whole opening - the server still sends memory-grounded opener suggestions, but
-            // this face doesn't render them. The bubble is kept so a later 'greeting' frame
-            // can upgrade the wording in place.
-            greetingBubble = m.message ? add('bot', m.message) : null;
+            // The server sends an instant deterministic greeting ("It's been 4 hours...") and
+            // memory-grounded opener suggestions with this frame. This face shows neither:
+            // the chat opens with Ava's own voiced greeting when the 'greeting' frame arrives,
+            // and with nothing at all until then. Template text is not her talking.
+            greetingBubble = null;
             break;
           case 'greeting':
-            // The model finished phrasing the opener in its own voice — swap it in. The instant
-            // deterministic greeting was already shown, so this is purely a wording upgrade.
+            // The model finished phrasing the opener in its own voice — this is the first and
+            // only greeting bubble; the deterministic template it upgrades was never shown.
             if (m.message) {
               if (greetingBubble) greetingBubble.textContent = m.message;
               else greetingBubble = add('bot', m.message);
