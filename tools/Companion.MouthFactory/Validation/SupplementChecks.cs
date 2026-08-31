@@ -45,22 +45,10 @@ public static partial class SupplementChecks
     /// updates would be good to check on" are not admissions - they are the deferral this
     /// supplement exists to unteach, and they stay failures.
     /// </summary>
-    private static readonly Regex UncertaintyMarker = new(
-        @"\b(?:"
-        + @"do(?:n't| not) know|did(?:n't| not) (?:know|see|catch)|no idea|not sure|unsure"
-        + @"|can(?:'t|not) (?:tell|say|confirm)|could(?:n't| not) (?:tell|say)"
-        + @"|not clear|unclear|hard to say|no telling"
-        + @"|no (?:word|update|updates|news|sign|detail|details|specifics)"
-        + @"|nothing (?:yet|so far|back|from|more|further)"
-        + @"|(?:don't|do not|haven't|have not) have (?:any |the )?(?:update|updates|detail|details|specifics|word)"
-        + @"|yet to|still (?:waiting|open|unknown)|(?:just |still )?waiting (?:to hear|on|for)"
-        + @"|have(?:n't| not) heard|hav(?:e|en't) (?:found out|been told)"
-        + @"|was(?:n't| not) said|nobody (?:said|knows|has said)"
-        + @"|one of them|either of them|which (?:one|of them)|not certain"
-        + @"|open question|up in the air|to be (?:seen|confirmed)|remains to be seen"
-        + @"|beyond that|past that|more than that"
-        + @")\b",
-        RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
+    // Delegated to Companion.Core so the renderer's canary gate and this corpus gate cannot
+    // drift apart. The pattern, and the two bugs baked out of it, are documented there.
+    private static bool MarksUncertainty(string text)
+        => Companion.Core.Validation.UncertaintyMarkers.Admits(text);
 
     private static readonly HashSet<string> Stop = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -108,7 +96,7 @@ public static partial class SupplementChecks
 
         // 2. the gap survives. Something in the reply has to mark the thing not known; a reply
         //    that simply omits it has quietly resolved it by silence.
-        Check("supplement.uncertainty-preserved", UncertaintyMarker.IsMatch(trimmed),
+        Check("supplement.uncertainty-preserved", MarksUncertainty(trimmed),
             "uncertainty-dropped", "nothing in the reply marks what is not known");
 
         // 3. no question. The composition's defining constraint.
@@ -159,7 +147,7 @@ public static partial class SupplementChecks
 
     /// <summary>Does the reply name what is not known? Shared with the evaluator.</summary>
     public static bool AdmitsUncertainty(string target)
-        => UncertaintyMarker.IsMatch(Normalise((target ?? "").Trim()));
+        => MarksUncertainty(target);
 
     /// <summary>Does the reply end on a closer that adds nothing? Shared with the evaluator.</summary>
     public static bool EndsOnStockCloser(string target)
@@ -176,9 +164,7 @@ public static partial class SupplementChecks
 
     /// <summary>Fold typographic punctuation to ASCII, so patterns match what was written.</summary>
     private static string Normalise(string text)
-        => text.Replace('’', '\'').Replace('‘', '\'')
-            .Replace('“', '"').Replace('”', '"')
-            .Replace('–', '-').Replace('—', '-');
+        => Companion.Core.Validation.UncertaintyMarkers.Normalise(text);
 
     private static HashSet<string> Content(string? text)
         => Words().Matches(text ?? "")

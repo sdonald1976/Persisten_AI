@@ -40,6 +40,7 @@ switch (command)
     case "supplement": return await SupplementAsync();
     case "supplement-freeze": return SupplementFreeze();
     case "reissue": return await ReissueAsync();
+    case "shadow-probe": return await ShadowProbeAsync();
     default:
         Console.WriteLine("""
             mouth-factory <command> [options]
@@ -56,6 +57,7 @@ switch (command)
               supplement     generate the Run-2.1 targeted supplement (additive; never touches Run-2)
               supplement-freeze  check the supplement's own bar, then hash and export it
               reissue        regenerate only the rows the ADMIT change affected, into a new dataset
+              shadow-probe   drive named plan compositions through the live serving path
 
             options
               --out <dir>        output directory (default training/mouth-factory)
@@ -657,6 +659,70 @@ async Task<int> ExportSelectedAsync(
 /// A separately-written evaluator would measure the gap between two implementations as readily as
 /// it measures the model.
 /// </summary>
+/// <summary>
+/// Named compositions through the real serving path. Reports what the endpoint returned, what
+/// the shipped checks said about it, whether the canary gate would fall back, and whether the
+/// recorded row carries the same bytes and the right adapter.
+/// </summary>
+async Task<int> ShadowProbeAsync()
+{
+    var endpoint = ArgValue("--endpoint") ?? "http://127.0.0.1:11436";
+    var adapter = ArgValue("--adapter-sha") ?? "";
+    var protocol = ArgValue("--protocol") ?? PlanV3Codec.ProtocolHash();
+    var canary = Array.IndexOf(args, "--canary") >= 0;
+
+    Console.WriteLine();
+    Console.WriteLine($"endpoint {endpoint}");
+    Console.WriteLine($"protocol {protocol[..16]}  mode {(canary ? "canary" : "shadow")}");
+    Console.WriteLine();
+
+    var outcomes = await Companion.MouthFactory.Probe.ShadowProbe.RunAsync(
+        endpoint, adapter, protocol, canary);
+
+    var displayed = 0;
+    var fallback = 0;
+    var identical = 0;
+    var attributed = 0;
+    var latencies = new List<long>();
+
+    foreach (var o in outcomes)
+    {
+        if (o.Critical) fallback++; else displayed++;
+        if (o.RecordedReply is not null && string.Equals(o.RecordedReply, o.Served, StringComparison.Ordinal))
+            identical++;
+        if (string.Equals(o.RecordedAdapter, adapter, StringComparison.OrdinalIgnoreCase))
+            attributed++;
+        if (o.LatencyMs >= 0) latencies.Add(o.LatencyMs);
+
+        Console.WriteLine($"  {o.Name,-32}{(o.Critical ? "FALLBACK" : "display "),-10}{o.LatencyMs,6}ms");
+        Console.WriteLine($"      served   {Trim(o.Served)}");
+        if (o.Violations.Count > 0)
+            Console.WriteLine($"      reason   {string.Join("; ", o.Violations)}");
+        Console.WriteLine();
+    }
+
+    latencies.Sort();
+    Console.WriteLine($"  rows            {outcomes.Count}");
+    Console.WriteLine($"  displayed       {displayed}");
+    Console.WriteLine($"  fallback        {fallback}");
+    Console.WriteLine($"  byte-identical  {identical}/{outcomes.Count}  (served vs recorded)");
+    Console.WriteLine($"  attributed      {attributed}/{outcomes.Count}  (row carries the served adapter)");
+    if (latencies.Count > 0)
+        Console.WriteLine($"  latency         median {latencies[latencies.Count / 2]}ms  "
+                          + $"max {latencies[^1]}ms");
+
+    var outPath = ArgValue("--out");
+    if (outPath is not null)
+        File.WriteAllText(outPath, JsonSerializer.Serialize(
+            new { endpoint, adapter, protocol, canary, outcomes },
+            new JsonSerializerOptions(Web()) { WriteIndented = true }));
+
+    return identical == outcomes.Count && attributed == outcomes.Count ? 0 : 1;
+
+    static string Trim(string s)
+        => s.Length <= 150 ? s : s[..150] + "...";
+}
+
 async Task<int> ScoreAsync()
 {
     var generationsPath = ArgValue("--generations");

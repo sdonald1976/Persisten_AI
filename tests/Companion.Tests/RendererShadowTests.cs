@@ -281,6 +281,47 @@ public class RendererShadowTests
         Assert.DoesNotContain(honest, x => x.StartsWith("epistemic-admission-absent"));
     }
 
+    [Fact]
+    public void AnUnmetAdmitObligation_IsCritical_AndTypographicApostrophesStillCount()
+    {
+        // The Run-2.1 defect at serving time. The plan carries an ADMIT obligation; a reply that
+        // quietly resolves it by saying nothing must not reach the user, so the violation has to
+        // be CRITICAL — a soft flag would let exactly the failure the correction exists for
+        // through to a canary user.
+        var plan = Plan(epistemic: [new EpistemicNote(EpistemicKind.NotLearned, "zydeco")]);
+
+        var silent = RendererShadowChecks.Score(plan, "Zydeco is a lively genre from Louisiana.");
+        Assert.True(RendererShadowService.IsCritical(
+                Assert.Single(silent, v => v.StartsWith("epistemic-admission-absent"))),
+            "an unmet ADMIT obligation must fall the canary back, not merely be recorded");
+
+        // And the other half: the model writes a curly apostrophe. An ASCII-only matcher scored
+        // 11 of Run-2.1's own correct admissions as failures, which would have fallen back
+        // eleven good replies for a punctuation character.
+        foreach (var admitted in new[]
+                 {
+                     "I don’t know that one — tell me about it.",
+                     "I don't know that one - tell me about it.",
+                     "Not sure, honestly. What is it?",
+                 })
+        {
+            Assert.DoesNotContain(
+                RendererShadowChecks.Score(plan, admitted),
+                x => x.StartsWith("epistemic-admission-absent"));
+        }
+    }
+
+    [Fact]
+    public void TheUncertaintyPatternCarriesNoControlCharacters()
+    {
+        // "\b" in a non-verbatim C# string is U+0008, not a word boundary. The same slip in a
+        // Python source file once scored 181 of 181 rows as failures, and it is invisible in a
+        // diff. This fails the moment a later edit drops the @.
+        var pattern = Companion.Core.Validation.UncertaintyMarkers.Pattern;
+        Assert.DoesNotContain(pattern, char.IsControl);
+        Assert.Contains(@"\b", pattern, StringComparison.Ordinal);
+    }
+
     // ---- privacy: the forget promise reaches renderer rows ---------------------------------
 
     [Fact]

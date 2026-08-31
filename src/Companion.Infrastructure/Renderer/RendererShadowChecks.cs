@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Companion.Core.Domain;
+using Companion.Core.Validation;
 
 namespace Companion.Infrastructure.Renderer;
 
@@ -88,11 +89,17 @@ public static class RendererShadowChecks
             }
         }
 
-        // Epistemic admission: when the plan says a subject is not learned, the honest reply
-        // contains one of the admission shapes. Same phrase family the corpus was curated
-        // with; absence is a flag for review, not proof of a leak.
+        // Epistemic admission. A NotLearned subject translates to plan/4's admit_unknown, which
+        // serializes under ADMIT — "say plainly that this is not known". Silence is not a soft
+        // stylistic miss here: it is the failure Run-2.1 exists to correct, reappearing at
+        // serving time, so it is CRITICAL and falls the canary back to production.
+        //
+        // Matched with the canonical marker rather than a local phrase list. The list that used
+        // to live here was ASCII-only, and the model writes "I don’t know": on Run-2.1's own
+        // hard-eval rows it saw 10 admissions where the corpus gate saw 21, so making it
+        // critical unfixed would have fallen back eleven correct replies.
         if (plan.Epistemic.Any(e => e.Kind == EpistemicKind.NotLearned)
-            && !AdmissionPhrases.Any(p => reply.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            && !UncertaintyMarkers.AdmitsNotLearned(reply))
         {
             violations.Add("epistemic-admission-absent: not-learned subject with no admission phrase");
         }
@@ -131,12 +138,6 @@ public static class RendererShadowChecks
         @"\b(never|haven't|hasn't|can't|cannot|don't|won't|no)\b[^.!?]{0,20}$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static readonly string[] AdmissionPhrases =
-    [
-        "haven't learned", "don't know", "not sure what", "no idea", "never heard",
-        "haven't come across", "don't actually know", "haven't told me", "you never told",
-        "new to me", "new one on me", "not familiar", "don't have", "nothing about",
-    ];
 
     private static readonly HashSet<string> Stopwords = new(StringComparer.OrdinalIgnoreCase)
     {

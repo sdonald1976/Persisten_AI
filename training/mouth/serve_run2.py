@@ -36,11 +36,28 @@ ROOT = Path(__file__).parent
 REPO = ROOT.parent.parent
 RENDERER = REPO / "training" / "renderer"
 MODEL_DIR = RENDERER / "models" / "Qwen2.5-3B-Instruct"
-ADAPTER = ROOT / "runs" / "run-2" / "adapter-final"
-MANIFEST = ROOT / "runs" / "run-2" / "training-manifest.json"
-SUMS = ROOT / "runs" / "run-2" / "SHA256SUMS"
+# Which run to serve is an argument, not a constant. The paths are still derived from it and
+# still verified against that run's own SHA256SUMS and manifest - parameterising the run must
+# not become a way to serve one run's weights under another run's hashes.
+_RUN_ARGS = argparse.ArgumentParser(add_help=False)
+_RUN_ARGS.add_argument("--run", default="run-2.1")
+_RUN, _ = _RUN_ARGS.parse_known_args()
+
+RUN_ID = _RUN.run
+ADAPTER = ROOT / "runs" / RUN_ID / "adapter-final"
+MANIFEST = ROOT / "runs" / RUN_ID / "training-manifest.json"
+SUMS = ROOT / "runs" / RUN_ID / "SHA256SUMS"
 
 LFS_POINTER_MAGIC = b"version https://git-lfs.github.com/spec/v1"
+
+
+def _selected_step():
+    """The step actually selected, read from the run's own metrics rather than hardcoded."""
+    metrics = ROOT / "runs" / RUN_ID / "metrics.json"
+    if metrics.exists():
+        m = json.loads(metrics.read_text(encoding="utf-8"))
+        return m.get("training", {}).get("selectedCheckpointStep")
+    return None
 
 
 def sha256_file(path):
@@ -92,8 +109,9 @@ def verify():
             expected[rel] = digest
 
     checked = 0
+    prefix = f"runs/{RUN_ID}/adapter-final/"
     for rel, digest in expected.items():
-        if not rel.startswith("runs/run-2/adapter-final/"):
+        if not rel.startswith(prefix):
             continue
         p = ROOT / rel
         if not p.exists():
@@ -120,8 +138,16 @@ def verify():
             f"TOKENIZER MISMATCH\n    expected {manifest['tokenizer']['sha256']}"
             f"\n    actual   {tok_actual}")
 
+    # A verifier that checked nothing must not report success. The prefix above was hardcoded
+    # to run-2 once, and run-2.1's files silently matched none of it: zero files verified, and
+    # the server said "artifact verification passed".
+    if checked == 0:
+        problems.append(
+            f"verified 0 adapter files - no entry in {SUMS.name} starts with '{prefix}'. "
+            f"Refusing to serve on a check that examined nothing.")
+
     identity = {
-        "adapter": "run-2",
+        "adapter": RUN_ID,
         "adapterSha256": sha256_file(weights),
         "adapterFilesVerified": checked,
         "baseModel": manifest["baseModel"]["id"],
@@ -129,13 +155,17 @@ def verify():
         "baseWeightsSha256": base_actual,
         "tokenizerSha256": tok_actual,
         "promptFormat": "mouth-prompt/4.0",
-        "selectedCheckpointStep": 180,
-        "corpusCommit": manifest["repository"]["corpusApprovedAt"],
+        # The section contract this adapter learned to read. The renderer refuses to serve it
+        # against a build that serializes a different one - the bytes can be right while the
+        # plan means something else, and nothing but this comparison can see that.
+        "protocolHash": manifest.get("protocolHash"),
+        "selectedCheckpointStep": _selected_step(),
+        "corpusCommit": manifest["repository"].get("corpusApprovedAt"),
     }
     return identity, problems
 
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(parents=[_RUN_ARGS])
 parser.add_argument("--port", type=int, default=11436)
 parser.add_argument("--verify-only", action="store_true")
 args = parser.parse_args()
@@ -273,5 +303,5 @@ class Handler(BaseHTTPRequestHandler):
         })
 
 
-print(f"serving run-2 on http://127.0.0.1:{args.port} (Ctrl+C to stop)", flush=True)
+print(f"serving {RUN_ID} on http://127.0.0.1:{args.port} (Ctrl+C to stop)", flush=True)
 ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()

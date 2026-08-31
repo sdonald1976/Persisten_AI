@@ -153,11 +153,16 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
     /// review material, not fallback triggers — they are too false-positive-prone to let a
     /// heuristic override the reply a human is about to read.
     /// </summary>
-    private static bool IsCritical(string violation)
+    internal static bool IsCritical(string violation)
         => violation.StartsWith("empty", StringComparison.Ordinal)
            || violation.StartsWith("artifact:", StringComparison.Ordinal)
            || violation.StartsWith("plan-echo", StringComparison.Ordinal)
-           || violation.StartsWith("mandatory-question-missing", StringComparison.Ordinal);
+           || violation.StartsWith("mandatory-question-missing", StringComparison.Ordinal)
+           // An unmet ADMIT obligation. Not a style proxy: the plan said "say plainly that this
+           // is not known" and the reply did not, which is Run-2's original defect arriving at
+           // serving time. Silently resolving an unknown by omission is exactly the thing the
+           // user must never be shown, so it falls back and the reason names itself.
+           || violation.StartsWith("epistemic-admission-absent", StringComparison.Ordinal);
 
     public async Task<RendererCanaryResult?> RenderForDisplayAsync(
         RendererShadowObservation obs, bool record, CancellationToken ct)
