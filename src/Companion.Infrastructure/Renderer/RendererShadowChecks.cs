@@ -107,6 +107,22 @@ public static class RendererShadowChecks
         return violations;
     }
 
+    /// <summary>
+    /// Does this text claim a lived physical experience a bodiless companion cannot have had,
+    /// without an honest negation beside it? Shared with the executive planner so a fabricated
+    /// autobiography is refused at PLANNING time, by the same instrument that would flag it in
+    /// a reply — one gate, one answer.
+    /// </summary>
+    public static bool LooksLikeInventedExperience(string text)
+    {
+        foreach (Match m in ExperienceMarker.Matches(text))
+        {
+            if (!NegationNearby.IsMatch(text[..m.Index]))
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>Sludge flags ride beside violations — statistics, never gates.</summary>
     public static List<string> Sludge(string reply)
         => RendererBench.RendererChecks.SludgeFlags(reply);

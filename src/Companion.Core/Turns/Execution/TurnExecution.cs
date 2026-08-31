@@ -42,6 +42,13 @@ public sealed record TurnExecutionRequest
     public string? NativeFrameTransition { get; init; }
 
     public IProgress<string>? TokenSink { get; init; }
+
+    /// <summary>
+    /// Semantic identities (<see cref="MoveIdentity.Of"/>) of conversational moves already
+    /// satisfied in this conversation. A mouth reply that IS one of these moves - the same
+    /// question or offer, re-issued - falls back rather than being displayed.
+    /// </summary>
+    public IReadOnlyCollection<string> SuppressedMoveIdentities { get; init; } = [];
 }
 
 /// <summary>
@@ -419,10 +426,25 @@ public sealed class TurnExecution(
             mouth = await rendererShadow.RenderMouthForDisplayAsync(
                 MouthObservation(request, fallback), record: !request.Sensitive, ct);
 
+        // Two vetoes the deterministic checks cannot express, both by semantic move identity
+        // rather than string equality: a reply that IS the user's message (the mouth echoed
+        // the turn instead of answering it), and a reply that IS a move this conversation
+        // already satisfied (the mouth re-issued an accepted invitation). Both were displayed
+        // to a real user before these existed.
+        string? identityVeto = null;
+        if (mouth is { CriticalFailure: false })
+        {
+            var replyIdentity = MoveIdentity.Of(mouth.Reply);
+            if (replyIdentity == MoveIdentity.Of(request.PromptText))
+                identityVeto = "mouth echoed the user's message";
+            else if (request.SuppressedMoveIdentities.Contains(replyIdentity))
+                identityVeto = "mouth re-issued an already-satisfied move";
+        }
+
         string response;
         string selectedRenderer;
         string? fallbackReason = null;
-        if (mouth is { CriticalFailure: false })
+        if (mouth is { CriticalFailure: false } && identityVeto is null)
         {
             response = mouth.Reply;
             selectedRenderer = "run-2.1";
@@ -437,7 +459,8 @@ public sealed class TurnExecution(
                     : "in-character turn: deterministic plan rendering (mouth corpus has no roleplay)"
                 : mouth is null
                     ? "mouth unavailable or timed out"
-                    : $"critical fidelity failure: {string.Join("; ", mouth.Violations)}";
+                    : identityVeto
+                      ?? $"critical fidelity failure: {string.Join("; ", mouth.Violations)}";
         }
 
         // The measured claim, not the architectural one: how many times the conversational

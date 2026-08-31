@@ -50,7 +50,10 @@ public class GreetingTests
             o.Contains("buoy", StringComparison.OrdinalIgnoreCase) ||
             o.Contains("Jetson", StringComparison.OrdinalIgnoreCase) ||
             o.Contains("left off", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains("just say what's on your mind", greeting.Message); // no pressure to pick one
+        // The starter menu is gone with the chips it advertised: the message is the lead
+        // plus the first typed opener woven in as her actual opening thought.
+        Assert.Contains("Good to see you", greeting.Message);
+        Assert.Contains(greeting.Openers[0], greeting.Message);
     }
 
     [Fact]
@@ -149,7 +152,7 @@ public class GreetingTests
 
         Assert.Equal(AgentReplyKind.Action, reply.Kind);
         Assert.Equal(IntentKind.Greeting, reply.Intent);
-        Assert.Contains("where we left things", reply.Text);
+        Assert.Contains("Good to see you", reply.Text); // the lead; the menu line no longer exists
     }
 
     // ---- LLM-written greeting (real-model configuration) ----

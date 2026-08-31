@@ -20,6 +20,7 @@ public sealed class Companion : ICompanion
 {
     private readonly IConversationStore _conversations;
     private readonly IExecutivePlanner _executivePlanner;
+    private readonly IConversationMoveStore _moves;
     private readonly IProjectContextService _projectContext;
     private readonly IPendingClarificationStore _pending;
     private readonly IProfileStore _profiles;
@@ -67,10 +68,12 @@ public sealed class Companion : ICompanion
         Turns.Observability.TurnObservability observability,
         IRendererShadow? rendererShadow = null,
         IFrameSessionStore? frames = null,
-        IExecutivePlanner? executivePlanner = null)
+        IExecutivePlanner? executivePlanner = null,
+        IConversationMoveStore? moves = null)
     {
         _rendererShadow = rendererShadow ?? new NullRendererShadow();
         _executivePlanner = executivePlanner ?? new NullExecutivePlanner();
+        _moves = moves ?? new InMemoryConversationMoveStore();
         _frames = frames;
         _conversations = conversations;
         _projectContext = projectContext;
@@ -642,17 +645,89 @@ public sealed class Companion : ICompanion
             decisions.AddRange(contributed.Decisions);
         }
 
+        // ---- conversational move state (Stheno-free route). The previous turn may have
+        // left a move hanging - a question, an invitation. How this message landed against it
+        // was already decided by the typed understanding (answer binding); here that verdict
+        // is applied to the move ledger and translated for the planner. "Absolutely!" bound to
+        // the pending invitation marks it SATISFIED, and a satisfied move is suppressed for
+        // the rest of the conversation unless the user themselves reopens it.
+        PendingMove? pendingMove = null;
+        MoveResolution? pendingResolution = null;
+        if (sthenoFreeRoute)
+        {
+            pendingMove = _moves.GetPending(conversationId);
+            if (working is { Move: ConversationMove.AnswersOpenQuestion, BoundQuestion: { } boundQ })
+            {
+                var boundIdentity = MoveIdentity.Of(boundQ);
+                _moves.MarkSatisfied(conversationId, boundIdentity);
+                if (pendingMove is not null && pendingMove.Identity == boundIdentity)
+                    pendingResolution = pendingMove.Kind == PendingMoveKind.Invitation
+                        ? MoveResolution.Accepted
+                        : MoveResolution.Answered;
+            }
+            else if (pendingMove is not null
+                     && working.Move is ConversationMove.NewTopic)
+            {
+                pendingResolution = MoveResolution.Redirected;
+            }
+
+            if (pendingMove is not null)
+                decisions.Add(new DecisionRecord
+                {
+                    Stage = "move.pending", Decider = "rule",
+                    Verdict = pendingResolution?.ToString().ToLowerInvariant() ?? "open",
+                    Reason = $"{pendingMove.Kind}: {(pendingMove.Text.Length <= 60 ? pendingMove.Text : pendingMove.Text[..60])}",
+                });
+        }
+
         // The executive planner (Stheno-free route only): a local instruction model refines
-        // the assembled native plan - which optional items, what order, whether to use an
-        // optional question - through the typed transform in IExecutivePlanner. It runs AFTER
-        // the contribution merge so it sees tool-derived items, and its output has re-passed
-        // structural, audience and eligibility validation or it is not here. On any failure
-        // the deterministic plan stands; nothing on this path can reach a renderer directly.
+        // the assembled native plan - selection, ordering, question use, and now bounded
+        // semantic PROPOSALS with typed provenance - through IExecutivePlanner's authority
+        // layer. It runs AFTER the contribution merge so it sees tool-derived items, and its
+        // output has re-passed structural, audience and eligibility validation or it is not
+        // here. On any failure the deterministic plan stands; nothing on this path can reach
+        // a renderer directly.
         if (sthenoFreeRoute && nativeV3 is not null && _executivePlanner.IsEnabled)
         {
-            var refined = await _executivePlanner.RefineAsync(nativeV3, promptText, ct);
+            var refined = await _executivePlanner.RefineAsync(nativeV3, new PlanningSignals
+            {
+                UserMessage = promptText,
+                Recent = recent
+                    .TakeLast(6)
+                    .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
+                    .ToList(),
+                Memories = selectedMemories
+                    .Select(r => (r.Memory.Id, r.Memory.Content))
+                    .ToList(),
+                ToolResults = toolOutcome.ResultsSection,
+                Pending = pendingMove,
+                PendingResolution = pendingResolution,
+                CreativeInvited = inCharacter || nativeFrame is not null,
+            }, ct);
             nativeV3 = refined.Plan;
             decisions.Add(refined.Decision);
+        }
+
+        // Deterministic backstop, independent of the planner: a question item whose semantic
+        // identity was already satisfied this conversation does not go to the mouth, however
+        // it got into the plan. Repetition suppression must not depend on a model obeying an
+        // instruction.
+        if (sthenoFreeRoute && nativeV3 is not null
+            && nativeV3.Question.ItemId is { } pendingQid
+            && nativeV3.Items.FirstOrDefault(i => i.Id == pendingQid) is { Text: { } qText } qItem
+            && _moves.IsSatisfied(conversationId, MoveIdentity.Of(qText)))
+        {
+            nativeV3 = nativeV3 with
+            {
+                Question = new PlanV3.QuestionPolicyBlock(PlanV3.QuestionPolicy.question_forbidden),
+                Items = nativeV3.Items.Where(i => i.Id != pendingQid).ToList(),
+            };
+            decisions.Add(new DecisionRecord
+            {
+                Stage = "move.suppression", Decider = "rule",
+                Verdict = "satisfied-question-dropped",
+                Reason = (qText.Length <= 60 ? qText : qText[..60]),
+            });
         }
 
         // The user-scoped renderer canary (docs/RENDERER_SHADOW.md §8): on this user's
@@ -691,6 +766,8 @@ public sealed class Companion : ICompanion
             NativeFrameTransition = nativeFrame is null ? null
                 : PlanV3.PlanV4Codec.Kebab(nativeFrame.Transition),
             TokenSink = tokenSink,
+            SuppressedMoveIdentities = sthenoFreeRoute
+                ? _moves.SatisfiedIdentities(conversationId) : [],
         }, ct);
         decisions.AddRange(executed.Decisions);
 
@@ -698,6 +775,32 @@ public sealed class Companion : ICompanion
         var renderedPrompt = executed.RenderedPrompt;
         var generated = executed.Generation;
         var response = executed.Displayed;
+
+        // What did THIS turn leave hanging? A displayed question becomes the pending move
+        // (invitation when it came from a curiosity item, question otherwise); a reply with
+        // no question clears the slate - she is not waiting on anything.
+        if (sthenoFreeRoute)
+        {
+            var askedText = LastQuestionSentence(response);
+            if (askedText is not null)
+            {
+                var questionItem = nativeV3?.Question.ItemId is { } qid2
+                    ? nativeV3.Items.FirstOrDefault(i => i.Id == qid2) : null;
+                _moves.SetPending(conversationId, new PendingMove
+                {
+                    Kind = questionItem?.Category == PlanV3.RenderCategory.curiosity
+                        ? PendingMoveKind.Invitation
+                        : PendingMoveKind.Question,
+                    Text = askedText,
+                    Identity = MoveIdentity.Of(askedText),
+                    PlanItemId = questionItem?.Id,
+                });
+            }
+            else
+            {
+                _moves.SetPending(conversationId, null);
+            }
+        }
 
         // The gate's comparison row is written HERE: execution decided, observability records.
         if (executed.Refusal is { } refusal)
@@ -1078,6 +1181,17 @@ public sealed class Companion : ICompanion
     /// </summary>
 
     /// <summary>A trace for a turn that paused (or cancelled) instead of answering â€” no retrieval/generation ran.</summary>
+    /// <summary>The last question sentence of a displayed reply, or null when it asked none.</summary>
+    private static string? LastQuestionSentence(string reply)
+    {
+        var end = reply.LastIndexOf('?');
+        if (end < 0)
+            return null;
+        var start = reply.LastIndexOfAny(['.', '!', '?', (char)10], Math.Max(0, end - 1));
+        var sentence = reply[(start + 1)..(end + 1)].Trim();
+        return sentence.Length > 3 ? sentence : null;
+    }
+
     private static TurnTrace ClarificationTrace(
         string userMessage, string response, TurnStatus status, Guid? pendingId,
         ProjectContext? projectContext = null)

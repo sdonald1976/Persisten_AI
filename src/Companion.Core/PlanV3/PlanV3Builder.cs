@@ -104,12 +104,18 @@ public static class PlanV3Builder
         if (working is { Move: ConversationMove.AnswersOpenQuestion, BoundQuestion: { } bound })
         {
             provenance.Add("working.BoundQuestion");
+            // background_only, deliberately. This item's MEANING is "their message answered
+            // this question" - context for the reply, not content of it. As must_express the
+            // mouth was obliged to convey the quoted question and, on a thin plan, rendered
+            // the question itself as the whole reply: the user said "Absolutely!" and heard
+            // the invitation again. The acknowledgment is context; the ANSWER to the
+            // acceptance is the planner's job to supply.
             Add(new PlanItem
             {
                 Id = NextId("a"),
                 Type = "answer-received",
                 Category = RenderCategory.answer,
-                Policy = ExpressionPolicy.must_express,
+                Policy = ExpressionPolicy.background_only,
                 Text = Clip(bound),
                 Quoted = true,
                 Provenance = new Provenance(Origin: "told-by-user"),

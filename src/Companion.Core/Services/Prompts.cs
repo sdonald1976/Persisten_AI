@@ -302,42 +302,6 @@ public static class Prompts
         Define("renderer.uncertainty.header", "Heading over uncertainty notes.",
             "## Uncertainty notes");
 
-        // ---- greeting: the session opener and its clickable starters ----
-
-        Define("greeter.lead.gap", "Greeting lead after a real absence. {gap}",
-            "It's been {gap}. Good to see you back.");
-        Define("greeter.lead.nogap", "Greeting lead when they were barely gone.",
-            "Hey — good to see you.");
-        Define("greeter.menu", "The line after the lead that offers the starters.",
-            "Here's where we left things; pick whatever you feel like, or ignore them all and just say what's on your mind.");
-        Define("greeter.first-time", "Greeting for a user she has never met.",
-            "Hey — we haven't talked before, so there's nothing to catch up on yet. " +
-            "Tell me anything — what you're working on, something on your mind — or ask \"what can you do?\"");
-        Define("greeter.opener.commitment", "Starter for her own past promise. {commitment}",
-            "Last time I said I'd {commitment} — want to pick that up?");
-        Define("greeter.opener.curiosity", "Starter voicing a held curiosity. {question}",
-            "Something I found myself wondering while you were away: {question}");
-        Define("greeter.opener.anticipation.upcoming", "Starter before a known event. {description} {when}",
-            "Good luck with {description} {when} — I'll be thinking of you.");
-        Define("greeter.opener.anticipation.after", "Starter after a known event passed. {description}",
-            "How did {description} go?");
-        Define("greeter.opener.loop", "Starter resuming the user's unfinished business. {description}",
-            "Pick up where we left off — {description}?");
-        Define("greeter.opener.project", "Starter about a recent project. {project}",
-            "How's {project} going?");
-        Define("greeter.opener.recall", "Catch-all starter when nothing actionable surfaced.",
-            "Ask me what I remember about you.");
-        Define("greeter.opener.mood.concern-topic", "Care opener tied to a topic. {emotion} {topic}",
-            "Last time you seemed {emotion} about {topic} — how's that going?");
-        Define("greeter.opener.mood.concern", "Care opener without a topic. {vibe}",
-            "You seemed {vibe} last time — I'm here if you want to talk about it.");
-        Define("greeter.opener.mood.improving", "Opener when the mood is climbing out of a rough patch.",
-            "Last stretch felt rough — hope things have been looking up.");
-        Define("greeter.opener.mood.positive-topic", "Warm opener tied to a topic. {topic} {emotion}",
-            "How's {topic}? You seemed {emotion} about it last time.");
-        Define("greeter.opener.mood.positive", "Warm opener without a topic.",
-            "You were in good spirits last time — hope that's still going.");
-
         // ---- outreach: the push messages she sends on her own ----
 
         Define("outreach.goodluck", "Event-morning encouragement push. {description}",

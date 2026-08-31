@@ -46,6 +46,8 @@ public class ExecutivePlannerTests
             ],
         };
 
+    private static PlanningSignals Signals() => new() { UserMessage = "did the meeting move?" };
+
     private static LlmExecutivePlanner Planner(params string[] replies)
         => new(new QueuedChatModel(replies), NullLogger<LlmExecutivePlanner>.Instance);
 
@@ -54,7 +56,7 @@ public class ExecutivePlannerTests
     {
         var planner = Planner("""{"include":["m2"],"order":["m2"],"ask":false}""");
 
-        var outcome = await planner.RefineAsync(Plan(), "did the meeting move?");
+        var outcome = await planner.RefineAsync(Plan(), Signals());
 
         Assert.Equal("refined", outcome.Decision.Verdict);
         Assert.Contains(outcome.Plan.Items, i => i.Id == "m2");
@@ -72,7 +74,7 @@ public class ExecutivePlannerTests
         // part being trimmed - partial acceptance of a hostile proposal is still acceptance.
         var planner = Planner("""{"include":["f1"],"order":["f1"],"ask":false}""");
 
-        var outcome = await planner.RefineAsync(Plan(), "did the meeting move?");
+        var outcome = await planner.RefineAsync(Plan(), Signals());
 
         Assert.Equal("deterministic", outcome.Decision.Verdict);
         Assert.Contains("not an offered", outcome.Decision.Reason);
@@ -84,7 +86,7 @@ public class ExecutivePlannerTests
     {
         var planner = Planner("Sure! I think you should include m1 because...");
 
-        var outcome = await planner.RefineAsync(Plan(), "did the meeting move?");
+        var outcome = await planner.RefineAsync(Plan(), Signals());
 
         Assert.Equal("deterministic", outcome.Decision.Verdict);
         Assert.Equal(3, outcome.Plan.Items.Count);
@@ -108,7 +110,7 @@ public class ExecutivePlannerTests
         };
         var planner = Planner("""{"include":[],"order":[],"ask":false}""");
 
-        var outcome = await planner.RefineAsync(plan, "did the meeting move?");
+        var outcome = await planner.RefineAsync(plan, Signals());
 
         Assert.Equal("refined", outcome.Decision.Verdict);
         Assert.Equal(QuestionPolicy.question_forbidden, outcome.Plan.Question.Policy);
@@ -136,27 +138,11 @@ public class ExecutivePlannerTests
         // structurally valid.
         var planner = Planner("""{"include":[],"order":[],"ask":true}""");
 
-        var outcome = await planner.RefineAsync(plan, "did the meeting move?");
+        var outcome = await planner.RefineAsync(plan, Signals());
 
         Assert.Equal("refined", outcome.Decision.Verdict);
         Assert.Equal(QuestionPolicy.may_ask, outcome.Plan.Question.Policy);
         Assert.Contains(outcome.Plan.Items, i => i.Id == "q1");
-    }
-
-    [Fact]
-    public async Task APlanWithNoChoices_NeverCallsTheModel()
-    {
-        var bare = Plan() with
-        {
-            Items = [Plan().Items[0]],   // only the must_express obligation
-        };
-        // No queued reply: a call would throw on an empty queue, so finishing IS the proof.
-        var planner = Planner();
-
-        var outcome = await planner.RefineAsync(bare, "did the meeting move?");
-
-        Assert.Equal("deterministic", outcome.Decision.Verdict);
-        Assert.Contains("no optional choices", outcome.Decision.Reason);
     }
 
     [Fact]
@@ -165,7 +151,7 @@ public class ExecutivePlannerTests
         var planner = new LlmExecutivePlanner(
             new ThrowingChatModel(), NullLogger<LlmExecutivePlanner>.Instance);
 
-        var outcome = await planner.RefineAsync(Plan(), "did the meeting move?");
+        var outcome = await planner.RefineAsync(Plan(), Signals());
 
         Assert.Equal("deterministic", outcome.Decision.Verdict);
         Assert.Contains("planner error", outcome.Decision.Reason);

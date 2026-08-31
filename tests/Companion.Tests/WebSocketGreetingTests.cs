@@ -18,7 +18,7 @@ public class WebSocketGreetingTests
     public WebSocketGreetingTests(CompanionApiFactory factory) => _factory = factory;
 
     [Fact]
-    public async Task Connect_GetsAnInstantReadyGreeting_AndNoUpgradeFrame_OnMocks()
+    public async Task Connect_GetsAnInstantReadyGreeting_AndTheGreetingFrame_OnMocks()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var client = _factory.Server.CreateWebSocketClient();
@@ -48,7 +48,10 @@ public class WebSocketGreetingTests
         }
         while (frameType != "reply");
 
-        Assert.DoesNotContain("greeting", types);
+        // The face displays only the 'greeting' frame (the 'ready' message is no longer
+        // rendered), so the server must ALWAYS deliver one - on mocks it carries the
+        // deterministic grounded message rather than being skipped.
+        Assert.Contains("greeting", types);
     }
 
     private static async Task SendJsonAsync(WebSocket socket, object payload, CancellationToken ct)

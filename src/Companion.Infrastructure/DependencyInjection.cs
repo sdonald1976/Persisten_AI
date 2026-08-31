@@ -365,6 +365,10 @@ public static class DependencyInjection
         // instead of waiting for an explicit command.
         services.AddScoped<ISleepCycle, SleepCycle>();
 
+        // Conversational move state: what each conversation's last turn left hanging, and
+        // which moves were already satisfied. In-process; see the store's own rationale.
+        services.AddSingleton<Companion.Core.Domain.IConversationMoveStore, Companion.Core.Domain.InMemoryConversationMoveStore>();
+
         // Reaching out on her own: a push notification (ntfy) when the user's been away and she
         // holds a real curiosity to voice. The channel reports itself unconfigured until
         // Outreach.NtfyUrl is set, which keeps the whole feature silently off.
@@ -401,10 +405,19 @@ public static class DependencyInjection
                 sp.GetRequiredService<ILogger<LlmGreeter>>(),
                 sp.GetRequiredService<IPersonalityService>(),
                 sp.GetRequiredService<IProfileStore>()));
-            services.AddScoped<IGreeter>(sp => sp.GetRequiredService<LlmGreeter>());
-            // Registered only alongside a real model: faces that want an instant opener show the
-            // deterministic Greeter's message first and upgrade the wording when this completes.
-            services.AddScoped<IGreetingRephraser>(sp => sp.GetRequiredService<LlmGreeter>());
+            // Route-aware: the Stheno-free user's greeting comes from the deterministic
+            // Greeter and is never rephrased by the conversational model; everyone else keeps
+            // the model-voiced greeting.
+            services.AddScoped<IGreeter>(sp => new SthenoFreeGreeter(
+                sp.GetRequiredService<LlmGreeter>(),
+                sp.GetRequiredService<LlmGreeter>(),
+                sp.GetRequiredService<Greeter>(),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CompanionOptions>>()));
+            services.AddScoped<IGreetingRephraser>(sp => new SthenoFreeGreeter(
+                sp.GetRequiredService<LlmGreeter>(),
+                sp.GetRequiredService<LlmGreeter>(),
+                sp.GetRequiredService<Greeter>(),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CompanionOptions>>()));
         }
         else
         {
@@ -416,11 +429,13 @@ public static class DependencyInjection
         // never break a feature — it only ever improves wording.
         if (modelOptions.UsesRealModel)
         {
-            services.AddScoped<IVoiceRephraser>(sp => new LlmVoiceRephraser(
-                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation),
-                sp.GetRequiredService<IPersonalityService>(),
-                sp.GetRequiredService<IProfileStore>(),
-                sp.GetRequiredService<ILogger<LlmVoiceRephraser>>()));
+            services.AddScoped<IVoiceRephraser>(sp => new SthenoFreeVoiceRephraser(
+                new LlmVoiceRephraser(
+                    sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation),
+                    sp.GetRequiredService<IPersonalityService>(),
+                    sp.GetRequiredService<IProfileStore>(),
+                    sp.GetRequiredService<ILogger<LlmVoiceRephraser>>()),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CompanionOptions>>()));
         }
         else
         {

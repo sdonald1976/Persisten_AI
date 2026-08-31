@@ -642,12 +642,18 @@ internal sealed class WebSocketConversation
             using var scope = _scopes.CreateScope();
             var rephraser = scope.ServiceProvider.GetService<IGreetingRephraser>();
             if (rephraser is null)
-                return; // offline mocks: the deterministic greeting IS the greeting
+            {
+                // Offline mocks: the deterministic greeting IS the greeting - still delivered,
+                // because no other frame will be.
+                await SendAsync(new { type = "greeting", message = grounded.Message }, ct);
+                return;
+            }
 
+            // The face no longer shows the instant deterministic greeting, so this frame is
+            // the ONLY greeting the user sees - it must always arrive. When the rephraser
+            // adds nothing (model fallback, or the Stheno-free route where the deterministic
+            // greeting IS the greeting), the grounded message goes out as-is.
             var upgraded = await rephraser.RephraseAsync(grounded, _userId, ct);
-            if (string.Equals(upgraded.Message, grounded.Message, StringComparison.Ordinal))
-                return; // the model added nothing (or fell back) — the shown greeting stands
-
             await SendAsync(new { type = "greeting", message = upgraded.Message }, ct);
         }
         catch (OperationCanceledException)
