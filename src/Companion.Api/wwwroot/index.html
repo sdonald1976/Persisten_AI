@@ -133,10 +133,7 @@
     </div>
   </div>
 
-  <div id="log">
-    <div class="sys">This page is a thin "face" over the local companion API — the brain runs headless
-      behind <code>/ws</code>. Try: “what do you remember about me?”, “be more concise”, “forget that”.</div>
-  </div>
+  <div id="log"></div>
 
   <footer>
     <div class="inputrow">
@@ -265,11 +262,11 @@
             turnQueue.length = 0; // replies in flight on a dropped socket are never coming
             currentBot = null;
             hideThinking();
-            // The companion opens the conversation so you don't have to. Show its message and
-            // offer the memory-grounded starters as clickable chips (or just type your own).
-            // The bubble is kept so a later 'greeting' frame can upgrade the wording in place.
+            // The companion opens the conversation so you don't have to. Her message is the
+            // whole opening - the server still sends memory-grounded opener suggestions, but
+            // this face doesn't render them. The bubble is kept so a later 'greeting' frame
+            // can upgrade the wording in place.
             greetingBubble = m.message ? add('bot', m.message) : null;
-            if (Array.isArray(m.openers) && m.openers.length) offerOpeners(m.openers);
             break;
           case 'greeting':
             // The model finished phrasing the opener in its own voice — swap it in. The instant
@@ -346,21 +343,6 @@
     function confirmChoice(token, confirmed) {
       turnQueue.push({ speak: false }); // its 'reply' frame shifts the queue like any other turn
       socket.send(JSON.stringify({ type: 'confirm', token, confirmed, conversationId }));
-    }
-
-    // Render the opener suggestions as chips. Clicking one drops it into the input (you can edit
-    // before sending) — you're never forced to pick one; typing anything works too.
-    function offerOpeners(openers) {
-      const row = document.createElement('div');
-      row.className = 'msg confirm';
-      openers.forEach(text => {
-        const b = document.createElement('button');
-        b.textContent = text;
-        b.onclick = () => { input.value = text; input.focus(); };
-        row.appendChild(b);
-      });
-      log.appendChild(row);
-      log.scrollTop = log.scrollHeight;
     }
 
     function sendText(text, viaVoice, asAction) {
