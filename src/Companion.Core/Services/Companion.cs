@@ -19,6 +19,7 @@ namespace Companion.Core.Services;
 public sealed class Companion : ICompanion
 {
     private readonly IConversationStore _conversations;
+    private readonly IExecutivePlanner _executivePlanner;
     private readonly IProjectContextService _projectContext;
     private readonly IPendingClarificationStore _pending;
     private readonly IProfileStore _profiles;
@@ -65,9 +66,11 @@ public sealed class Companion : ICompanion
         Turns.PostTurn.PostTurnEffects postTurn,
         Turns.Observability.TurnObservability observability,
         IRendererShadow? rendererShadow = null,
-        IFrameSessionStore? frames = null)
+        IFrameSessionStore? frames = null,
+        IExecutivePlanner? executivePlanner = null)
     {
         _rendererShadow = rendererShadow ?? new NullRendererShadow();
+        _executivePlanner = executivePlanner ?? new NullExecutivePlanner();
         _frames = frames;
         _conversations = conversations;
         _projectContext = projectContext;
@@ -216,6 +219,14 @@ public sealed class Companion : ICompanion
         Message extractionSource, Guid replyToId, TurnStatus status, Guid? pendingId,
         IProgress<string>? tokenSink, DateTimeOffset now, DateTimeOffset? lastSeenBefore, CancellationToken ct)
     {
+        // The per-turn model-call ledger: every chat-model call from here to the end of the
+        // turn (background flows included - they inherit the context) is recorded by role, so
+        // "which models did this turn call" is a measured fact on the trace rather than an
+        // inference from the architecture. The Stheno-free route's zero-call contract reads it.
+        using var modelCalls = ModelCallScope.Open();
+
+        var sthenoFreeRoute = _options.SthenoFree.AppliesTo(userId);
+
         // Privacy gate, computed up front: a "don't remember this conversation" turn produces a
         // reply but writes NO durable derived memory â€” no extraction, no project/open-loop updates,
         // and no emotional signal. Raw messages are still stored for in-session context.
@@ -498,7 +509,7 @@ public sealed class Companion : ICompanion
         IReadOnlyList<string> nativeLintRejections = [];
         PlanV3.AssemblyReport? nativeAssembly = null;
         int? nativeCompactV4Chars = null;
-        if (_rendererShadow.IsObserving || _rendererShadow.IsCanaryFor(userId))
+        if (_rendererShadow.IsObserving || _rendererShadow.IsCanaryFor(userId) || sthenoFreeRoute)
         {
             var native = _planning.BuildNativePlan(
                 traceId, intent, working, promptText, selectedMemories, knowledge,
@@ -629,6 +640,19 @@ public sealed class Companion : ICompanion
             }
 
             decisions.AddRange(contributed.Decisions);
+        }
+
+        // The executive planner (Stheno-free route only): a local instruction model refines
+        // the assembled native plan - which optional items, what order, whether to use an
+        // optional question - through the typed transform in IExecutivePlanner. It runs AFTER
+        // the contribution merge so it sees tool-derived items, and its output has re-passed
+        // structural, audience and eligibility validation or it is not here. On any failure
+        // the deterministic plan stands; nothing on this path can reach a renderer directly.
+        if (sthenoFreeRoute && nativeV3 is not null && _executivePlanner.IsEnabled)
+        {
+            var refined = await _executivePlanner.RefineAsync(nativeV3, promptText, ct);
+            nativeV3 = refined.Plan;
+            decisions.Add(refined.Decision);
         }
 
         // The user-scoped renderer canary (docs/RENDERER_SHADOW.md §8): on this user's
@@ -817,6 +841,20 @@ public sealed class Companion : ICompanion
 
         // 11. Record the trace for debugging (`/why`). Observability owns every write below;
         // the TurnTrace returned after it is the turn's RESULT — it carries the displayed reply
+        // The turn's model-call ledger, as a decision row: which roles were called and how
+        // often. On the Stheno-free route the conversational model's count being zero IS the
+        // route's proof, and it is recorded on every turn so drift is visible immediately.
+        var turnModelCalls = ModelCallScope.Snapshot();
+        decisions.Add(new DecisionRecord
+        {
+            Stage = "models.called", Decider = "rule",
+            Verdict = turnModelCalls.Count == 0 ? "none" : $"{turnModelCalls.Count} calls",
+            Reason = turnModelCalls.Count == 0 ? null : string.Join(", ", turnModelCalls
+                .GroupBy(c => c.Role, StringComparer.Ordinal)
+                .OrderBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g => $"{g.Key}:{g.Count()}")),
+        });
+
         // out to the API — so it is built here, not there.
         await _observability.RecordTurnAsync(
             new Turns.Observability.TurnRecordSnapshot

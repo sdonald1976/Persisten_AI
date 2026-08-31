@@ -52,6 +52,22 @@ public sealed class ModelOptions
     /// </summary>
     public EndpointOptions? ToolPlanner { get; set; }
 
+    /// <summary>
+    /// Optional executive planner for the Stheno-free route: consumes the typed native plan/4
+    /// and proposes a bounded refinement, never a word of the reply. No fallback chain on
+    /// purpose - unset means the deterministic plan is used as-is, and quietly borrowing the
+    /// conversational model for the planning seat would put Stheno back into a route whose
+    /// contract is its absence.
+    /// </summary>
+    public EndpointOptions? ExecutivePlanner { get; set; }
+
+    /// <summary>
+    /// Model for post-turn reflection and the sleep cycle. Falls back to <see cref="Chat"/>,
+    /// which is what reflection always used; configuring it moves the background off the
+    /// conversational model entirely.
+    /// </summary>
+    public EndpointOptions? Reflection { get; set; }
+
     /// <summary>Dedicated embedding model.</summary>
     public EndpointOptions Embeddings { get; set; } = new();
 
@@ -88,6 +104,9 @@ public sealed class ModelOptions
 
     /// <summary>Task auditor endpoint, or the cheap summarizer fallback.</summary>
     public EndpointOptions TaskAuditorOrSummarizer => TaskAuditor ?? SummarizerOrChat;
+
+    /// <summary>Reflection endpoint, or the conversational one it historically used.</summary>
+    public EndpointOptions ReflectionOrChat => Reflection ?? Chat;
 
     /// <summary>Tool planner endpoint, or the structured extraction fallback.</summary>
     public EndpointOptions ToolPlannerOrExtraction => ToolPlanner ?? ExtractionOrChat;

@@ -62,6 +62,7 @@ public sealed class LoggingChatModel : IChatModel
                 CompletionTokens = completion.CompletionTokens,
                 Timestamp = _clock.GetUtcNow(),
             }, CancellationToken.None);
+            Companion.Core.Abstractions.ModelCallScope.Record(_role, completion.Model, ok: true);
             return completion;
         }
         catch (Exception ex)
@@ -78,6 +79,7 @@ public sealed class LoggingChatModel : IChatModel
                 PromptChars = systemPrompt.Length + userMessage.Length,
                 Timestamp = _clock.GetUtcNow(),
             }, CancellationToken.None);
+            Companion.Core.Abstractions.ModelCallScope.Record(_role, model: null, ok: false);
             throw;
         }
     }

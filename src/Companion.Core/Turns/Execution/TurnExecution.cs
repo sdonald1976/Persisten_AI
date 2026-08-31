@@ -112,10 +112,14 @@ public sealed class TurnExecution(
     IRendererShadow rendererShadow,
     ILogger<TurnExecution> logger,
     IReplyGate? gate = null,
-    IOptions<SafetyOptions>? safety = null)
+    IOptions<SafetyOptions>? safety = null,
+    IOptions<CompanionOptions>? options = null)
 {
     private readonly IReplyGate _gate = gate ?? new AlwaysOpenGate();
     private readonly SafetyOptions _safety = safety?.Value ?? new SafetyOptions();
+    private readonly SthenoFreeOptions _sthenoFree = options?.Value.SthenoFree ?? new();
+    private readonly string _mouthModelVersion =
+        options?.Value.RendererShadow.Mouth.ModelVersion is { Length: > 0 } v ? v : "mouth";
 
     /// <summary>
     /// The bounded tool loop, driven by the executive planner. It gets a COMPACT planning
@@ -150,6 +154,12 @@ public sealed class TurnExecution(
         TurnExecutionRequest request, CancellationToken ct = default)
     {
         var decisions = new List<DecisionRecord>();
+
+        // The Stheno-free route: this user's turn is anchored on the native plan/4 and the
+        // mouth, and the conversational model is never called - not for generation, not as a
+        // fallback. Decided before anything else so no code below it can reach the generator.
+        if (_sthenoFree.AppliesTo(request.UserId))
+            return await ExecuteSthenoFreeAsync(request, decisions, ct);
 
         // The user-scoped renderer canary: on this user's eligible non-tool turns the tuned
         // renderer's reply is DISPLAYED and production is the immediate fallback. Decided
@@ -197,32 +207,6 @@ public sealed class TurnExecution(
                 "Reply for {UserId} began by repeating an earlier turn verbatim ({Removed} chars removed).",
                 request.UserId, generated.Text.Length - production.Length);
         }
-
-        // One construction, used by both the shadow and the canary. If these were built
-        // separately the thing measured in shadow would not be the thing displayed in canary,
-        // and the shadow would stop being evidence about the canary.
-        static RendererShadowObservation MouthObservation(TurnExecutionRequest r, string produced)
-            => new()
-            {
-                TraceId = r.TraceId,
-                UserId = r.UserId,
-                SourceMessageId = r.SourceMessageId,
-                ConversationId = r.ConversationId,
-                Plan = r.Plan,
-                Packet = r.Packet,
-                Transcript = r.Recent
-                    .TakeLast(4)
-                    .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
-                    .ToList(),
-                UserMessage = r.PromptText,
-                ProductionResponse = produced,
-                NativeV3 = r.NativeV3,
-                NativeBuildError = r.NativeBuildError,
-                NativeLintRejections = r.NativeLintRejections,
-                NativeAssembly = r.NativeAssembly,
-                NativeCompactV4Chars = r.NativeCompactV4Chars,
-                NativeFrameTransition = r.NativeFrameTransition,
-            };
 
         var response = production;
         string? rendererCandidate = null;
@@ -324,31 +308,8 @@ public sealed class TurnExecution(
         // default even when the gate is on: a gate whose false-positive rate has never been
         // measured should not decide what she may say, and the only way to measure it is to
         // watch it be wrong without cost.
-        GateRefusal? refusal = null;
-        if (_gate.IsEnabled)
-        {
-            var verdict = await _gate.ReviewAsync(response, request.PromptText, ct);
-            decisions.Add(new DecisionRecord
-            {
-                Stage = "reply.gate", Decider = "model",
-                Verdict = verdict.Allow ? "allow"
-                    : _safety.Mode == GateMode.Enforce ? "block-enforced" : "block-shadow",
-                Reason = verdict.Allow ? null : verdict.Reason,
-            });
-            if (!verdict.Allow)
-            {
-                var enforcing = _safety.Mode == GateMode.Enforce;
-                logger.LogWarning(
-                    "Reply gate refused a reply for {UserId} ({Mode}): {Reason}",
-                    request.UserId, enforcing ? "enforced" : "shadow only", verdict.Reason);
-
-                // Returned rather than recorded: the row is the caller's to write.
-                refusal = new GateRefusal { Reason = verdict.Reason, Enforced = enforcing };
-
-                if (enforcing)
-                    response = _safety.Replacement;
-            }
-        }
+        var (gatedResponse, refusal) = await ApplyGateAsync(response, request, decisions, ct);
+        response = gatedResponse;
 
         return new TurnExecutionResult
         {
@@ -371,6 +332,161 @@ public sealed class TurnExecution(
     /// say. Moved byte-for-byte: this string reaches a model, so even its ellipsis characters
     /// are part of the contract.
     /// </summary>
+
+    /// <summary>
+    /// The reply gate, on what she is actually about to say - shared by the production path
+    /// and the Stheno-free route, because the gate's authority is over MEANING and does not
+    /// care which renderer produced the words. In shadow mode the verdict is recorded and the
+    /// reply goes out unchanged.
+    /// </summary>
+    private async Task<(string Response, GateRefusal? Refusal)> ApplyGateAsync(
+        string response, TurnExecutionRequest request, List<DecisionRecord> decisions,
+        CancellationToken ct)
+    {
+        if (!_gate.IsEnabled)
+            return (response, null);
+
+        var verdict = await _gate.ReviewAsync(response, request.PromptText, ct);
+        decisions.Add(new DecisionRecord
+        {
+            Stage = "reply.gate", Decider = "model",
+            Verdict = verdict.Allow ? "allow"
+                : _safety.Mode == GateMode.Enforce ? "block-enforced" : "block-shadow",
+            Reason = verdict.Allow ? null : verdict.Reason,
+        });
+        if (verdict.Allow)
+            return (response, null);
+
+        var enforcing = _safety.Mode == GateMode.Enforce;
+        logger.LogWarning(
+            "Reply gate refused a reply for {UserId} ({Mode}): {Reason}",
+            request.UserId, enforcing ? "enforced" : "shadow only", verdict.Reason);
+
+        // Returned rather than recorded: the row is the caller's to write.
+        var refusal = new GateRefusal { Reason = verdict.Reason, Enforced = enforcing };
+        return (enforcing ? _safety.Replacement : response, refusal);
+    }
+
+    /// <summary>
+    /// One construction, used by the shadow, the canary and the Stheno-free route. If these
+    /// were built separately the thing measured in shadow would not be the thing displayed,
+    /// and the shadow would stop being evidence about it.
+    /// </summary>
+    private static RendererShadowObservation MouthObservation(TurnExecutionRequest r, string produced)
+        => new()
+        {
+            TraceId = r.TraceId,
+            UserId = r.UserId,
+            SourceMessageId = r.SourceMessageId,
+            ConversationId = r.ConversationId,
+            Plan = r.Plan,
+            Packet = r.Packet,
+            Transcript = r.Recent
+                .TakeLast(4)
+                .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
+                .ToList(),
+            UserMessage = r.PromptText,
+            ProductionResponse = produced,
+            NativeV3 = r.NativeV3,
+            NativeBuildError = r.NativeBuildError,
+            NativeLintRejections = r.NativeLintRejections,
+            NativeAssembly = r.NativeAssembly,
+            NativeCompactV4Chars = r.NativeCompactV4Chars,
+            NativeFrameTransition = r.NativeFrameTransition,
+        };
+
+    /// <summary>
+    /// The Stheno-free turn: the native plan/4, rendered by the mouth, with a deterministic
+    /// plan rendering as the only fallback. The conversational model is unreachable from this
+    /// method - it takes no path to <see cref="IReplyGenerator"/>, which is the property the
+    /// route exists for and the property its tests pin.
+    ///
+    /// Tool turns are allowed through (the plan carries the tool contributions the assembler
+    /// granted); an in-character turn skips the mouth (its corpus never covered roleplay) and
+    /// goes straight to the deterministic rendering; a turn with no native plan at all falls
+    /// to the typed honest clarification. Nothing here can invoke any other renderer.
+    /// </summary>
+    private async Task<TurnExecutionResult> ExecuteSthenoFreeAsync(
+        TurnExecutionRequest request, List<DecisionRecord> decisions, CancellationToken ct)
+    {
+        var fallback = request.NativeV3 is null
+            ? global::Companion.PlanV3.DeterministicMouth.HonestFailure
+            : global::Companion.PlanV3.DeterministicMouth.Render(request.NativeV3);
+
+        RendererCanaryResult? mouth = null;
+        var mouthAttempted = request.NativeV3 is not null && !request.InCharacter;
+        if (mouthAttempted)
+            mouth = await rendererShadow.RenderMouthForDisplayAsync(
+                MouthObservation(request, fallback), record: !request.Sensitive, ct);
+
+        string response;
+        string selectedRenderer;
+        string? fallbackReason = null;
+        if (mouth is { CriticalFailure: false })
+        {
+            response = mouth.Reply;
+            selectedRenderer = "run-2.1";
+        }
+        else
+        {
+            response = fallback;
+            selectedRenderer = request.NativeV3 is null ? "honest-failure" : "plan-deterministic";
+            fallbackReason = !mouthAttempted
+                ? request.NativeV3 is null
+                    ? "no native plan/4 was built: typed honest clarification"
+                    : "in-character turn: deterministic plan rendering (mouth corpus has no roleplay)"
+                : mouth is null
+                    ? "mouth unavailable or timed out"
+                    : $"critical fidelity failure: {string.Join("; ", mouth.Violations)}";
+        }
+
+        // The measured claim, not the architectural one: how many times the conversational
+        // role was actually called on this flow so far. The route's contract is zero, and a
+        // nonzero count here is a bug worth a loud log even though the reply already avoided
+        // the result.
+        var conversationCalls = ModelCallScope.Snapshot()
+            .Count(c => string.Equals(c.Role, "conversation", StringComparison.Ordinal));
+        if (conversationCalls > 0)
+            logger.LogError(
+                "Stheno-free turn for {UserId} observed {Calls} conversational-model call(s). "
+                + "The displayed reply did not use them, but the route's zero-call contract is broken.",
+                request.UserId, conversationCalls);
+
+        decisions.Add(new DecisionRecord
+        {
+            Stage = "route.stheno-free", Decider = "config",
+            Verdict = selectedRenderer switch
+            {
+                "run-2.1" => "displayed-run2.1",
+                "honest-failure" => "honest-failure",
+                _ => "fallback-deterministic",
+            },
+            Reason = (fallbackReason ?? $"latency {mouth?.LatencyMs}ms")
+                     + $"; conversation-model calls: {conversationCalls}",
+        });
+
+        var (gated, refusal) = await ApplyGateAsync(response, request, decisions, ct);
+        response = gated;
+
+        // The sink was never given to any generator on this route; deliver once, whole.
+        request.TokenSink?.Report(response);
+
+        return new TurnExecutionResult
+        {
+            ProductionCandidate = fallback,
+            RendererCandidate = mouth?.Reply,
+            Displayed = response,
+            SelectedRenderer = selectedRenderer,
+            FallbackReason = fallbackReason,
+            CanaryTurn = false,
+            RenderedPrompt = "",
+            Generation = ChatCompletion.FromText(response,
+                selectedRenderer == "run-2.1" ? _mouthModelVersion : selectedRenderer),
+            Refusal = refusal,
+            Decisions = decisions,
+        };
+    }
+
     private static string BuildPlanningContext(
         IReadOnlyList<Message> recent, IReadOnlyList<RetrievalResult> selectedMemories, string? project)
     {

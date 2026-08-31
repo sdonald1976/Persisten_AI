@@ -185,6 +185,18 @@ public sealed class CompanionOptions
     public RendererShadowOptions RendererShadow { get; set; } = new();
 
     /// <summary>
+    /// The Stheno-free turn route: for the named user, the turn is answered by rendering the
+    /// native plan/4 through the mouth, and the conversational model is never called - not for
+    /// generation, not as a fallback. Failure falls to a deterministic plan rendering or a
+    /// typed honest clarification, so this flag makes the conversational model's absence a
+    /// designed state rather than an outage. Independent of the mouth canary flag on purpose:
+    /// the canary swaps the DISPLAY of a Stheno-anchored turn, this replaces the turn's
+    /// anchor. Requires RendererShadow.Mouth.Enabled and its endpoint to be useful; without
+    /// them every turn on the route lands on the deterministic fallback (still Stheno-free).
+    /// </summary>
+    public SthenoFreeOptions SthenoFree { get; set; } = new();
+
+    /// <summary>
     /// Capture the EXACT text sent to the conversation model — the rendered system prompt and
     /// the user message — into the in-memory turn ring, readable at /diagnostics/prompt.
     ///
@@ -247,6 +259,19 @@ public sealed class RetrievalWeights
 /// Configuration for renderer shadow mode (docs/RENDERER_SHADOW.md). All values are recorded
 /// into every shadow row so the collected data names exactly which model produced it.
 /// </summary>
+/// <summary>User-scoped Stheno-free route. See <see cref="CompanionOptions.SthenoFree"/>.</summary>
+public sealed class SthenoFreeOptions
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>The single user routed Stheno-free. Empty disables the route for everyone.</summary>
+    public string UserId { get; set; } = "";
+
+    public bool AppliesTo(string userId)
+        => Enabled && !string.IsNullOrEmpty(UserId)
+           && string.Equals(UserId, userId, StringComparison.Ordinal);
+}
+
 public sealed class RendererShadowOptions
 {
     /// <summary>Off by default; turning this off IS the rollback (no other state involved).</summary>

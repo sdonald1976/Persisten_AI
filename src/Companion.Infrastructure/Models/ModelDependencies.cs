@@ -106,6 +106,9 @@ public static class ModelDependencies
             (ProviderHttpClients.ToolPlanner, models.ToolPlannerOrExtraction),
             (ProviderHttpClients.Embeddings, models.Embeddings),
         };
+        roles.Add((ProviderHttpClients.Reflection, models.ReflectionOrChat));
+        if (models.ExecutivePlanner is { } planner)
+            roles.Add((ProviderHttpClients.ExecutivePlanner, planner));
         if (models.Vision is { } vision)
             roles.Add((ProviderHttpClients.Vision, vision));
         return roles;

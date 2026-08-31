@@ -137,6 +137,12 @@ public class TurnSequenceCharacterizationTests
             "plan.frame", "plan.native-v3", "plan.native-v3.tools", "plan.promotion",
             "reply.gate", "plan.fidelity", "renderer.canary", "renderer.shadow",
             "extraction",
+
+            // Deliberate (Stheno-free work): the per-turn model-call ledger, recorded on
+            // every turn so "which models did this turn call" is a stated fact. The route's
+            // own stages (route.stheno-free, plan.executive) appear only on routed turns and
+            // are pinned by SthenoFreeRouteTests, not here.
+            "models.called",
         };
 
         var unexpected = stages.Distinct().Except(expected).ToList();

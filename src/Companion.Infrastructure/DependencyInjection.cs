@@ -204,6 +204,9 @@ public static class DependencyInjection
             services.AddKeyedSingleton<IChatModel>(ChatRoles.Safety, (sp, _) => BuildChat(sp, modelOptions.SafetyOrExtraction, ProviderHttpClients.Safety));
             services.AddKeyedSingleton<IChatModel>(ChatRoles.TaskAuditor, (sp, _) => BuildChat(sp, modelOptions.TaskAuditorOrSummarizer, ProviderHttpClients.TaskAuditor));
             services.AddKeyedSingleton<IChatModel>(ChatRoles.ToolPlanner, (sp, _) => BuildChat(sp, modelOptions.ToolPlannerOrExtraction, ProviderHttpClients.ToolPlanner));
+            services.AddKeyedSingleton<IChatModel>(ChatRoles.Reflection, (sp, _) => BuildChat(sp, modelOptions.ReflectionOrChat, ProviderHttpClients.Reflection));
+            if (modelOptions.ExecutivePlanner is { } plannerEndpoint)
+                services.AddKeyedSingleton<IChatModel>(ChatRoles.ExecutivePlanner, (sp, _) => BuildChat(sp, plannerEndpoint, ProviderHttpClients.ExecutivePlanner));
 
             // The default IChatModel (the assistant's reply) is the conversational one.
             services.AddSingleton<IChatModel>(sp => sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Conversation));
@@ -265,6 +268,20 @@ public static class DependencyInjection
         // length) and asks the completion judge about a self-stopped one, feeding the text so far
         // back each round so it resumes the same task. Reads its policy from the conversational
         // endpoint's options (AutoContinue / MaxContinuations / CompletionCheck).
+        // The Stheno-free route's planning seat. Registered as the null planner unless a real
+        // provider AND an ExecutivePlanner endpoint are both configured - a route with no
+        // planner model still works, on the deterministic plan alone.
+        if (modelOptions.UsesRealModel && modelOptions.ExecutivePlanner is not null)
+        {
+            services.AddSingleton<IExecutivePlanner>(sp => new LlmExecutivePlanner(
+                sp.GetRequiredKeyedService<IChatModel>(ChatRoles.ExecutivePlanner),
+                sp.GetRequiredService<ILogger<LlmExecutivePlanner>>()));
+        }
+        else
+        {
+            services.AddSingleton<IExecutivePlanner, NullExecutivePlanner>();
+        }
+
         services.AddSingleton<IReplyGenerator>(sp => new ReplyGenerator(
             sp.GetRequiredService<IChatModel>(),
             sp.GetRequiredService<ICompletionJudge>(),
@@ -335,7 +352,13 @@ public static class DependencyInjection
         // while the user is away and surfaced through the greeter and the context packet. Thinks
         // with the conversational model — reflection is the companion's own voice, not a
         // structured-extraction chore.
-        services.AddScoped<IReflector, Reflector>();
+        // Reflection thinks with its OWN role now (falling back to the conversational model
+        // only when no Reflection endpoint is configured), so the background never holds the
+        // reply model hostage and a Stheno-free deployment stays Stheno-free after the turn.
+        services.AddScoped<IReflector>(sp => modelOptions.UsesRealModel
+            ? ActivatorUtilities.CreateInstance<Reflector>(
+                sp, sp.GetRequiredKeyedService<IChatModel>(ChatRoles.Reflection))
+            : ActivatorUtilities.CreateInstance<Reflector>(sp));
 
         // The full idle "sleep": think, then tidy (consolidation + curiosity hygiene). This is what
         // the background worker actually runs, so consolidation finally has a life of its own
