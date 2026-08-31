@@ -46,6 +46,8 @@ switch (command)
     case "shadow-probe": return await ShadowProbeAsync();
     case "contract-probe": return await ShadowProbeAsync(
         Companion.MouthFactory.Probe.ShadowProbe.MatchedTriplet());
+    case "hardset-probe": return await ShadowProbeAsync(
+        Companion.MouthFactory.Probe.ShadowProbe.RequiredHardSet());
     default:
         Console.WriteLine("""
             mouth-factory <command> [options]

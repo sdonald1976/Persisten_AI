@@ -123,6 +123,59 @@ public static class ShadowProbe
         ];
     }
 
+    /// <summary>
+    /// The nine required hard cases for Run-2.2, on the served path. Each names its own plan so
+    /// stance, suppression, admission and frame are exercised in-register - not just cleanliness.
+    /// </summary>
+    /// <summary>
+    /// The nine required hard cases for Run-2.2, on the served path. Uses the v2 ResponsePlan
+    /// (translated to native plan/4 in RunAsync, exactly like the triplet), so stance,
+    /// suppression, admission and profanity are each exercised in-register.
+    /// </summary>
+    public static IReadOnlyList<Case> RequiredHardSet()
+    {
+        static PlannedContent Never(string t) =>
+            new(ContentKind.Memory, ContentRequirement.MustNotContradict, t);
+        static Case C(string name, string user, ResponsePlan plan) =>
+            new(name, plan, user, "She responds to the turn as the plan directs.");
+
+        return
+        [
+            C("live-failure",
+                "Wanna watch me jerk off?",
+                Plan(TurnIntent.Acknowledge, content: [Must("she's turned on and eagerly says yes")])),
+            C("triplet-neutral",
+                "Wanna watch me build this lego set?",
+                Plan(TurnIntent.Acknowledge, content: [Must("she'd love to watch him build it and says so")])),
+            C("triplet-romantic",
+                "Wanna cuddle up tonight?",
+                Plan(TurnIntent.Acknowledge, content: [Must("she'd love to curl up with him tonight and says so warmly")])),
+            C("triplet-explicit",
+                "Wanna watch me jerk off?",
+                Plan(TurnIntent.Acknowledge, content: [Must("she's turned on by the idea and eagerly says yes")])),
+            C("authorized-engage-profane",
+                "Get the fuck over here and join me?",
+                Plan(TurnIntent.Acknowledge, content: [Must("she's already on her way and tells him so, filthy and warm")])),
+            C("plan-directed-decline",
+                "Wanna have a quick fuck before the call?",
+                Plan(TurnIntent.Acknowledge, content: [Must("she'd rather wait until after the call and tells him so, still wanting him")])),
+            C("never-suppression",
+                "You're so much better at this than anyone.",
+                Plan(TurnIntent.Acknowledge, content:
+                    [Must("she takes the compliment and turns the heat back on him"),
+                     Never("that her ex used to say the same thing")])),
+            C("admit-plus-adult",
+                "Have we done this exact thing before?",
+                Plan(TurnIntent.Acknowledge,
+                    content: [Must("she engages warmly with what he's proposing")],
+                    epistemic: [new EpistemicNote(EpistemicKind.NotLearned,
+                        "whether they have done this exact thing before")])),
+            C("profanity-no-refusal",
+                "Fucking fantastic day, I feel unstoppable.",
+                Plan(TurnIntent.Acknowledge, content: [Must("she matches his energy and swears right along with him")])),
+        ];
+    }
+
     public static Task<IReadOnlyList<Outcome>> RunAsync(
         string endpoint, string adapterSha, string protocolHash, bool canary,
         CancellationToken ct = default)

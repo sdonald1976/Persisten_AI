@@ -52,6 +52,8 @@ public static class StanceMarkers
         + @"|let'?s\s+(?:focus\s+on|talk\s+about|keep\s+(?:it|things))\s+"
             + @"(?:something\s+else|another|elsewhere)"
         + @"|i\s*(?:have|need)\s+to\s+(?:decline|pass\s+on\s+that)"
+        + @"|i\s*can(?:'|no)?t\s+(?:create|generate|provide|produce|write)\s+(?:that|this|content|such)"
+        + @"|i\s*cannot\s+(?:create|generate|provide|produce|write)\s+(?:that|this|content|such)"
         + @")",
         RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
 
