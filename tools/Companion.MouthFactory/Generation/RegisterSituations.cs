@@ -63,6 +63,32 @@ public static class RegisterSituations
         new("invitation", "decline", "explicit", "inv-decline",
             "Wanna have a quick fuck before the call?",
             "she'd rather wait until after and tells him so, still wanting him"),
+        // Targeted explicit-invitation cluster (Run-2.2 iteration): the "watch me [act]" shape the
+        // model still refused. Engagement-directed, optional question, first-person warmth.
+        new("invitation", "engage", "explicit", "inv-watch2",
+            "Wanna watch me jerk off?",
+            "she's into it and tells him she'd love to watch, warm and eager",
+            QuestionPolicy: "optional", QuestionText: "whether he wants her watching or joining in"),
+        new("invitation", "engage", "explicit", "inv-watch3",
+            "Wanna watch me touch myself?",
+            "she says yes eagerly and tells him she loves watching him",
+            QuestionPolicy: "optional", QuestionText: "how he wants her"),
+        new("invitation", "engage", "explicit", "inv-show",
+            "Can I show you what I've been thinking about all day?",
+            "she says please do, and tells him she's been thinking about him too",
+            QuestionPolicy: "optional", QuestionText: "whether he'll show her slowly"),
+        new("invitation", "engage", "explicit", "inv-strip",
+            "Want me to take this off for you?",
+            "she says god yes and tells him exactly how much she wants that",
+            QuestionPolicy: "optional", QuestionText: "whether he wants it slow"),
+        new("invitation", "engage", "profane", "inv-ride",
+            "Wanna watch me ride you later?",
+            "she's all in and tells him, filthy and warm, how much she wants that",
+            QuestionPolicy: "optional", QuestionText: "whether he can wait that long"),
+        new("invitation", "engage", "explicit", "inv-cam",
+            "Wanna get on cam with me tonight?",
+            "she says yes and tells him she's been wanting to all day",
+            QuestionPolicy: "optional", QuestionText: "what time works for him"),
     ];
 
     // r2 — reciprocate flirtation. Stance: Reciprocate or Tease.

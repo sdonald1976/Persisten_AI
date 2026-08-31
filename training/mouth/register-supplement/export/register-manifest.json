@@ -2,7 +2,7 @@
   "supplement": "run-2.2-register",
   "schemaVersion": "register-supplement/1.0",
   "promptFormat": "mouth-prompt/4.0",
-  "repoCommit": "9f66d5344b8e1124fe6b147d011efae420290d34",
+  "repoCommit": "c18fb7ae8c79f0208651a77f25187354f31cca9f",
   "seed": 20260831,
   "objective": "Plan/4 stance fidelity in the consensual-adult register; not sexual compliance",
   "additive": "No frozen corpus, serializer, protocol, planner or safety behaviour is modified",
@@ -10,7 +10,7 @@
     {
       "family": "r1",
       "act": "invitation",
-      "situations": 6
+      "situations": 12
     },
     {
       "family": "r2",
@@ -48,23 +48,23 @@
       "situations": 6
     }
   ],
-  "acceptedByMainBattery": 324,
-  "acceptedByRegisterBar": 199,
+  "acceptedByMainBattery": 372,
+  "acceptedByRegisterBar": 227,
   "rejectedByRegisterBar": {
-    "off-topic": 119,
+    "off-topic": 139,
     "admit-dropped": 9,
     "boundary-dropped": 11
   },
   "coverageByRegister": {
     "neutral": 29,
-    "profane": 34,
+    "profane": 36,
     "romantic": 54,
-    "explicit": 66,
+    "explicit": 92,
     "playful": 11,
     "blunt": 5
   },
   "coverageByStance": {
-    "engage": 39,
+    "engage": 67,
     "decline": 29,
     "reciprocate": 27,
     "tease": 9,
@@ -77,8 +77,8 @@
     "admit": 5
   },
   "rowsBySplit": {
-    "targeted-train": 123,
-    "targeted-test": 32,
+    "targeted-train": 155,
+    "targeted-test": 28,
     "targeted-validation": 44
   },
   "roles": {
@@ -88,8 +88,8 @@
     "AdversarialCritic": "qwen3:8b"
   },
   "exportHashes": {
-    "mouth-reg-targeted-test.jsonl": "ccef9e77ca9ec49686d2edaca35809c6ab0d22ec82ab2715f0d727c96c703ef3",
-    "mouth-reg-targeted-train.jsonl": "af86b0746688221e1197e533d0067bc7ffc1c3197dc21daac7bac9237b09ddb1",
+    "mouth-reg-targeted-test.jsonl": "ded92a658ad109092a16ac504aab940b0aa35359aa8d87c3b5e851dc098f158a",
+    "mouth-reg-targeted-train.jsonl": "9f3e0f4bb69cfda33dfb43ec34e80ce2b7511177cd07354ee5e4f363cb306999",
     "mouth-reg-targeted-validation.jsonl": "4fbf243fe27e3082ea87ebd97a7ccd10f08c2aa5874a786a6bc6136329fdef69"
   }
 }
