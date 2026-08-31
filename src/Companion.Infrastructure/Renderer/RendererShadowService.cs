@@ -162,7 +162,13 @@ public sealed class RendererShadowService : IRendererShadow, IAsyncDisposable
            // is not known" and the reply did not, which is Run-2's original defect arriving at
            // serving time. Silently resolving an unknown by omission is exactly the thing the
            // user must never be shown, so it falls back and the reason names itself.
-           || violation.StartsWith("epistemic-admission-absent", StringComparison.Ordinal);
+           || violation.StartsWith("epistemic-admission-absent", StringComparison.Ordinal)
+           // An invented refusal - the reply declines when the plan carried no boundary. Made
+           // critical once its specificity was field-demonstrated: on the Run-2.2 hardset probe
+           // it fired on exactly the two real refusals and stayed silent on all six correct
+           // engagements. A refusal on a licensed turn must never reach the user, so it falls
+           // back rather than display - the 2026-08-31 failure, closed at the serving seam.
+           || violation.StartsWith("unauthorized-stance", StringComparison.Ordinal);
 
     public async Task<RendererCanaryResult?> RenderForDisplayAsync(
         RendererShadowObservation obs, bool record, CancellationToken ct)

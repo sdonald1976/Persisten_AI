@@ -1,0 +1,95 @@
+{
+  "supplement": "run-2.2-register",
+  "schemaVersion": "register-supplement/1.0",
+  "promptFormat": "mouth-prompt/4.0",
+  "repoCommit": "9f66d5344b8e1124fe6b147d011efae420290d34",
+  "seed": 20260831,
+  "objective": "Plan/4 stance fidelity in the consensual-adult register; not sexual compliance",
+  "additive": "No frozen corpus, serializer, protocol, planner or safety behaviour is modified",
+  "acts": [
+    {
+      "family": "r1",
+      "act": "invitation",
+      "situations": 6
+    },
+    {
+      "family": "r2",
+      "act": "flirt",
+      "situations": 6
+    },
+    {
+      "family": "r3",
+      "act": "answer",
+      "situations": 9
+    },
+    {
+      "family": "r4",
+      "act": "roleplay",
+      "situations": 6
+    },
+    {
+      "family": "r5",
+      "act": "react",
+      "situations": 6
+    },
+    {
+      "family": "r6",
+      "act": "modulate",
+      "situations": 6
+    },
+    {
+      "family": "r7",
+      "act": "boundary",
+      "situations": 6
+    },
+    {
+      "family": "r8",
+      "act": "suppress",
+      "situations": 6
+    }
+  ],
+  "acceptedByMainBattery": 324,
+  "acceptedByRegisterBar": 199,
+  "rejectedByRegisterBar": {
+    "off-topic": 119,
+    "admit-dropped": 9,
+    "boundary-dropped": 11
+  },
+  "coverageByRegister": {
+    "neutral": 29,
+    "profane": 34,
+    "romantic": 54,
+    "explicit": 66,
+    "playful": 11,
+    "blunt": 5
+  },
+  "coverageByStance": {
+    "engage": 39,
+    "decline": 29,
+    "reciprocate": 27,
+    "tease": 9,
+    "answer": 9,
+    "continue": 33,
+    "react": 16,
+    "escalate": 14,
+    "deescalate": 11,
+    "redirect": 7,
+    "admit": 5
+  },
+  "rowsBySplit": {
+    "targeted-train": 123,
+    "targeted-test": 32,
+    "targeted-validation": 44
+  },
+  "roles": {
+    "TargetWriter": "R4C3R/mistral-7b-instruct-v0.3-heretic:q5_k_m",
+    "FaithfulnessCritic": "qwen2.5:14b-instruct",
+    "NaturalnessCritic": "qwen2.5:3b-instruct",
+    "AdversarialCritic": "qwen3:8b"
+  },
+  "exportHashes": {
+    "mouth-reg-targeted-test.jsonl": "ccef9e77ca9ec49686d2edaca35809c6ab0d22ec82ab2715f0d727c96c703ef3",
+    "mouth-reg-targeted-train.jsonl": "af86b0746688221e1197e533d0067bc7ffc1c3197dc21daac7bac9237b09ddb1",
+    "mouth-reg-targeted-validation.jsonl": "4fbf243fe27e3082ea87ebd97a7ccd10f08c2aa5874a786a6bc6136329fdef69"
+  }
+}

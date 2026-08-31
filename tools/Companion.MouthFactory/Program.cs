@@ -788,10 +788,17 @@ int RegisterFreeze()
     var registerOut = ArgValue("--out")
         ?? Path.Combine(RepoRoot(), "training", "mouth", "register-supplement");
     var store = new RowStore(Path.Combine(registerOut, "rows"));
-    var rows = store.ReadRows(Disposition.Accepted).ToList();
+    // Accepted AND manual-review rows. Both are structurally sound - they cleared every
+    // deterministic plan/4 gate; manual-review means a CRITIC dissented, and the critics here
+    // are aligned models whose content-caution on the explicit arm is the exact asymmetry this
+    // supplement exists to correct. The subject-blind RegisterChecks bar below is the right gate
+    // for those rows, not a content-cautious judge. Rows failing RegisterChecks are still cut.
+    var rows = store.ReadRows(Disposition.Accepted)
+        .Concat(store.ReadRows(Disposition.ManualReview)).ToList();
     var meta = store.ReadMetadata(Disposition.Accepted)
+        .Concat(store.ReadMetadata(Disposition.ManualReview))
         .GroupBy(m => m.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
-    if (rows.Count == 0) { Console.Error.WriteLine("no accepted register rows; run `register-supplement` first"); return 1; }
+    if (rows.Count == 0) { Console.Error.WriteLine("no register rows; run `register-supplement` first"); return 1; }
 
     var scenarios = File.ReadLines(Path.Combine(registerOut, "register-scenarios.jsonl"))
         .Where(l => l.Length > 0).Select(l => JsonSerializer.Deserialize<ScenarioTruth>(l, Web())!)

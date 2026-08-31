@@ -112,12 +112,12 @@ public class UnauthorizedStanceGuardTests
     // ---- criticality is a deliberate, staged decision -------------------------------------
 
     [Fact]
-    public void TheGuard_IsNotYetCritical()
+    public void TheGuard_IsCritical()
     {
-        // Recorded, not enforced, until field sensitivity/specificity are demonstrated - the
-        // same staging the epistemic-admission check went through. This test is the explicit
-        // record of that decision; flipping it is a reviewed change, not a silent one.
-        Assert.False(RendererShadowService.IsCritical(
+        // Promoted to critical after the Run-2.2 hardset probe demonstrated its specificity:
+        // it fired on exactly the two real refusals and stayed silent on all six correct
+        // engagements. An invented refusal now falls back rather than reaching the user.
+        Assert.True(RendererShadowService.IsCritical(
             "unauthorized-stance: reply declines but the plan directed no decline"));
     }
 
